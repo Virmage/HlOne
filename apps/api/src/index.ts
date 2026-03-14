@@ -31,7 +31,7 @@ async function main() {
   await app.register(userRoutes, { prefix: "/api/users" });
 
   // Health check
-  app.get("/api/health", async () => ({ status: "ok", timestamp: Date.now() }));
+  app.get("/api/health", async () => ({ status: "ok", version: "1.1.0", timestamp: Date.now() }));
 
   await app.listen({ port: PORT, host: "0.0.0.0" });
   console.log(`API server running on port ${PORT}`);
