@@ -1,8 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --background: #09090b;
-  --foreground: #fafafa;
+  --background: #0d0d0e;
+  --foreground: #f0f0f0;
+  --hl-green: #5dea8d;
+  --hl-green-dim: #3fb06a;
+  --hl-red: #f05858;
+  --hl-border: #1e1e22;
+  --hl-surface: #141417;
+  --hl-surface-hover: #1a1a1f;
+  --hl-muted: #6e7181;
+  --hl-text: #c8cad3;
 }
 
 @theme inline {
@@ -15,25 +23,23 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
 }
 
-/* Custom scrollbar for dark theme */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #18181b;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: #2a2a30;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: #3a3a42;
 }
 
-/* Animate-in utilities for Radix */
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -44,4 +50,8 @@ body {
 }
 .animate-in {
   animation: fadeIn 150ms ease-out, zoomIn95 150ms ease-out;
+}
+
+::selection {
+  background: rgba(93, 234, 141, 0.2);
 }

@@ -27,11 +27,11 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-zinc-950 text-zinc-100 antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-[var(--background)] text-[var(--foreground)] antialiased`}
       >
         <Providers>
           <Header />
-          <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
+          <main className="mx-auto max-w-[1200px] px-6 py-8">{children}</main>
         </Providers>
       </body>
     </html>

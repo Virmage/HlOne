@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getTraders, getTraderDetail, type TraderRow, type TraderFilters, type TraderDetail } from "@/lib/api";
 
-export function useTraders(initialFilters: TraderFilters = {}) {
+export function useTraders(initialFilters: TraderFilters = { sortBy: "winRate", order: "desc" }) {
   const [traders, setTraders] = useState<TraderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -36,7 +36,7 @@ export function formatNumber(value: number | string, decimals = 2): string {
 
 export function pnlColor(value: number | string): string {
   const num = typeof value === "string" ? parseFloat(value) : value;
-  if (num > 0) return "text-green-500";
-  if (num < 0) return "text-red-500";
-  return "text-zinc-400";
+  if (num > 0) return "text-[var(--hl-green)]";
+  if (num < 0) return "text-[var(--hl-red)]";
+  return "text-[var(--hl-muted)]";
 }

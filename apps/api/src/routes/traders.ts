@@ -114,6 +114,20 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
     if (traders.length === 0 && parseInt(offset) === 0) {
       try {
         const discovered = await discoverActiveTraders();
+
+        // Sort by requested field
+        const sortField = sortBy as string;
+        const sortDir = order === "asc" ? 1 : -1;
+        discovered.sort((a, b) => {
+          let aVal = 0, bVal = 0;
+          if (sortField === "winRate") { aVal = a.winRate; bVal = b.winRate; }
+          else if (sortField === "totalPnl") { aVal = a.totalPnl; bVal = b.totalPnl; }
+          else if (sortField === "roiPercent") { aVal = a.roiPercent; bVal = b.roiPercent; }
+          else if (sortField === "tradeCount") { aVal = a.tradeCount; bVal = b.tradeCount; }
+          else { aVal = a.accountValue; bVal = b.accountValue; }
+          return (aVal - bVal) * sortDir;
+        });
+
         const liveTraders = discovered
           .slice(0, parseInt(limit))
           .map((t, i) => ({
