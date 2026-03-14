@@ -65,7 +65,7 @@ export function EquityCurve({ data }: EquityCurveProps) {
             fontSize: "12px",
           }}
           labelStyle={{ color: "#a1a1aa" }}
-          formatter={(value: number) => [formatUsd(value), "Value"]}
+          formatter={(value) => [formatUsd(Number(value)), "Value"]}
         />
         <Area
           type="monotone"
