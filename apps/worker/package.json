@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "npm run build --workspace=@hl-copy/db && tsc",
     "start": "node dist/index.js"
   },
   "dependencies": {
