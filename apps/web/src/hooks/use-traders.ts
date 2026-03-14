@@ -3,11 +3,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { getTraders, getTraderDetail, type TraderRow, type TraderFilters, type TraderDetail } from "@/lib/api";
 
-export function useTraders(initialFilters: TraderFilters = { sortBy: "winRate", order: "desc" }) {
+export function useTraders(filters: TraderFilters = { sortBy: "winRate", order: "desc" }) {
   const [traders, setTraders] = useState<TraderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<TraderFilters>(initialFilters);
+
+  // Serialize filters to a stable string so useEffect re-runs on any change
+  const filterKey = JSON.stringify(filters);
 
   const fetchTraders = useCallback(async () => {
     setLoading(true);
@@ -20,13 +22,14 @@ export function useTraders(initialFilters: TraderFilters = { sortBy: "winRate", 
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
 
   useEffect(() => {
     fetchTraders();
   }, [fetchTraders]);
 
-  return { traders, loading, error, filters, setFilters, refetch: fetchTraders };
+  return { traders, loading, error, refetch: fetchTraders };
 }
 
 export function useTraderDetail(address: string | null) {
