@@ -123,7 +123,9 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
           if (sortField === "winRate") { aVal = a.winRate; bVal = b.winRate; }
           else if (sortField === "totalPnl") { aVal = a.totalPnl; bVal = b.totalPnl; }
           else if (sortField === "roiPercent") { aVal = a.roiPercent; bVal = b.roiPercent; }
+          else if (sortField === "roi30d") { aVal = a.roi30d; bVal = b.roi30d; }
           else if (sortField === "tradeCount") { aVal = a.tradeCount; bVal = b.tradeCount; }
+          else if (sortField === "maxDrawdown") { aVal = a.maxDrawdown; bVal = b.maxDrawdown; }
           else { aVal = a.accountValue; bVal = b.accountValue; }
           return (aVal - bVal) * sortDir;
         });
@@ -136,9 +138,12 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
             accountSize: t.accountValue.toFixed(2),
             totalPnl: t.totalPnl.toFixed(2),
             roiPercent: t.roiPercent,
+            roi30d: t.roi30d,
+            pnl30d: t.pnl30d.toFixed(2),
             winRate: t.winRate,
             tradeCount: t.tradeCount,
             maxLeverage: t.maxLeverage,
+            maxDrawdown: t.maxDrawdown,
             lastActiveAt: null,
             compositeScore: null,
             rank: i + 1,
@@ -190,14 +195,98 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
           .orderBy(traderSnapshots.snapshotAt)
       : [];
 
+    // Build synthetic profile from live data when DB profile is missing
+    let effectiveProfile = profile || null;
+    if (!profile && clearinghouse) {
+      const accountValue = parseFloat(
+        (clearinghouse as Record<string, Record<string, string>>)
+          ?.crossMarginSummary?.accountValue || "0"
+      );
+
+      let totalPnl = 0;
+      let pnl30d = 0;
+      let wins = 0;
+      let trades = 0;
+      let maxLeverage = 0;
+      let cumPnl = 0;
+      let peak = 0;
+      let maxDrawdown = 0;
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
+      const allFills = Array.isArray(fills) ? fills : [];
+      const sorted = [...allFills].sort(
+        (a: Record<string, number>, b: Record<string, number>) =>
+          (a.time || 0) - (b.time || 0)
+      );
+      for (const fill of sorted) {
+        const closedPnl = parseFloat((fill as Record<string, string>).closedPnl || "0");
+        if (closedPnl !== 0) {
+          totalPnl += closedPnl;
+          trades++;
+          if (closedPnl > 0) wins++;
+          if ((fill as Record<string, number>).time > thirtyDaysAgo) {
+            pnl30d += closedPnl;
+          }
+          cumPnl += closedPnl;
+          if (cumPnl > peak) peak = cumPnl;
+          const dd = peak > 0 ? ((peak - cumPnl) / peak) * 100 : 0;
+          if (dd > maxDrawdown) maxDrawdown = dd;
+        }
+      }
+
+      const ch = clearinghouse as Record<string, { position: Record<string, { value: number }> }[]>;
+      if (ch?.assetPositions) {
+        for (const pos of ch.assetPositions) {
+          const lev = pos.position?.leverage?.value || 0;
+          if (lev > maxLeverage) maxLeverage = lev;
+        }
+      }
+
+      effectiveProfile = {
+        id: address,
+        address,
+        accountSize: accountValue.toFixed(2),
+        totalPnl: totalPnl.toFixed(2),
+        roiPercent: accountValue > 0 ? (totalPnl / accountValue) * 100 : 0,
+        roi30d: accountValue > 0 ? (pnl30d / accountValue) * 100 : 0,
+        pnl30d: pnl30d.toFixed(2),
+        winRate: trades > 0 ? wins / trades : null,
+        tradeCount: trades,
+        maxLeverage,
+        maxDrawdown,
+        lastActiveAt: null,
+        compositeScore: null,
+        rank: null,
+      } as unknown as typeof profile;
+    }
+
+    // Build live positions from clearinghouse when DB has none
+    let effectivePositions = positions;
+    if (positions.length === 0 && clearinghouse) {
+      const chAny = clearinghouse as Record<string, unknown[]>;
+      if (chAny?.assetPositions) {
+        effectivePositions = (chAny.assetPositions as { position: Record<string, unknown> }[])
+          .filter((p) => parseFloat(String(p.position?.szi || "0")) !== 0)
+          .map((p) => ({
+            id: String(p.position?.coin || ""),
+            asset: String(p.position?.coin || ""),
+            side: parseFloat(String(p.position?.szi || "0")) > 0 ? "long" : "short",
+            size: Math.abs(parseFloat(String(p.position?.szi || "0"))).toString(),
+            entryPrice: String(p.position?.entryPx || "0"),
+            leverage: parseFloat(String((p.position?.leverage as Record<string, unknown>)?.value || "0")),
+            unrealizedPnl: String(p.position?.unrealizedPnl || "0"),
+          })) as typeof positions;
+      }
+    }
+
     return {
-      profile: profile || null,
+      profile: effectiveProfile,
       live: {
         clearinghouse,
         portfolio,
         recentFills: Array.isArray(fills) ? fills.slice(0, 50) : [],
       },
-      positions,
+      positions: effectivePositions,
       equityCurve: snapshots.map((s) => ({
         time: s.snapshotAt,
         value: s.accountValue,

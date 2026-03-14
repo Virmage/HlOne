@@ -58,10 +58,13 @@ interface DiscoveredTrader {
   address: string;
   accountValue: number;
   totalPnl: number;
+  pnl30d: number;
+  roi30d: number;
   winRate: number;
   tradeCount: number;
   maxLeverage: number;
   roiPercent: number;
+  maxDrawdown: number;
 }
 
 /** In-memory cache to avoid hammering HL API on every page load */
@@ -123,17 +126,37 @@ export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
         if (accountValue < 1000) return null;
 
         let totalPnl = 0;
+        let pnl30d = 0;
         let wins = 0;
         let trades = 0;
         let maxLeverage = 0;
+        const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
+        // Track cumulative PnL for drawdown calculation
+        let cumPnl = 0;
+        let peak = 0;
+        let maxDrawdown = 0;
 
         if (Array.isArray(fills)) {
-          for (const fill of fills) {
+          // Sort fills by time ascending for drawdown calc
+          const sorted = [...fills].sort((a, b) => (a.time || 0) - (b.time || 0));
+          for (const fill of sorted) {
             const closedPnl = parseFloat(fill.closedPnl || "0");
             if (closedPnl !== 0) {
               totalPnl += closedPnl;
               trades++;
               if (closedPnl > 0) wins++;
+
+              // 30d PnL
+              if (fill.time && fill.time > thirtyDaysAgo) {
+                pnl30d += closedPnl;
+              }
+
+              // Max drawdown
+              cumPnl += closedPnl;
+              if (cumPnl > peak) peak = cumPnl;
+              const dd = peak > 0 ? ((peak - cumPnl) / peak) * 100 : 0;
+              if (dd > maxDrawdown) maxDrawdown = dd;
             }
           }
         }
@@ -149,10 +172,13 @@ export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
           address: addr,
           accountValue,
           totalPnl,
+          pnl30d,
+          roi30d: accountValue > 0 ? (pnl30d / accountValue) * 100 : 0,
           winRate: trades > 0 ? wins / trades : 0,
           tradeCount: trades,
           maxLeverage,
           roiPercent: accountValue > 0 ? (totalPnl / accountValue) * 100 : 0,
+          maxDrawdown,
         };
       } catch {
         return null;

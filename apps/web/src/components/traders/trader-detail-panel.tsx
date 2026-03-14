@@ -38,20 +38,32 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
   if (error) {
     return (
       <Card className="w-full lg:w-[480px]">
-        <CardContent className="p-6 text-red-400">{error}</CardContent>
+        <CardContent className="p-6 text-[var(--hl-red)]">{error}</CardContent>
       </Card>
     );
   }
 
+  const p = detail?.profile as Record<string, unknown> | null;
   const ch = detail?.live.clearinghouse as Record<string, unknown> | null;
   const margin = ch?.crossMarginSummary as Record<string, string> | undefined;
+
+  // Pull stats from profile (which now includes synthetic data from live API)
+  const accountValue = p?.accountSize ?? margin?.accountValue ?? null;
+  const totalPnl = p?.totalPnl ?? null;
+  const roiPercent = p?.roiPercent ?? null;
+  const roi30d = p?.roi30d ?? null;
+  const pnl30d = p?.pnl30d ?? null;
+  const winRate = p?.winRate as number | null;
+  const tradeCount = p?.tradeCount as number | null;
+  const maxLeverage = p?.maxLeverage as number | null;
+  const maxDrawdown = p?.maxDrawdown as number | null;
 
   return (
     <Card className="w-full lg:w-[480px] max-h-[calc(100vh-8rem)] overflow-y-auto">
       <CardHeader className="flex flex-row items-center justify-between">
         <div>
           <CardTitle className="font-mono">{shortenAddress(address, 6)}</CardTitle>
-          <p className="text-xs text-zinc-500 mt-1">{address}</p>
+          <p className="text-xs text-[var(--hl-muted)] mt-1">{address}</p>
         </div>
         <Button variant="ghost" size="icon" onClick={onClose}>
           <X className="h-4 w-4" />
@@ -63,32 +75,51 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
         <div className="grid grid-cols-3 gap-3">
           <StatBox
             label="Account Value"
-            value={margin?.accountValue ? formatUsd(margin.accountValue) : "—"}
+            value={accountValue ? formatUsd(accountValue as string | number) : "—"}
           />
           <StatBox
             label="Total PnL"
-            value={detail?.profile?.totalPnl ? formatUsd(detail.profile.totalPnl) : "—"}
-            color={pnlColor(detail?.profile?.totalPnl || "0")}
+            value={totalPnl ? formatUsd(totalPnl as string | number) : "—"}
+            color={pnlColor(totalPnl as string || "0")}
           />
           <StatBox
             label="ROI"
-            value={detail?.profile?.roiPercent != null ? formatPercent(detail.profile.roiPercent) : "—"}
-            color={pnlColor(detail?.profile?.roiPercent || 0)}
+            value={roiPercent != null ? formatPercent(roiPercent as number) : "—"}
+            color={pnlColor(roiPercent as number || 0)}
           />
         </div>
 
         <div className="grid grid-cols-3 gap-3">
           <StatBox
-            label="Win Rate"
-            value={detail?.profile?.winRate != null ? `${(detail.profile.winRate * 100).toFixed(1)}%` : "—"}
+            label="30d ROI"
+            value={roi30d != null ? formatPercent(roi30d as number) : "—"}
+            color={pnlColor(roi30d as number || 0)}
           />
           <StatBox
+            label="30d PnL"
+            value={pnl30d ? formatUsd(pnl30d as string | number) : "—"}
+            color={pnlColor(pnl30d as string || "0")}
+          />
+          <StatBox
+            label="Win Rate"
+            value={winRate != null ? `${(winRate * 100).toFixed(1)}%` : "—"}
+            color={winRate != null && winRate >= 0.5 ? "text-[var(--hl-green)]" : undefined}
+          />
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <StatBox
             label="Trades"
-            value={detail?.profile?.tradeCount?.toString() || "—"}
+            value={tradeCount?.toString() || "—"}
           />
           <StatBox
             label="Max Leverage"
-            value={detail?.profile?.maxLeverage != null ? `${detail.profile.maxLeverage}x` : "—"}
+            value={maxLeverage != null && maxLeverage > 0 ? `${maxLeverage}x` : "—"}
+          />
+          <StatBox
+            label="Max Drawdown"
+            value={maxDrawdown != null && maxDrawdown > 0 ? `-${maxDrawdown.toFixed(1)}%` : "0.0%"}
+            color={maxDrawdown != null && maxDrawdown > 0 ? "text-[var(--hl-red)]" : undefined}
           />
         </div>
 
@@ -113,10 +144,10 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
                 detail.positions.map((pos) => (
                   <div
                     key={pos.id}
-                    className="flex items-center justify-between rounded-md border border-zinc-800 bg-zinc-800/30 p-3"
+                    className="flex items-center justify-between rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] p-3"
                   >
                     <div>
-                      <span className="font-medium text-zinc-200">{pos.asset}</span>
+                      <span className="font-medium text-[var(--hl-text)]">{pos.asset}</span>
                       <Badge
                         variant={pos.side === "long" ? "default" : "destructive"}
                         className="ml-2"
@@ -125,10 +156,10 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
                       </Badge>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm text-zinc-300">
+                      <p className="text-sm text-[var(--hl-text)]">
                         Size: {parseFloat(pos.size).toFixed(4)}
                       </p>
-                      <p className="text-xs text-zinc-500">
+                      <p className="text-xs text-[var(--hl-muted)]">
                         Entry: {formatUsd(pos.entryPrice)}
                       </p>
                       {pos.unrealizedPnl && (
@@ -140,7 +171,7 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
                   </div>
                 ))
               ) : (
-                <p className="py-4 text-center text-zinc-500">No open positions</p>
+                <p className="py-4 text-center text-[var(--hl-muted)]">No open positions</p>
               )}
             </div>
           </TabsContent>
@@ -151,23 +182,23 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
                 detail.live.recentFills.slice(0, 20).map((fill, i) => {
                   const f = fill as Record<string, string>;
                   return (
-                    <div key={i} className="flex justify-between text-xs py-1 border-b border-zinc-800/50">
-                      <span className="text-zinc-300">{f.coin}</span>
-                      <span className={f.side === "B" ? "text-green-400" : "text-red-400"}>
+                    <div key={i} className="flex justify-between text-xs py-1 border-b border-[var(--hl-border)]">
+                      <span className="text-[var(--hl-text)]">{f.coin}</span>
+                      <span className={f.side === "B" ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}>
                         {f.side === "B" ? "Buy" : "Sell"} {parseFloat(f.sz || "0").toFixed(4)}
                       </span>
-                      <span className="text-zinc-400">@ {formatUsd(f.px || "0")}</span>
+                      <span className="text-[var(--hl-muted)]">@ {formatUsd(f.px || "0")}</span>
                     </div>
                   );
                 })
               ) : (
-                <p className="py-4 text-center text-zinc-500">No recent fills</p>
+                <p className="py-4 text-center text-[var(--hl-muted)]">No recent fills</p>
               )}
             </div>
           </TabsContent>
         </Tabs>
 
-        <Button className="w-full" onClick={() => onCopy(address)}>
+        <Button className="w-full bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110" onClick={() => onCopy(address)}>
           Copy This Trader
         </Button>
       </CardContent>
@@ -178,15 +209,15 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
 function StatBox({
   label,
   value,
-  color = "text-zinc-200",
+  color = "text-[var(--hl-text)]",
 }: {
   label: string;
   value: string;
   color?: string;
 }) {
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-800/30 p-2.5">
-      <p className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</p>
+    <div className="rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] p-2.5">
+      <p className="text-[10px] uppercase tracking-wider text-[var(--hl-muted)]">{label}</p>
       <p className={`mt-0.5 text-sm font-semibold ${color}`}>{value}</p>
     </div>
   );

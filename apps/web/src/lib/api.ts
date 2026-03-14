@@ -23,9 +23,12 @@ export interface TraderRow {
   accountSize: string | null;
   totalPnl: string | null;
   roiPercent: number | null;
+  roi30d: number | null;
+  pnl30d: string | null;
   winRate: number | null;
   tradeCount: number | null;
   maxLeverage: number | null;
+  maxDrawdown: number | null;
   lastActiveAt: string | null;
   compositeScore: number | null;
   rank: number | null;

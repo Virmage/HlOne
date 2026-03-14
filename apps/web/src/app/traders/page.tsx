@@ -9,13 +9,24 @@ import { CopyDialog } from "@/components/traders/copy-dialog";
 
 export default function TradersPage() {
   const { address } = useAccount();
-  const { traders, loading, error, filters, setFilters } = useTraders({
-    sortBy: "winRate",
-    order: "desc",
+  const [sortBy, setSortBy] = useState("winRate");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const { traders, loading, error } = useTraders({
+    sortBy,
+    order: sortOrder,
   });
   const [selectedTrader, setSelectedTrader] = useState<string | null>(null);
   const [copyTrader, setCopyTrader] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+
+  const handleSort = (field: string) => {
+    if (field === sortBy) {
+      setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
+    } else {
+      setSortBy(field);
+      setSortOrder("desc");
+    }
+  };
 
   const filteredTraders = search
     ? traders.filter((t) =>
@@ -29,8 +40,8 @@ export default function TradersPage() {
         Leaderboard
       </h1>
 
-      <div className="flex items-center justify-between mb-5">
-        <div className="relative">
+      <div className="mb-5">
+        <div className="relative inline-block">
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--hl-muted)]"
             width="14"
@@ -52,27 +63,6 @@ export default function TradersPage() {
             className="h-9 w-[280px] rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] pl-9 pr-3 text-[13px] text-[var(--hl-text)] placeholder:text-[var(--hl-muted)] outline-none focus:border-[var(--hl-green-dim)] transition-colors"
           />
         </div>
-
-        <div className="flex items-center gap-2">
-          <select
-            value={filters.sortBy || "winRate"}
-            onChange={(e) =>
-              setFilters({ ...filters, sortBy: e.target.value, order: "desc" })
-            }
-            className="h-9 rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] px-3 text-[13px] text-[var(--hl-text)] outline-none cursor-pointer appearance-none pr-8 focus:border-[var(--hl-green-dim)] transition-colors"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%236e7181' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-              backgroundRepeat: "no-repeat",
-              backgroundPosition: "right 10px center",
-            }}
-          >
-            <option value="winRate">Win Rate</option>
-            <option value="totalPnl">PnL (All-time)</option>
-            <option value="roiPercent">ROI (All-time)</option>
-            <option value="accountSize">Account Value</option>
-            <option value="tradeCount">Trade Count</option>
-          </select>
-        </div>
       </div>
 
       {error && (
@@ -86,7 +76,9 @@ export default function TradersPage() {
           <LeaderboardTable
             traders={filteredTraders}
             loading={loading}
-            sortBy={filters.sortBy || "winRate"}
+            sortBy={sortBy}
+            sortOrder={sortOrder}
+            onSort={handleSort}
             onSelectTrader={setSelectedTrader}
             onCopyTrader={setCopyTrader}
           />

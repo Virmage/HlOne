@@ -3,10 +3,31 @@
 import { shortenAddress, formatUsd, formatPercent, pnlColor } from "@/lib/utils";
 import type { TraderRow } from "@/lib/api";
 
+interface Column {
+  key: string;
+  label: string;
+  align: "left" | "right";
+  sortable: boolean;
+}
+
+const columns: Column[] = [
+  { key: "rank", label: "Rank", align: "left", sortable: false },
+  { key: "address", label: "Trader", align: "left", sortable: false },
+  { key: "accountSize", label: "Account Value", align: "right", sortable: true },
+  { key: "totalPnl", label: "PnL (All-time)", align: "right", sortable: true },
+  { key: "roi30d", label: "30d ROI", align: "right", sortable: true },
+  { key: "winRate", label: "Win Rate", align: "right", sortable: true },
+  { key: "maxDrawdown", label: "Max Drawdown", align: "right", sortable: true },
+  { key: "tradeCount", label: "Trades", align: "right", sortable: true },
+  { key: "_copy", label: "", align: "right", sortable: false },
+];
+
 interface LeaderboardTableProps {
   traders: TraderRow[];
   loading: boolean;
   sortBy: string;
+  sortOrder: "asc" | "desc";
+  onSort: (field: string) => void;
   onSelectTrader: (address: string) => void;
   onCopyTrader: (address: string) => void;
 }
@@ -15,6 +36,8 @@ export function LeaderboardTable({
   traders,
   loading,
   sortBy,
+  sortOrder,
+  onSort,
   onSelectTrader,
   onCopyTrader,
 }: LeaderboardTableProps) {
@@ -47,38 +70,33 @@ export function LeaderboardTable({
     );
   }
 
+  const arrow = sortOrder === "desc" ? " \u25BC" : " \u25B2";
+
   return (
     <div>
       <table className="w-full text-[13px]">
         <thead>
           <tr className="border-b border-[var(--hl-border)]">
-            <th className="py-2.5 px-4 text-left font-normal text-[var(--hl-muted)] w-12">
-              Rank
-            </th>
-            <th className="py-2.5 px-4 text-left font-normal text-[var(--hl-muted)]">
-              Trader
-            </th>
-            <th className="py-2.5 px-4 text-right font-normal text-[var(--hl-muted)]">
-              Account Value
-            </th>
-            <th className="py-2.5 px-4 text-right font-normal text-[var(--hl-muted)]">
-              PnL (All-time)
-            </th>
-            <th className="py-2.5 px-4 text-right font-normal text-[var(--hl-muted)]">
-              {sortBy === "winRate" ? (
-                <span className="text-[var(--hl-text)]">Win Rate &#9660;</span>
-              ) : (
-                "Win Rate"
-              )}
-            </th>
-            <th className="py-2.5 px-4 text-right font-normal text-[var(--hl-muted)]">
-              ROI
-            </th>
-            <th className="py-2.5 px-4 text-right font-normal text-[var(--hl-muted)]">
-              Trades
-            </th>
-            <th className="py-2.5 px-4 text-right font-normal text-[var(--hl-muted)] w-20">
-            </th>
+            {columns.map((col) => (
+              <th
+                key={col.key}
+                className={`py-2.5 px-4 font-normal whitespace-nowrap ${
+                  col.align === "right" ? "text-right" : "text-left"
+                } ${
+                  col.sortable
+                    ? "cursor-pointer select-none hover:text-[var(--hl-text)] transition-colors"
+                    : ""
+                } ${
+                  sortBy === col.key
+                    ? "text-[var(--hl-text)]"
+                    : "text-[var(--hl-muted)]"
+                } ${col.key === "rank" ? "w-12" : ""} ${col.key === "_copy" ? "w-20" : ""}`}
+                onClick={() => col.sortable && onSort(col.key)}
+              >
+                {col.label}
+                {sortBy === col.key && arrow}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -97,10 +115,13 @@ export function LeaderboardTable({
                 </span>
               </td>
               <td className="py-2.5 px-4 text-right text-[var(--hl-text)] tabular-nums">
-                {trader.accountSize ? formatUsd(trader.accountSize) : "—"}
+                {trader.accountSize ? formatUsd(trader.accountSize) : "\u2014"}
               </td>
               <td className={`py-2.5 px-4 text-right tabular-nums ${pnlColor(trader.totalPnl || "0")}`}>
-                {trader.totalPnl ? formatUsd(trader.totalPnl) : "—"}
+                {trader.totalPnl ? formatUsd(trader.totalPnl) : "\u2014"}
+              </td>
+              <td className={`py-2.5 px-4 text-right tabular-nums ${pnlColor(trader.roi30d || 0)}`}>
+                {trader.roi30d != null ? formatPercent(trader.roi30d) : "\u2014"}
               </td>
               <td className="py-2.5 px-4 text-right tabular-nums">
                 {trader.winRate != null ? (
@@ -108,14 +129,20 @@ export function LeaderboardTable({
                     {(trader.winRate * 100).toFixed(2)}%
                   </span>
                 ) : (
-                  "—"
+                  "\u2014"
                 )}
               </td>
-              <td className={`py-2.5 px-4 text-right tabular-nums ${pnlColor(trader.roiPercent || 0)}`}>
-                {trader.roiPercent != null ? formatPercent(trader.roiPercent) : "—"}
+              <td className="py-2.5 px-4 text-right tabular-nums">
+                {trader.maxDrawdown != null && trader.maxDrawdown > 0 ? (
+                  <span className="text-[var(--hl-red)]">
+                    -{trader.maxDrawdown.toFixed(1)}%
+                  </span>
+                ) : (
+                  <span className="text-[var(--hl-muted)]">0.0%</span>
+                )}
               </td>
               <td className="py-2.5 px-4 text-right text-[var(--hl-muted)] tabular-nums">
-                {trader.tradeCount?.toLocaleString() ?? "—"}
+                {trader.tradeCount?.toLocaleString() ?? "\u2014"}
               </td>
               <td className="py-2.5 px-4 text-right">
                 <button
