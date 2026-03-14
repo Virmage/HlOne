@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pandoc \"/Users/jack/Downloads/hyperliquid_copy_trading_mvp_plan.docx\" -o /tmp/hyperliquid_plan.md)",
+      "Bash(python3 \"/Users/jack/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/16a10659-663a-421f-9618-cf666f24b810/eb2905d6-a407-4b20-9c40-3b30a13880dd/skills/docx/scripts/office/unpack.py\" \"/Users/jack/Downloads/hyperliquid_copy_trading_mvp_plan.docx\" /tmp/hyperliquid_plan_unpacked/)",
+      "Bash(pip3 install:*)",
+      "WebSearch",
+      "Bash(ls \"/Users/jack/iCloud Drive \\(Archive\\) - 1/Documents/BOt/Hyperliquid Copy\")",
+      "Bash(ls -la \"/Users/jack/iCloud Drive \\(Archive\\) - 1/Documents/BOt/Hyperliquid Copy/\")",
+      "Bash(python3 -c \":*)",
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-turbopack --use-npm)",
+      "Bash(ls \"/Users/jack/iCloud Drive \\(Archive\\) - 1/Documents/BOt/Hyperliquid Copy/apps/web/src/app/\")",
+      "Bash(ls -la \"/Users/jack/iCloud Drive \\(Archive\\) - 1/Documents/BOt/Hyperliquid Copy/apps/web/\")",
+      "Bash(npx create-next-app@latest web --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-turbopack --use-npm --no-react-compiler)",
+      "Bash(npm install:*)"
+    ]
+  }
+}
