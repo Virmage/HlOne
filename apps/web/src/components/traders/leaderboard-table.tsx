@@ -110,9 +110,20 @@ export function LeaderboardTable({
                 {trader.rank || idx + 1}
               </td>
               <td className="py-2.5 px-4">
-                <span className="font-mono text-[var(--foreground)] text-[13px]">
-                  {shortenAddress(trader.address, 6)}
-                </span>
+                {trader.displayName ? (
+                  <div>
+                    <span className="text-[var(--foreground)] text-[13px]">
+                      {trader.displayName}
+                    </span>
+                    <span className="font-mono text-[var(--hl-muted)] text-[11px] ml-1.5">
+                      {shortenAddress(trader.address, 4)}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="font-mono text-[var(--foreground)] text-[13px]">
+                    {shortenAddress(trader.address, 6)}
+                  </span>
+                )}
               </td>
               <td className="py-2.5 px-4 text-right text-[var(--hl-text)] tabular-nums">
                 {trader.accountSize ? formatUsd(trader.accountSize) : "\u2014"}

@@ -20,6 +20,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 export interface TraderRow {
   id: string;
   address: string;
+  displayName: string | null;
   accountSize: string | null;
   totalPnl: string | null;
   roiPercent: number | null;

@@ -52,14 +52,18 @@ export async function getAllMids() {
   return infoRequest({ type: "allMids" });
 }
 
-// ─── Trader discovery via recent trades ──────────────────────────────────────
+// ─── Trader discovery via Hyperliquid leaderboard ────────────────────────────
 
-interface DiscoveredTrader {
+const HL_LEADERBOARD = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";
+
+export interface DiscoveredTrader {
   address: string;
+  displayName: string | null;
   accountValue: number;
   totalPnl: number;
   pnl30d: number;
   roi30d: number;
+  roiAllTime: number;
   winRate: number;
   tradeCount: number;
   maxLeverage: number;
@@ -67,15 +71,22 @@ interface DiscoveredTrader {
   maxDrawdown: number;
 }
 
-/** In-memory cache to avoid hammering HL API on every page load */
+interface LeaderboardRow {
+  ethAddress: string;
+  accountValue: string;
+  displayName: string | null;
+  windowPerformances: [string, { pnl: string; roi: string; vlm: string }][];
+  prize: number;
+}
+
+/** In-memory cache — leaderboard data updates infrequently */
 let discoveryCache: { traders: DiscoveredTrader[]; fetchedAt: number } | null =
   null;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 /**
- * Discover active traders by sampling recent trades on major coins,
- * then fetching their account details. Used as a fallback when the
- * DB has no trader data (before the worker populates it).
+ * Fetch the full Hyperliquid leaderboard (~32K traders) with pre-computed
+ * PnL, ROI, and volume across day/week/month/allTime windows.
  */
 export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
   // Return cached results if fresh
@@ -83,120 +94,53 @@ export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
     return discoveryCache.traders;
   }
 
-  const coins = [
-    "BTC", "ETH", "SOL", "HYPE", "ARB", "DOGE",
-    "SUI", "AVAX", "LINK", "WIF", "PEPE", "ONDO",
-  ];
+  const res = await fetch(HL_LEADERBOARD);
+  if (!res.ok) throw new Error(`Leaderboard fetch failed: ${res.status}`);
 
-  // Step 1: Collect unique addresses from recent trades
-  const addresses = new Set<string>();
-  const tradePromises = coins.map(async (coin) => {
-    try {
-      const trades = await infoRequest({ type: "recentTrades", coin });
-      if (Array.isArray(trades)) {
-        for (const t of trades) {
-          for (const u of t.users || []) {
-            addresses.add(u.toLowerCase());
-          }
-        }
-      }
-    } catch {
-      // Skip failed coins
-    }
-  });
-  await Promise.all(tradePromises);
+  const data = await res.json() as { leaderboardRows: LeaderboardRow[] };
+  const rows = data.leaderboardRows || [];
 
-  // Step 2: Fetch account details (batch with concurrency limit)
   const results: DiscoveredTrader[] = [];
-  const addrList = [...addresses];
-  const BATCH = 10;
 
-  for (let i = 0; i < addrList.length; i += BATCH) {
-    const batch = addrList.slice(i, i + BATCH);
-    const batchPromises = batch.map(async (addr) => {
-      try {
-        const [state, fills] = await Promise.all([
-          infoRequest({ type: "clearinghouseState", user: addr }),
-          infoRequest({ type: "userFills", user: addr }).catch(() => []),
-        ]);
+  for (const row of rows) {
+    const accountValue = parseFloat(row.accountValue || "0");
+    if (accountValue < 1000) continue; // Skip tiny accounts
 
-        const accountValue = parseFloat(
-          state?.crossMarginSummary?.accountValue || "0"
-        );
-        if (accountValue < 1000) return null;
+    // Parse window performances into a map
+    const perfMap = new Map<string, { pnl: number; roi: number; vlm: number }>();
+    for (const [window, perf] of row.windowPerformances) {
+      perfMap.set(window, {
+        pnl: parseFloat(perf.pnl || "0"),
+        roi: parseFloat(perf.roi || "0"),
+        vlm: parseFloat(perf.vlm || "0"),
+      });
+    }
 
-        let totalPnl = 0;
-        let pnl30d = 0;
-        let wins = 0;
-        let trades = 0;
-        let maxLeverage = 0;
-        const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const allTime = perfMap.get("allTime");
+    const month = perfMap.get("month");
 
-        // Track cumulative PnL for drawdown calculation
-        let cumPnl = 0;
-        let peak = 0;
-        let maxDrawdown = 0;
+    const totalPnl = allTime?.pnl ?? 0;
+    const roiAllTime = (allTime?.roi ?? 0) * 100; // API returns decimal, convert to %
+    const pnl30d = month?.pnl ?? 0;
+    const roi30d = (month?.roi ?? 0) * 100;
 
-        if (Array.isArray(fills)) {
-          // Sort fills by time ascending for drawdown calc
-          const sorted = [...fills].sort((a, b) => (a.time || 0) - (b.time || 0));
-          for (const fill of sorted) {
-            const closedPnl = parseFloat(fill.closedPnl || "0");
-            if (closedPnl !== 0) {
-              totalPnl += closedPnl;
-              trades++;
-              if (closedPnl > 0) wins++;
-
-              // 30d PnL
-              if (fill.time && fill.time > thirtyDaysAgo) {
-                pnl30d += closedPnl;
-              }
-
-              // Max drawdown
-              cumPnl += closedPnl;
-              if (cumPnl > peak) peak = cumPnl;
-              const dd = peak > 0 ? ((peak - cumPnl) / peak) * 100 : 0;
-              if (dd > maxDrawdown) maxDrawdown = dd;
-            }
-          }
-        }
-
-        if (state?.assetPositions) {
-          for (const pos of state.assetPositions) {
-            const lev = pos.position?.leverage?.value || 0;
-            if (lev > maxLeverage) maxLeverage = lev;
-          }
-        }
-
-        return {
-          address: addr,
-          accountValue,
-          totalPnl,
-          pnl30d,
-          roi30d: accountValue > 0 ? (pnl30d / accountValue) * 100 : 0,
-          winRate: trades > 0 ? wins / trades : 0,
-          tradeCount: trades,
-          maxLeverage,
-          roiPercent: accountValue > 0 ? (totalPnl / accountValue) * 100 : 0,
-          maxDrawdown,
-        };
-      } catch {
-        return null;
-      }
+    results.push({
+      address: row.ethAddress,
+      displayName: row.displayName || null,
+      accountValue,
+      totalPnl,
+      pnl30d,
+      roi30d,
+      roiAllTime,
+      // These fields require per-user fill data — not available from leaderboard
+      // We set reasonable defaults; detail view computes them from live data
+      winRate: 0,
+      tradeCount: 0,
+      maxLeverage: 0,
+      roiPercent: roiAllTime,
+      maxDrawdown: 0,
     });
-
-    const batchResults = await Promise.all(batchPromises);
-    for (const r of batchResults) {
-      if (r) results.push(r);
-    }
-
-    // Small delay between batches
-    if (i + BATCH < addrList.length) {
-      await new Promise((r) => setTimeout(r, 500));
-    }
   }
-
-  results.sort((a, b) => b.accountValue - a.accountValue);
 
   // Cache the results
   discoveryCache = { traders: results, fetchedAt: Date.now() };

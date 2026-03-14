@@ -115,40 +115,43 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
       try {
         const discovered = await discoverActiveTraders();
 
-        // Sort by requested field
+        // Sort by requested field — use a generic key accessor
         const sortField = sortBy as string;
         const sortDir = order === "asc" ? 1 : -1;
+        const fieldMap: Record<string, keyof typeof discovered[0]> = {
+          winRate: "winRate",
+          totalPnl: "totalPnl",
+          roiPercent: "roiPercent",
+          roi30d: "roi30d",
+          tradeCount: "tradeCount",
+          maxDrawdown: "maxDrawdown",
+          accountSize: "accountValue",
+        };
+        const key = fieldMap[sortField] || "roiPercent";
         discovered.sort((a, b) => {
-          let aVal = 0, bVal = 0;
-          if (sortField === "winRate") { aVal = a.winRate; bVal = b.winRate; }
-          else if (sortField === "totalPnl") { aVal = a.totalPnl; bVal = b.totalPnl; }
-          else if (sortField === "roiPercent") { aVal = a.roiPercent; bVal = b.roiPercent; }
-          else if (sortField === "roi30d") { aVal = a.roi30d; bVal = b.roi30d; }
-          else if (sortField === "tradeCount") { aVal = a.tradeCount; bVal = b.tradeCount; }
-          else if (sortField === "maxDrawdown") { aVal = a.maxDrawdown; bVal = b.maxDrawdown; }
-          else { aVal = a.accountValue; bVal = b.accountValue; }
-          return (aVal - bVal) * sortDir;
+          return ((a[key] as number) - (b[key] as number)) * sortDir;
         });
 
         const liveTraders = discovered
-          .slice(0, parseInt(limit))
+          .slice(parseInt(offset), parseInt(offset) + parseInt(limit))
           .map((t, i) => ({
             id: t.address,
             address: t.address,
+            displayName: t.displayName,
             accountSize: t.accountValue.toFixed(2),
             totalPnl: t.totalPnl.toFixed(2),
             roiPercent: t.roiPercent,
             roi30d: t.roi30d,
             pnl30d: t.pnl30d.toFixed(2),
-            winRate: t.winRate,
-            tradeCount: t.tradeCount,
-            maxLeverage: t.maxLeverage,
-            maxDrawdown: t.maxDrawdown,
+            winRate: t.winRate > 0 ? t.winRate : null,
+            tradeCount: t.tradeCount > 0 ? t.tradeCount : null,
+            maxLeverage: t.maxLeverage > 0 ? t.maxLeverage : null,
+            maxDrawdown: t.maxDrawdown > 0 ? t.maxDrawdown : null,
             lastActiveAt: null,
             compositeScore: null,
-            rank: i + 1,
+            rank: parseInt(offset) + i + 1,
           }));
-        return { traders: liveTraders, total: liveTraders.length, live: true };
+        return { traders: liveTraders, total: discovered.length, live: true };
       } catch (err) {
         req.log.error(err, "Live trader discovery failed");
       }
