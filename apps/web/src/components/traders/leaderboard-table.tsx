@@ -15,10 +15,10 @@ const columns: Column[] = [
   { key: "address", label: "Trader", align: "left", sortable: false },
   { key: "accountSize", label: "Account Value", align: "right", sortable: true },
   { key: "totalPnl", label: "PnL (All-time)", align: "right", sortable: true },
+  { key: "roiPercent", label: "Total ROI", align: "right", sortable: true },
   { key: "roi30d", label: "30d ROI", align: "right", sortable: true },
   { key: "winRate", label: "Win Rate", align: "right", sortable: true },
   { key: "maxDrawdown", label: "Max Drawdown", align: "right", sortable: true },
-  { key: "tradeCount", label: "Trades", align: "right", sortable: true },
   { key: "_copy", label: "", align: "right", sortable: false },
 ];
 
@@ -120,6 +120,9 @@ export function LeaderboardTable({
               <td className={`py-2.5 px-4 text-right tabular-nums ${pnlColor(trader.totalPnl || "0")}`}>
                 {trader.totalPnl ? formatUsd(trader.totalPnl) : "\u2014"}
               </td>
+              <td className={`py-2.5 px-4 text-right tabular-nums ${pnlColor(trader.roiPercent || 0)}`}>
+                {trader.roiPercent != null ? formatPercent(trader.roiPercent) : "\u2014"}
+              </td>
               <td className={`py-2.5 px-4 text-right tabular-nums ${pnlColor(trader.roi30d || 0)}`}>
                 {trader.roi30d != null ? formatPercent(trader.roi30d) : "\u2014"}
               </td>
@@ -140,9 +143,6 @@ export function LeaderboardTable({
                 ) : (
                   <span className="text-[var(--hl-muted)]">0.0%</span>
                 )}
-              </td>
-              <td className="py-2.5 px-4 text-right text-[var(--hl-muted)] tabular-nums">
-                {trader.tradeCount?.toLocaleString() ?? "\u2014"}
               </td>
               <td className="py-2.5 px-4 text-right">
                 <button
