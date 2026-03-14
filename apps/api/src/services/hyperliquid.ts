@@ -52,25 +52,130 @@ export async function getAllMids() {
   return infoRequest({ type: "allMids" });
 }
 
-// ─── Leaderboard scraping ────────────────────────────────────────────────────
+// ─── Trader discovery via recent trades ──────────────────────────────────────
+
+interface DiscoveredTrader {
+  address: string;
+  accountValue: number;
+  totalPnl: number;
+  winRate: number;
+  tradeCount: number;
+  maxLeverage: number;
+  roiPercent: number;
+}
+
+/** In-memory cache to avoid hammering HL API on every page load */
+let discoveryCache: { traders: DiscoveredTrader[]; fetchedAt: number } | null =
+  null;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Hyperliquid has no official leaderboard API.
- * We use the undocumented endpoint that the website calls.
- * This may break — we handle it gracefully.
+ * Discover active traders by sampling recent trades on major coins,
+ * then fetching their account details. Used as a fallback when the
+ * DB has no trader data (before the worker populates it).
  */
-export async function getLeaderboard() {
-  try {
-    const res = await fetch(`${HL_API}/info`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "leaderboard" }),
-    });
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
-    return null;
+export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
+  // Return cached results if fresh
+  if (discoveryCache && Date.now() - discoveryCache.fetchedAt < CACHE_TTL) {
+    return discoveryCache.traders;
   }
+
+  const coins = [
+    "BTC", "ETH", "SOL", "HYPE", "ARB", "DOGE",
+    "SUI", "AVAX", "LINK", "WIF", "PEPE", "ONDO",
+  ];
+
+  // Step 1: Collect unique addresses from recent trades
+  const addresses = new Set<string>();
+  const tradePromises = coins.map(async (coin) => {
+    try {
+      const trades = await infoRequest({ type: "recentTrades", coin });
+      if (Array.isArray(trades)) {
+        for (const t of trades) {
+          for (const u of t.users || []) {
+            addresses.add(u.toLowerCase());
+          }
+        }
+      }
+    } catch {
+      // Skip failed coins
+    }
+  });
+  await Promise.all(tradePromises);
+
+  // Step 2: Fetch account details (batch with concurrency limit)
+  const results: DiscoveredTrader[] = [];
+  const addrList = [...addresses];
+  const BATCH = 10;
+
+  for (let i = 0; i < addrList.length; i += BATCH) {
+    const batch = addrList.slice(i, i + BATCH);
+    const batchPromises = batch.map(async (addr) => {
+      try {
+        const [state, fills] = await Promise.all([
+          infoRequest({ type: "clearinghouseState", user: addr }),
+          infoRequest({ type: "userFills", user: addr }).catch(() => []),
+        ]);
+
+        const accountValue = parseFloat(
+          state?.crossMarginSummary?.accountValue || "0"
+        );
+        if (accountValue < 1000) return null;
+
+        let totalPnl = 0;
+        let wins = 0;
+        let trades = 0;
+        let maxLeverage = 0;
+
+        if (Array.isArray(fills)) {
+          for (const fill of fills) {
+            const closedPnl = parseFloat(fill.closedPnl || "0");
+            if (closedPnl !== 0) {
+              totalPnl += closedPnl;
+              trades++;
+              if (closedPnl > 0) wins++;
+            }
+          }
+        }
+
+        if (state?.assetPositions) {
+          for (const pos of state.assetPositions) {
+            const lev = pos.position?.leverage?.value || 0;
+            if (lev > maxLeverage) maxLeverage = lev;
+          }
+        }
+
+        return {
+          address: addr,
+          accountValue,
+          totalPnl,
+          winRate: trades > 0 ? wins / trades : 0,
+          tradeCount: trades,
+          maxLeverage,
+          roiPercent: accountValue > 0 ? (totalPnl / accountValue) * 100 : 0,
+        };
+      } catch {
+        return null;
+      }
+    });
+
+    const batchResults = await Promise.all(batchPromises);
+    for (const r of batchResults) {
+      if (r) results.push(r);
+    }
+
+    // Small delay between batches
+    if (i + BATCH < addrList.length) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  results.sort((a, b) => b.accountValue - a.accountValue);
+
+  // Cache the results
+  discoveryCache = { traders: results, fetchedAt: Date.now() };
+
+  return results;
 }
 
 // ─── WebSocket helpers ───────────────────────────────────────────────────────

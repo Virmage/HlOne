@@ -1,0 +1,20 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["apps/api/dist/index.js"],
+      "port": 3001
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:web"],
+      "port": 3000,
+      "env": {
+        "NEXT_PUBLIC_API_URL": "http://localhost:3001"
+      }
+    }
+  ]
+}

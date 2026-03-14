@@ -30,6 +30,7 @@ import {
   createTraderRefreshQueue,
   createTraderRefreshWorker,
 } from "./jobs/trader-refresh.js";
+import { runLeaderboardSync } from "./jobs/leaderboard-sync.js";
 import { HealthMonitor } from "./monitoring/health.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -41,6 +42,7 @@ const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || "3002");
 const POSITION_SYNC_INTERVAL = 30_000;
 const TRADER_REFRESH_INTERVAL = 900_000;
 const SUBSCRIPTION_REFRESH_INTERVAL = 60_000;
+const LEADERBOARD_SYNC_INTERVAL = 3_600_000; // 1 hour
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
@@ -190,8 +192,20 @@ async function main() {
       scheduleTraderRefresh,
       TRADER_REFRESH_INTERVAL
     );
+    const leaderboardInterval = setInterval(
+      () => runLeaderboardSync(db, traderRefreshQueue).catch((err) =>
+        console.error("[LEADERBOARD] Scheduled sync failed:", err)
+      ),
+      LEADERBOARD_SYNC_INTERVAL
+    );
 
     await schedulePositionSync();
+
+    // Seed the database with leaderboard traders on startup
+    runLeaderboardSync(db, traderRefreshQueue).catch((err) =>
+      console.error("[LEADERBOARD] Initial sync failed:", err)
+    );
+
     console.log("[WORKER] Fully started. Listening for fills...");
 
     // ─── Graceful shutdown ──────────────────────────────────────────────
@@ -202,6 +216,7 @@ async function main() {
       clearInterval(subInterval);
       clearInterval(syncInterval);
       clearInterval(refreshInterval);
+      clearInterval(leaderboardInterval);
 
       await tradeWorker.close();
       await positionSyncWorker.close();

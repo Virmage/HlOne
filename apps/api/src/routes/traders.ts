@@ -10,6 +10,7 @@ import {
   getClearinghouseState,
   getPortfolio,
   getUserFills,
+  discoverActiveTraders,
 } from "../services/hyperliquid.js";
 
 export const traderRoutes: FastifyPluginAsync = async (app) => {
@@ -63,33 +64,76 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
     const whereClause =
       conditions.length > 0 ? and(...conditions) : undefined;
 
-    const traders = await app.db
-      .select({
-        id: traderProfiles.id,
-        address: traderProfiles.address,
-        accountSize: traderProfiles.accountSize,
-        totalPnl: traderProfiles.totalPnl,
-        roiPercent: traderProfiles.roiPercent,
-        winRate: traderProfiles.winRate,
-        tradeCount: traderProfiles.tradeCount,
-        maxLeverage: traderProfiles.maxLeverage,
-        lastActiveAt: traderProfiles.lastActiveAt,
-        compositeScore: traderScores.compositeScore,
-        rank: traderScores.rank,
-      })
-      .from(traderProfiles)
-      .leftJoin(
-        traderScores,
-        eq(traderProfiles.id, traderScores.traderProfileId)
-      )
-      .where(whereClause)
-      .orderBy(
-        order === "desc"
-          ? desc(traderScores.compositeScore)
-          : traderScores.compositeScore
-      )
-      .limit(parseInt(limit))
-      .offset(parseInt(offset));
+    let traders: {
+      id: string;
+      address: string;
+      accountSize: string | null;
+      totalPnl: string | null;
+      roiPercent: number | null;
+      winRate: number | null;
+      tradeCount: number | null;
+      maxLeverage: number | null;
+      lastActiveAt: Date | null;
+      compositeScore: number | null;
+      rank: number | null;
+    }[] = [];
+    try {
+      traders = await app.db
+        .select({
+          id: traderProfiles.id,
+          address: traderProfiles.address,
+          accountSize: traderProfiles.accountSize,
+          totalPnl: traderProfiles.totalPnl,
+          roiPercent: traderProfiles.roiPercent,
+          winRate: traderProfiles.winRate,
+          tradeCount: traderProfiles.tradeCount,
+          maxLeverage: traderProfiles.maxLeverage,
+          lastActiveAt: traderProfiles.lastActiveAt,
+          compositeScore: traderScores.compositeScore,
+          rank: traderScores.rank,
+        })
+        .from(traderProfiles)
+        .leftJoin(
+          traderScores,
+          eq(traderProfiles.id, traderScores.traderProfileId)
+        )
+        .where(whereClause)
+        .orderBy(
+          order === "desc"
+            ? desc(traderScores.compositeScore)
+            : traderScores.compositeScore
+        )
+        .limit(parseInt(limit))
+        .offset(parseInt(offset));
+    } catch {
+      // DB may not be available — fall through to live discovery
+      traders = [];
+    }
+
+    // Fallback: if DB has no traders, discover them live from Hyperliquid
+    if (traders.length === 0 && parseInt(offset) === 0) {
+      try {
+        const discovered = await discoverActiveTraders();
+        const liveTraders = discovered
+          .slice(0, parseInt(limit))
+          .map((t, i) => ({
+            id: t.address,
+            address: t.address,
+            accountSize: t.accountValue.toFixed(2),
+            totalPnl: t.totalPnl.toFixed(2),
+            roiPercent: t.roiPercent,
+            winRate: t.winRate,
+            tradeCount: t.tradeCount,
+            maxLeverage: t.maxLeverage,
+            lastActiveAt: null,
+            compositeScore: null,
+            rank: i + 1,
+          }));
+        return { traders: liveTraders, total: liveTraders.length, live: true };
+      } catch (err) {
+        req.log.error(err, "Live trader discovery failed");
+      }
+    }
 
     return { traders, total: traders.length };
   });
