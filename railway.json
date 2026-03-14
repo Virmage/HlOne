@@ -1,5 +1,7 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
-  "build": {},
+  "build": {
+    "installCommand": "npm ci --omit=optional"
+  },
   "deploy": {}
 }
