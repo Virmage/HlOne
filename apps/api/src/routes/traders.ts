@@ -111,7 +111,7 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // Fallback: if DB has no traders, discover them live from Hyperliquid
-    if (traders.length === 0 && parseInt(offset) === 0) {
+    if (traders.length === 0) {
       try {
         const discovered = await discoverActiveTraders();
 
@@ -167,12 +167,36 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { address: string } }>("/:address", async (req, reply) => {
     const { address } = req.params;
 
-    // Get from DB first
-    const [profile] = await app.db
-      .select()
-      .from(traderProfiles)
-      .where(eq(traderProfiles.address, address.toLowerCase()))
-      .limit(1);
+    // Get from DB first (may fail if DB is unavailable)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let profile: any = undefined;
+    let positions: any[] = [];
+    let snapshots: any[] = [];
+
+    try {
+      const [dbProfile] = await app.db
+        .select()
+        .from(traderProfiles)
+        .where(eq(traderProfiles.address, address.toLowerCase()))
+        .limit(1);
+      profile = dbProfile;
+
+      if (profile) {
+        positions = await app.db
+          .select()
+          .from(sourcePositions)
+          .where(eq(sourcePositions.traderProfileId, profile.id));
+
+        snapshots = await app.db
+          .select()
+          .from(traderSnapshots)
+          .where(eq(traderSnapshots.traderProfileId, profile.id))
+          .orderBy(traderSnapshots.snapshotAt);
+      }
+    } catch {
+      // DB unavailable — continue with live data only
+      req.log.warn("DB unavailable for trader detail, using live data only");
+    }
 
     // Fetch live data from Hyperliquid
     const [clearinghouse, portfolio, fills] = await Promise.all([
@@ -181,39 +205,30 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
       getUserFills(address).catch(() => []),
     ]);
 
-    // Get positions from DB
-    const positions = profile
-      ? await app.db
-          .select()
-          .from(sourcePositions)
-          .where(eq(sourcePositions.traderProfileId, profile.id))
-      : [];
-
-    // Get equity curve data (snapshots)
-    const snapshots = profile
-      ? await app.db
-          .select()
-          .from(traderSnapshots)
-          .where(eq(traderSnapshots.traderProfileId, profile.id))
-          .orderBy(traderSnapshots.snapshotAt)
-      : [];
-
-    // Extract portfolio performance windows (day/week/month/allTime)
-    const portfolioPerf = new Map<string, { pnl: number; roi: number; vlm: number }>();
-    if (portfolio) {
-      // portfolio response has arrays like [[window, {pnl, roi, vlm}], ...]
-      // Try both possible response shapes
-      const perfArrays = [
-        ...(Array.isArray((portfolio as Record<string, unknown>)?.clearinghousePerf)
-          ? ((portfolio as Record<string, unknown>).clearinghousePerf as [string, Record<string, string>][])
-          : []),
-      ];
-      for (const [window, perf] of perfArrays) {
-        portfolioPerf.set(window, {
-          pnl: parseFloat(perf?.pnl || "0"),
-          roi: parseFloat(perf?.roi || "0"),
-          vlm: parseFloat(perf?.vlm || "0"),
-        });
+    // Extract portfolio equity curve from allTime window
+    // Portfolio response is [[window, {accountValueHistory, pnlHistory, vlm}], ...]
+    let portfolioEquityCurve: { time: string; value: string; pnl: string; drawdown: string | null }[] = [];
+    if (portfolio && Array.isArray(portfolio)) {
+      for (const [window, data] of portfolio as [string, { accountValueHistory?: [number, string][]; pnlHistory?: [number, string][] }][]) {
+        if (window === "allTime" && data.accountValueHistory && data.accountValueHistory.length > 0) {
+          let peak = 0;
+          const pnlMap = new Map<number, string>();
+          if (data.pnlHistory) {
+            for (const [ts, pnl] of data.pnlHistory) pnlMap.set(ts, pnl);
+          }
+          for (const [ts, val] of data.accountValueHistory) {
+            const value = parseFloat(val || "0");
+            if (value > peak) peak = value;
+            const dd = peak > 0 ? ((peak - value) / peak) * 100 : 0;
+            portfolioEquityCurve.push({
+              time: new Date(ts).toISOString(),
+              value: value.toFixed(2),
+              pnl: pnlMap.get(ts) || "0",
+              drawdown: dd.toFixed(2),
+            });
+          }
+          break;
+        }
       }
     }
 
@@ -275,13 +290,11 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      // Use portfolio or leaderboard data for ROI when available (avoids division by current account value which may be 0)
-      const allTimePerf = portfolioPerf.get("allTime");
-      const monthPerf = portfolioPerf.get("month");
-      const roiPercent = leaderboardData?.roiAllTime ?? (allTimePerf ? allTimePerf.roi * 100 : (accountValue > 0 ? (totalPnl / accountValue) * 100 : 0));
-      const roi30d = leaderboardData?.roi30d ?? (monthPerf ? monthPerf.roi * 100 : (accountValue > 0 ? (pnl30d / accountValue) * 100 : 0));
-      const effectivePnl = allTimePerf?.pnl ?? leaderboardData?.totalPnl ?? totalPnl;
-      const effectivePnl30d = monthPerf?.pnl ?? leaderboardData?.pnl30d ?? pnl30d;
+      // Use leaderboard data for ROI when available (avoids division by current account value which may be 0)
+      const roiPercent = leaderboardData?.roiAllTime ?? (accountValue > 0 ? (totalPnl / accountValue) * 100 : 0);
+      const roi30dVal = leaderboardData?.roi30d ?? (accountValue > 0 ? (pnl30d / accountValue) * 100 : 0);
+      const effectivePnl = leaderboardData?.totalPnl ?? totalPnl;
+      const effectivePnl30d = leaderboardData?.pnl30d ?? pnl30d;
       const effectiveAccountValue = accountValue > 0 ? accountValue : (leaderboardData?.accountValue ?? 0);
 
       effectiveProfile = {
@@ -291,7 +304,7 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
         accountSize: effectiveAccountValue.toFixed(2),
         totalPnl: effectivePnl.toFixed(2),
         roiPercent,
-        roi30d,
+        roi30d: roi30dVal,
         pnl30d: effectivePnl30d.toFixed(2),
         winRate: trades > 0 ? wins / trades : null,
         tradeCount: trades,
@@ -331,13 +344,13 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
       },
       positions: effectivePositions,
       equityCurve: snapshots.length > 0
-        ? snapshots.map((s) => ({
+        ? snapshots.map((s: any) => ({
             time: s.snapshotAt,
             value: s.accountValue,
             pnl: s.totalPnl,
             drawdown: s.drawdownPercent,
           }))
-        : buildEquityCurveFromPortfolio(portfolio),
+        : portfolioEquityCurve,
     };
   });
 
@@ -377,30 +390,3 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
     return { fills: Array.isArray(fills) ? fills : [] };
   });
 };
-
-/** Build equity curve points from portfolio API response */
-function buildEquityCurveFromPortfolio(portfolio: unknown): { time: Date | string; value: string; pnl: string; drawdown: string | null }[] {
-  if (!portfolio) return [];
-  const p = portfolio as Record<string, unknown>;
-  // portfolio response has accountValueHistory: [[timestamp_ms, value_string], ...]
-  const history = p.accountValueHistory as [number, string][] | undefined;
-  if (!Array.isArray(history) || history.length === 0) return [];
-
-  const curve: { time: string; value: string; pnl: string; drawdown: string | null }[] = [];
-  let peak = 0;
-
-  for (const [ts, val] of history) {
-    const value = parseFloat(val || "0");
-    if (value > peak) peak = value;
-    const dd = peak > 0 ? ((peak - value) / peak) * 100 : 0;
-
-    curve.push({
-      time: new Date(ts).toISOString(),
-      value: value.toFixed(2),
-      pnl: "0", // portfolio history doesn't include PnL per point
-      drawdown: dd.toFixed(2),
-    });
-  }
-
-  return curve;
-}
