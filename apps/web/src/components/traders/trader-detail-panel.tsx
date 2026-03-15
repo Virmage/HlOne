@@ -50,8 +50,8 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
   // Pull stats from profile (which now includes synthetic data from live API)
   const accountValue = p?.accountSize ?? margin?.accountValue ?? null;
   const totalPnl = p?.totalPnl ?? null;
-  const roiPercent = p?.roiPercent ?? null;
   const roi30d = p?.roi30d ?? null;
+  const roi90d = p?.roi90d ?? null;
   const pnl30d = p?.pnl30d ?? null;
   const winRate = p?.winRate as number | null;
   const tradeCount = p?.tradeCount as number | null;
@@ -83,9 +83,9 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
             color={pnlColor(totalPnl as string || "0")}
           />
           <StatBox
-            label="ROI"
-            value={roiPercent != null ? formatPercent(roiPercent as number) : "—"}
-            color={pnlColor(roiPercent as number || 0)}
+            label="Win Rate"
+            value={winRate != null ? `${(winRate * 100).toFixed(1)}%` : "—"}
+            color={winRate != null && winRate >= 0.5 ? "text-[var(--hl-green)]" : undefined}
           />
         </div>
 
@@ -96,21 +96,21 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
             color={pnlColor(roi30d as number || 0)}
           />
           <StatBox
+            label="90d ROI"
+            value={roi90d != null ? formatPercent(roi90d as number) : "—"}
+            color={pnlColor(roi90d as number || 0)}
+          />
+          <StatBox
             label="30d PnL"
             value={pnl30d ? formatUsd(pnl30d as string | number) : "—"}
             color={pnlColor(pnl30d as string || "0")}
-          />
-          <StatBox
-            label="Win Rate"
-            value={winRate != null ? `${(winRate * 100).toFixed(1)}%` : "—"}
-            color={winRate != null && winRate >= 0.5 ? "text-[var(--hl-green)]" : undefined}
           />
         </div>
 
         <div className="grid grid-cols-3 gap-3">
           <StatBox
-            label="Trades"
-            value={tradeCount?.toString() || "—"}
+            label="Trades (90d)"
+            value={tradeCount ? tradeCount.toString() : "—"}
           />
           <StatBox
             label="Max Leverage"
@@ -118,7 +118,7 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
           />
           <StatBox
             label="Max Drawdown"
-            value={maxDrawdown != null && maxDrawdown > 0 ? `-${maxDrawdown.toFixed(1)}%` : "0.0%"}
+            value={maxDrawdown != null && maxDrawdown > 0 ? `-${maxDrawdown.toFixed(1)}%` : "—"}
             color={maxDrawdown != null && maxDrawdown > 0 ? "text-[var(--hl-red)]" : undefined}
           />
         </div>

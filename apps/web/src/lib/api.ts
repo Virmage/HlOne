@@ -25,6 +25,7 @@ export interface TraderRow {
   totalPnl: string | null;
   roiPercent: number | null;
   roi30d: number | null;
+  roiWeekly: number | null;
   pnl30d: string | null;
   winRate: number | null;
   tradeCount: number | null;

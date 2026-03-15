@@ -9,7 +9,7 @@ import { CopyDialog } from "@/components/traders/copy-dialog";
 
 export default function TradersPage() {
   const { address } = useAccount();
-  const [sortBy, setSortBy] = useState("roiPercent");
+  const [sortBy, setSortBy] = useState("roi30d");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const { traders, loading, error } = useTraders({
     sortBy,

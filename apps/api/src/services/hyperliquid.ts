@@ -37,6 +37,16 @@ export async function getUserFills(address: string, limit = 100) {
   });
 }
 
+/** Get user's fills within a time range (more complete than userFills) */
+export async function getUserFillsByTime(address: string, startTime: number, endTime?: number) {
+  return infoRequest({
+    type: "userFillsByTime",
+    user: address,
+    startTime,
+    ...(endTime ? { endTime } : {}),
+  });
+}
+
 /** Get all open orders */
 export async function getOpenOrders(address: string) {
   return infoRequest({ type: "openOrders", user: address });
@@ -63,6 +73,7 @@ export interface DiscoveredTrader {
   totalPnl: number;
   pnl30d: number;
   roi30d: number;
+  roiWeekly: number;
   roiAllTime: number;
   winRate: number;
   tradeCount: number;
@@ -118,11 +129,13 @@ export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
 
     const allTime = perfMap.get("allTime");
     const month = perfMap.get("month");
+    const week = perfMap.get("week");
 
     const totalPnl = allTime?.pnl ?? 0;
     const roiAllTime = (allTime?.roi ?? 0) * 100; // API returns decimal, convert to %
     const pnl30d = month?.pnl ?? 0;
     const roi30d = (month?.roi ?? 0) * 100;
+    const roiWeekly = (week?.roi ?? 0) * 100;
 
     results.push({
       address: row.ethAddress,
@@ -131,9 +144,8 @@ export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
       totalPnl,
       pnl30d,
       roi30d,
+      roiWeekly,
       roiAllTime,
-      // These fields require per-user fill data — not available from leaderboard
-      // We set reasonable defaults; detail view computes them from live data
       winRate: 0,
       tradeCount: 0,
       maxLeverage: 0,

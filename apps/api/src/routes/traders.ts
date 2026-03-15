@@ -10,6 +10,7 @@ import {
   getClearinghouseState,
   getPortfolio,
   getUserFills,
+  getUserFillsByTime,
   discoverActiveTraders,
 } from "../services/hyperliquid.js";
 
@@ -123,11 +124,12 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
           totalPnl: "totalPnl",
           roiPercent: "roiPercent",
           roi30d: "roi30d",
+          roiWeekly: "roiWeekly",
           tradeCount: "tradeCount",
           maxDrawdown: "maxDrawdown",
           accountSize: "accountValue",
         };
-        const key = fieldMap[sortField] || "roiPercent";
+        const key = fieldMap[sortField] || "roi30d";
         discovered.sort((a, b) => {
           return ((a[key] as number) - (b[key] as number)) * sortDir;
         });
@@ -142,6 +144,7 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
             totalPnl: t.totalPnl.toFixed(2),
             roiPercent: t.roiPercent,
             roi30d: t.roi30d,
+            roiWeekly: t.roiWeekly,
             pnl30d: t.pnl30d.toFixed(2),
             winRate: t.winRate > 0 ? t.winRate : null,
             tradeCount: t.tradeCount > 0 ? t.tradeCount : null,
@@ -199,15 +202,19 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // Fetch live data from Hyperliquid
+    const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
     const [clearinghouse, portfolio, fills] = await Promise.all([
       getClearinghouseState(address).catch(() => null),
       getPortfolio(address).catch(() => null),
-      getUserFills(address).catch(() => []),
+      getUserFillsByTime(address, ninetyDaysAgo).catch(() =>
+        getUserFills(address).catch(() => [])
+      ),
     ]);
 
-    // Extract portfolio equity curve from allTime window
+    // Extract portfolio equity curve from allTime window + compute 90d ROI
     // Portfolio response is [[window, {accountValueHistory, pnlHistory, vlm}], ...]
     let portfolioEquityCurve: { time: string; value: string; pnl: string; drawdown: string | null }[] = [];
+    let roi90d: number | null = null;
     if (portfolio && Array.isArray(portfolio)) {
       for (const [window, data] of portfolio as [string, { accountValueHistory?: [number, string][]; pnlHistory?: [number, string][] }][]) {
         if (window === "allTime" && data.accountValueHistory && data.accountValueHistory.length > 0) {
@@ -227,6 +234,26 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
               drawdown: dd.toFixed(2),
             });
           }
+
+          // Compute 90d ROI from account value history
+          const history = data.accountValueHistory;
+          const currentValue = parseFloat(history[history.length - 1][1] || "0");
+          const ninetyDaysAgoTs = Date.now() - 90 * 24 * 60 * 60 * 1000;
+          // Find closest point to 90 days ago
+          let closestPoint = history[0];
+          let closestDiff = Math.abs(history[0][0] - ninetyDaysAgoTs);
+          for (const point of history) {
+            const diff = Math.abs(point[0] - ninetyDaysAgoTs);
+            if (diff < closestDiff) {
+              closestDiff = diff;
+              closestPoint = point;
+            }
+          }
+          const pastValue = parseFloat(closestPoint[1] || "0");
+          if (pastValue > 0) {
+            roi90d = ((currentValue - pastValue) / pastValue) * 100;
+          }
+
           break;
         }
       }
@@ -305,6 +332,7 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
         totalPnl: effectivePnl.toFixed(2),
         roiPercent,
         roi30d: roi30dVal,
+        roi90d,
         pnl30d: effectivePnl30d.toFixed(2),
         winRate: trades > 0 ? wins / trades : null,
         tradeCount: trades,
