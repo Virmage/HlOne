@@ -51,7 +51,8 @@ async function main() {
       };
     } catch (err) {
       reply.code(500);
-      return { error: String(err) };
+      const e = err as Error;
+      return { error: e.message, stack: e.stack, cause: e.cause ? String(e.cause) : undefined };
     }
   });
 

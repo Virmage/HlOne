@@ -109,7 +109,13 @@ export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
   const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
   let res: Response;
   try {
-    res = await fetch(HL_LEADERBOARD, { signal: controller.signal });
+    res = await fetch(HL_LEADERBOARD, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "hl-copy-trading/1.0",
+        "Accept": "application/json",
+      },
+    });
   } finally {
     clearTimeout(timeout);
   }
