@@ -198,13 +198,41 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
           .orderBy(traderSnapshots.snapshotAt)
       : [];
 
+    // Extract portfolio performance windows (day/week/month/allTime)
+    const portfolioPerf = new Map<string, { pnl: number; roi: number; vlm: number }>();
+    if (portfolio) {
+      // portfolio response has arrays like [[window, {pnl, roi, vlm}], ...]
+      // Try both possible response shapes
+      const perfArrays = [
+        ...(Array.isArray((portfolio as Record<string, unknown>)?.clearinghousePerf)
+          ? ((portfolio as Record<string, unknown>).clearinghousePerf as [string, Record<string, string>][])
+          : []),
+      ];
+      for (const [window, perf] of perfArrays) {
+        portfolioPerf.set(window, {
+          pnl: parseFloat(perf?.pnl || "0"),
+          roi: parseFloat(perf?.roi || "0"),
+          vlm: parseFloat(perf?.vlm || "0"),
+        });
+      }
+    }
+
+    // Also look up this trader in the leaderboard cache for accurate ROI
+    let leaderboardData: Awaited<ReturnType<typeof discoverActiveTraders>>[0] | undefined;
+    try {
+      const allTraders = await discoverActiveTraders();
+      leaderboardData = allTraders.find(t => t.address.toLowerCase() === address.toLowerCase());
+    } catch { /* ignore */ }
+
     // Build synthetic profile from live data when DB profile is missing
     let effectiveProfile = profile || null;
-    if (!profile && clearinghouse) {
-      const accountValue = parseFloat(
-        (clearinghouse as Record<string, Record<string, string>>)
-          ?.crossMarginSummary?.accountValue || "0"
-      );
+    if (!profile) {
+      const accountValue = clearinghouse
+        ? parseFloat(
+            (clearinghouse as Record<string, Record<string, string>>)
+              ?.crossMarginSummary?.accountValue || "0"
+          )
+        : leaderboardData?.accountValue ?? 0;
 
       let totalPnl = 0;
       let pnl30d = 0;
@@ -237,22 +265,34 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      const ch = clearinghouse as Record<string, { position: Record<string, { value: number }> }[]>;
-      if (ch?.assetPositions) {
-        for (const pos of ch.assetPositions) {
-          const lev = pos.position?.leverage?.value || 0;
-          if (lev > maxLeverage) maxLeverage = lev;
+      if (clearinghouse) {
+        const ch = clearinghouse as Record<string, { position: Record<string, { value: number }> }[]>;
+        if (ch?.assetPositions) {
+          for (const pos of ch.assetPositions) {
+            const lev = pos.position?.leverage?.value || 0;
+            if (lev > maxLeverage) maxLeverage = lev;
+          }
         }
       }
+
+      // Use portfolio or leaderboard data for ROI when available (avoids division by current account value which may be 0)
+      const allTimePerf = portfolioPerf.get("allTime");
+      const monthPerf = portfolioPerf.get("month");
+      const roiPercent = leaderboardData?.roiAllTime ?? (allTimePerf ? allTimePerf.roi * 100 : (accountValue > 0 ? (totalPnl / accountValue) * 100 : 0));
+      const roi30d = leaderboardData?.roi30d ?? (monthPerf ? monthPerf.roi * 100 : (accountValue > 0 ? (pnl30d / accountValue) * 100 : 0));
+      const effectivePnl = allTimePerf?.pnl ?? leaderboardData?.totalPnl ?? totalPnl;
+      const effectivePnl30d = monthPerf?.pnl ?? leaderboardData?.pnl30d ?? pnl30d;
+      const effectiveAccountValue = accountValue > 0 ? accountValue : (leaderboardData?.accountValue ?? 0);
 
       effectiveProfile = {
         id: address,
         address,
-        accountSize: accountValue.toFixed(2),
-        totalPnl: totalPnl.toFixed(2),
-        roiPercent: accountValue > 0 ? (totalPnl / accountValue) * 100 : 0,
-        roi30d: accountValue > 0 ? (pnl30d / accountValue) * 100 : 0,
-        pnl30d: pnl30d.toFixed(2),
+        displayName: leaderboardData?.displayName ?? null,
+        accountSize: effectiveAccountValue.toFixed(2),
+        totalPnl: effectivePnl.toFixed(2),
+        roiPercent,
+        roi30d,
+        pnl30d: effectivePnl30d.toFixed(2),
         winRate: trades > 0 ? wins / trades : null,
         tradeCount: trades,
         maxLeverage,
@@ -290,12 +330,14 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
         recentFills: Array.isArray(fills) ? fills.slice(0, 50) : [],
       },
       positions: effectivePositions,
-      equityCurve: snapshots.map((s) => ({
-        time: s.snapshotAt,
-        value: s.accountValue,
-        pnl: s.totalPnl,
-        drawdown: s.drawdownPercent,
-      })),
+      equityCurve: snapshots.length > 0
+        ? snapshots.map((s) => ({
+            time: s.snapshotAt,
+            value: s.accountValue,
+            pnl: s.totalPnl,
+            drawdown: s.drawdownPercent,
+          }))
+        : buildEquityCurveFromPortfolio(portfolio),
     };
   });
 
@@ -335,3 +377,30 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
     return { fills: Array.isArray(fills) ? fills : [] };
   });
 };
+
+/** Build equity curve points from portfolio API response */
+function buildEquityCurveFromPortfolio(portfolio: unknown): { time: Date | string; value: string; pnl: string; drawdown: string | null }[] {
+  if (!portfolio) return [];
+  const p = portfolio as Record<string, unknown>;
+  // portfolio response has accountValueHistory: [[timestamp_ms, value_string], ...]
+  const history = p.accountValueHistory as [number, string][] | undefined;
+  if (!Array.isArray(history) || history.length === 0) return [];
+
+  const curve: { time: string; value: string; pnl: string; drawdown: string | null }[] = [];
+  let peak = 0;
+
+  for (const [ts, val] of history) {
+    const value = parseFloat(val || "0");
+    if (value > peak) peak = value;
+    const dd = peak > 0 ? ((peak - value) / peak) * 100 : 0;
+
+    curve.push({
+      time: new Date(ts).toISOString(),
+      value: value.toFixed(2),
+      pnl: "0", // portfolio history doesn't include PnL per point
+      drawdown: dd.toFixed(2),
+    });
+  }
+
+  return curve;
+}

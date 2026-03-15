@@ -29,9 +29,11 @@ export default function TradersPage() {
   };
 
   const filteredTraders = search
-    ? traders.filter((t) =>
-        t.address.toLowerCase().includes(search.toLowerCase())
-      )
+    ? traders.filter((t) => {
+        const q = search.toLowerCase();
+        return t.address.toLowerCase().includes(q) ||
+          (t.displayName && t.displayName.toLowerCase().includes(q));
+      })
     : traders;
 
   return (
@@ -57,7 +59,7 @@ export default function TradersPage() {
           </svg>
           <input
             type="text"
-            placeholder="Search by wallet address..."
+            placeholder="Search by name or address..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="h-9 w-[280px] rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] pl-9 pr-3 text-[13px] text-[var(--hl-text)] placeholder:text-[var(--hl-muted)] outline-none focus:border-[var(--hl-green-dim)] transition-colors"
