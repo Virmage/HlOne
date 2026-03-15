@@ -31,7 +31,29 @@ async function main() {
   await app.register(userRoutes, { prefix: "/api/users" });
 
   // Health check
-  app.get("/api/health", async () => ({ status: "ok", version: "1.2.0", timestamp: Date.now() }));
+  app.get("/api/health", async () => ({ status: "ok", version: "1.3.0", timestamp: Date.now() }));
+
+  // Debug: test leaderboard fetch directly
+  app.get("/api/debug/leaderboard", async (req, reply) => {
+    try {
+      const { discoverActiveTraders } = await import("./services/hyperliquid.js");
+      const start = Date.now();
+      const traders = await discoverActiveTraders();
+      return {
+        count: traders.length,
+        fetchMs: Date.now() - start,
+        sample: traders.slice(0, 3).map(t => ({
+          address: t.address.slice(0, 10),
+          roi30d: t.roi30d,
+          roiAllTime: t.roiAllTime,
+          displayName: t.displayName,
+        })),
+      };
+    } catch (err) {
+      reply.code(500);
+      return { error: String(err) };
+    }
+  });
 
   await app.listen({ port: PORT, host: "0.0.0.0" });
   console.log(`API server running on port ${PORT}`);

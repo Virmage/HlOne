@@ -114,7 +114,9 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
     // Fallback: if DB has no traders, discover them live from Hyperliquid
     if (traders.length === 0) {
       try {
+        req.log.info("DB returned 0 traders, fetching from leaderboard...");
         const discovered = await discoverActiveTraders();
+        req.log.info(`Leaderboard returned ${discovered.length} traders`);
 
         // Sort by requested field — use a generic key accessor
         const sortField = sortBy as string;
@@ -156,7 +158,7 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
           }));
         return { traders: liveTraders, total: discovered.length, live: true };
       } catch (err) {
-        req.log.error(err, "Live trader discovery failed");
+        req.log.error(err, "Live trader discovery failed — returning empty");
       }
     }
 

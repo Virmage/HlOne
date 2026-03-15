@@ -105,11 +105,25 @@ export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
     return discoveryCache.traders;
   }
 
-  const res = await fetch(HL_LEADERBOARD);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+  let res: Response;
+  try {
+    res = await fetch(HL_LEADERBOARD, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!res.ok) throw new Error(`Leaderboard fetch failed: ${res.status}`);
 
-  const data = await res.json() as { leaderboardRows: LeaderboardRow[] };
-  const rows = data.leaderboardRows || [];
+  const text = await res.text();
+  // Parse in a try/catch — response can be 27MB+
+  let rows: LeaderboardRow[];
+  try {
+    const data = JSON.parse(text) as { leaderboardRows: LeaderboardRow[] };
+    rows = data.leaderboardRows || [];
+  } catch (e) {
+    throw new Error(`Leaderboard JSON parse failed: ${(e as Error).message}`);
+  }
 
   const results: DiscoveredTrader[] = [];
 
