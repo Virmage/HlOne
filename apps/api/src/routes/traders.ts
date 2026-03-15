@@ -281,9 +281,6 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
       let wins = 0;
       let trades = 0;
       let maxLeverage = 0;
-      let cumPnl = 0;
-      let peak = 0;
-      let maxDrawdown = 0;
       const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
       const allFills = Array.isArray(fills) ? fills : [];
@@ -300,10 +297,20 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
           if ((fill as Record<string, number>).time > thirtyDaysAgo) {
             pnl30d += closedPnl;
           }
-          cumPnl += closedPnl;
-          if (cumPnl > peak) peak = cumPnl;
-          const dd = peak > 0 ? ((peak - cumPnl) / peak) * 100 : 0;
-          if (dd > maxDrawdown) maxDrawdown = dd;
+        }
+      }
+
+      // Compute max drawdown from portfolio equity curve (more accurate than PnL-based)
+      let maxDrawdown = 0;
+      if (portfolioEquityCurve.length > 0) {
+        let eqPeak = 0;
+        for (const point of portfolioEquityCurve) {
+          const val = parseFloat(point.value);
+          if (val > eqPeak) eqPeak = val;
+          if (eqPeak > 0) {
+            const dd = ((eqPeak - val) / eqPeak) * 100;
+            if (dd > maxDrawdown) maxDrawdown = dd;
+          }
         }
       }
 
