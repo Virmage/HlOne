@@ -23,7 +23,7 @@ export function Header() {
               <path d="M24 0C20 0 16 3.5 12 8C16 12.5 20 16 24 16C20 12 20 4 24 0Z" fill="var(--hl-green)" />
             </svg>
             <span className="text-[15px] font-semibold text-[var(--foreground)]">
-              Hyperliquid
+              CPYCAT.HL
             </span>
           </Link>
           <nav className="flex items-center gap-1">

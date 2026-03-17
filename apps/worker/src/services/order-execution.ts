@@ -46,6 +46,11 @@ const AGENT_TYPE = {
   ],
 } as const;
 
+// ─── Builder fee configuration ──────────────────────────────────────────────
+// Fee is in tenths of basis points: 5 = 0.5 bps = 0.05%
+const BUILDER_ADDRESS = process.env.BUILDER_ADDRESS || "";
+const BUILDER_FEE = parseInt(process.env.BUILDER_FEE || "5", 10); // 5 = 0.05% default
+
 export interface OrderRequest {
   asset: string;
   isBuy: boolean;
@@ -134,11 +139,16 @@ export async function submitOrder(
       c: order.cloid || undefined,
     };
 
-    const action = {
+    const action: Record<string, unknown> = {
       type: "order" as const,
       orders: [orderWire],
       grouping: "na" as const,
     };
+
+    // Attach builder fee if configured
+    if (BUILDER_ADDRESS && BUILDER_FEE > 0) {
+      action.builder = { b: BUILDER_ADDRESS, f: BUILDER_FEE };
+    }
 
     // Build the connection ID for agent signing
     // Agent wallets sign with their own key but specify the master address

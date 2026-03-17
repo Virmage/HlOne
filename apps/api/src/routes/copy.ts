@@ -8,7 +8,49 @@ import {
   copiedPositions,
 } from "@hl-copy/db";
 
+const BUILDER_ADDRESS = process.env.BUILDER_ADDRESS || "";
+const BUILDER_FEE = parseInt(process.env.BUILDER_FEE || "5", 10); // tenths of bps: 5 = 0.05%
+
 export const copyRoutes: FastifyPluginAsync = async (app) => {
+  /**
+   * GET /api/copy/builder-fee
+   * Returns builder fee config so frontend can prompt user approval
+   */
+  app.get("/builder-fee", async () => {
+    return {
+      builder: BUILDER_ADDRESS,
+      fee: BUILDER_FEE,
+      feePercent: (BUILDER_FEE / 10 / 100).toFixed(4), // e.g. "0.0005" = 0.05%
+      feeDisplay: `${(BUILDER_FEE / 10).toFixed(1)} bps (${((BUILDER_FEE / 10) / 100 * 100).toFixed(2)}%)`,
+    };
+  });
+
+  /**
+   * GET /api/copy/check-builder-approval
+   * Check if user has approved the builder fee
+   */
+  app.get<{
+    Querystring: { user: string };
+  }>("/check-builder-approval", async (req) => {
+    if (!BUILDER_ADDRESS || !req.query.user) {
+      return { approved: false, maxFee: 0 };
+    }
+    try {
+      const res = await fetch("https://api.hyperliquid.xyz/info", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "maxBuilderFee",
+          user: req.query.user,
+          builder: BUILDER_ADDRESS,
+        }),
+      });
+      const maxFee = await res.json();
+      return { approved: Number(maxFee) >= BUILDER_FEE, maxFee: Number(maxFee) };
+    } catch {
+      return { approved: false, maxFee: 0 };
+    }
+  });
   /**
    * POST /api/copy/start
    * Start copying a trader

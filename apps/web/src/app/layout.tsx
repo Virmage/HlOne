@@ -4,7 +4,7 @@ import { Header } from "@/components/layout/header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "HL Copy Trading",
+  title: "CPYCAT.HL",
   description: "Copy top Hyperliquid traders automatically",
 };
 

@@ -193,6 +193,25 @@ export async function closePosition(positionId: string, reason?: string) {
   });
 }
 
+// ─── Builder Fee ────────────────────────────────────────────────────────────
+
+export interface BuilderFeeInfo {
+  builder: string;
+  fee: number;
+  feePercent: string;
+  feeDisplay: string;
+}
+
+export async function getBuilderFee() {
+  return apiFetch<BuilderFeeInfo>("/api/copy/builder-fee");
+}
+
+export async function checkBuilderApproval(userAddress: string) {
+  return apiFetch<{ approved: boolean; maxFee: number }>(
+    `/api/copy/check-builder-approval?user=${userAddress}`
+  );
+}
+
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 export async function connectUser(walletAddress: string) {

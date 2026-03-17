@@ -117,11 +117,33 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
             value={maxLeverage != null && maxLeverage > 0 ? `${maxLeverage}x` : "—"}
           />
           <StatBox
-            label="Max Drawdown"
+            label="30D Drawdown"
             value={maxDrawdown != null && maxDrawdown > 0 ? `-${maxDrawdown.toFixed(1)}%` : "—"}
             color={maxDrawdown != null && maxDrawdown > 0 ? "text-[var(--hl-red)]" : undefined}
           />
         </div>
+
+        {/* Recent Tickers */}
+        {detail?.live.recentFills && detail.live.recentFills.length > 0 && (() => {
+          const fills = detail.live.recentFills as Record<string, string>[];
+          const tickerCounts = new Map<string, number>();
+          for (const f of fills) {
+            if (f.coin) tickerCounts.set(f.coin, (tickerCounts.get(f.coin) || 0) + 1);
+          }
+          const sorted = [...tickerCounts.entries()].sort((a, b) => b[1] - a[1]);
+          return (
+            <div className="rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--hl-muted)] mb-2">Recent Tickers</p>
+              <div className="flex flex-wrap gap-1.5">
+                {sorted.map(([coin, count]) => (
+                  <Badge key={coin} variant="outline" className="text-xs font-mono">
+                    {coin} <span className="ml-1 text-[var(--hl-muted)]">×{count}</span>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         <Separator />
 
@@ -182,11 +204,12 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
                 detail.live.recentFills.slice(0, 20).map((fill, i) => {
                   const f = fill as Record<string, string>;
                   return (
-                    <div key={i} className="flex justify-between text-xs py-1 border-b border-[var(--hl-border)]">
-                      <span className="text-[var(--hl-text)]">{f.coin}</span>
-                      <span className={f.side === "B" ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}>
-                        {f.side === "B" ? "Buy" : "Sell"} {parseFloat(f.sz || "0").toFixed(4)}
-                      </span>
+                    <div key={i} className="flex items-center gap-2 text-xs py-1.5 border-b border-[var(--hl-border)]">
+                      <span className="font-mono font-semibold text-[var(--foreground)] min-w-[60px]">{f.coin}</span>
+                      <Badge variant={f.side === "B" ? "default" : "destructive"} className="text-[10px] px-1.5 py-0">
+                        {f.side === "B" ? "BUY" : "SELL"}
+                      </Badge>
+                      <span className="text-[var(--hl-text)] ml-auto">{parseFloat(f.sz || "0").toFixed(4)}</span>
                       <span className="text-[var(--hl-muted)]">@ {formatUsd(f.px || "0")}</span>
                     </div>
                   );

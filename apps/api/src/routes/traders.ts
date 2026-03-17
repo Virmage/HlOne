@@ -302,16 +302,22 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      // Compute max drawdown from portfolio equity curve (more accurate than PnL-based)
+      // Compute 30D drawdown from portfolio equity curve (last 30 days only)
       let maxDrawdown = 0;
       if (portfolioEquityCurve.length > 0) {
-        let eqPeak = 0;
-        for (const point of portfolioEquityCurve) {
-          const val = parseFloat(point.value);
-          if (val > eqPeak) eqPeak = val;
-          if (eqPeak > 0) {
-            const dd = ((eqPeak - val) / eqPeak) * 100;
-            if (dd > maxDrawdown) maxDrawdown = dd;
+        const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+        const recentCurve = portfolioEquityCurve.filter(
+          (point) => new Date(point.time).getTime() >= thirtyDaysAgo
+        );
+        if (recentCurve.length > 0) {
+          let eqPeak = 0;
+          for (const point of recentCurve) {
+            const val = parseFloat(point.value);
+            if (val > eqPeak) eqPeak = val;
+            if (eqPeak > 0) {
+              const dd = ((eqPeak - val) / eqPeak) * 100;
+              if (dd > maxDrawdown) maxDrawdown = dd;
+            }
           }
         }
       }
