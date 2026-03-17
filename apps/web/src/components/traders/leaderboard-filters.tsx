@@ -24,9 +24,9 @@ export function LeaderboardFilters({ filters, onApply }: LeaderboardFiltersProps
   };
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+    <div className="rounded-lg border border-[var(--hl-border)] bg-[var(--hl-surface)] p-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-zinc-300">Filters</h3>
+        <h3 className="text-sm font-medium text-[var(--hl-text)]">Filters</h3>
         <Button variant="ghost" size="sm" onClick={() => setExpanded(!expanded)}>
           {expanded ? "Collapse" : "Expand"}
         </Button>
@@ -84,7 +84,7 @@ export function LeaderboardFilters({ filters, onApply }: LeaderboardFiltersProps
                 value={[parseInt(local.maxLeverage || "50")]}
                 onValueChange={([val]) => setLocal({ ...local, maxLeverage: val.toString() })}
               />
-              <span className="mt-1 block text-xs text-zinc-500">
+              <span className="mt-1 block text-xs text-[var(--hl-muted)]">
                 {local.maxLeverage || "50"}x
               </span>
             </div>

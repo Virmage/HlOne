@@ -14,13 +14,13 @@ export function Header() {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--hl-border)] bg-[var(--background)]">
+    <header className="sticky top-0 z-40 border-b border-[var(--hl-border)] bg-[var(--hl-nav)]">
       <div className="mx-auto flex h-12 max-w-[1200px] items-center justify-between px-6">
         <div className="flex items-center gap-8">
           <Link href="/" className="flex items-center gap-2">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="var(--hl-green)" strokeWidth="2" />
-              <path d="M8 12h8M12 8v8" stroke="var(--hl-green)" strokeWidth="2" strokeLinecap="round" />
+            <svg width="24" height="16" viewBox="0 0 24 16" fill="none">
+              <path d="M0 0C4 0 8 3.5 12 8C8 12.5 4 16 0 16C4 12 4 4 0 0Z" fill="var(--hl-green)" />
+              <path d="M24 0C20 0 16 3.5 12 8C16 12.5 20 16 24 16C20 12 20 4 24 0Z" fill="var(--hl-green)" />
             </svg>
             <span className="text-[15px] font-semibold text-[var(--foreground)]">
               Hyperliquid

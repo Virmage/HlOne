@@ -18,8 +18,8 @@ export default function PortfolioPage() {
     return (
       <div className="flex h-[60vh] items-center justify-center">
         <div className="text-center space-y-2">
-          <h2 className="text-xl font-semibold text-zinc-300">Connect Your Wallet</h2>
-          <p className="text-sm text-zinc-500">
+          <h2 className="text-xl font-semibold text-[var(--hl-text)]">Connect Your Wallet</h2>
+          <p className="text-sm text-[var(--hl-muted)]">
             Connect your wallet to view your portfolio and manage copied trades
           </p>
         </div>
@@ -30,7 +30,7 @@ export default function PortfolioPage() {
   if (loading) {
     return (
       <div className="flex h-[60vh] items-center justify-center">
-        <div className="text-zinc-400 animate-pulse">Loading portfolio...</div>
+        <div className="text-[var(--hl-muted)] animate-pulse">Loading portfolio...</div>
       </div>
     );
   }
@@ -39,7 +39,7 @@ export default function PortfolioPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold">Portfolio</h1>
-        <p className="text-sm text-zinc-400 mt-1">
+        <p className="text-sm text-[var(--hl-muted)] mt-1">
           Monitor performance and manage copied trades
         </p>
       </div>

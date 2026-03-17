@@ -78,7 +78,7 @@ export function CopyDialog({
                 onChange={(e) => setCapital(e.target.value)}
                 placeholder="1000"
               />
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-[var(--hl-muted)]">
                 Amount of your capital to allocate to this trader
               </p>
             </div>
@@ -113,13 +113,13 @@ export function CopyDialog({
                 onChange={(e) => setMinOrder(e.target.value)}
                 placeholder="10"
               />
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-[var(--hl-muted)]">
                 Orders below this size will be skipped
               </p>
             </div>
 
             {result && (
-              <p className={`text-sm ${result.startsWith("Error") ? "text-red-400" : "text-emerald-400"}`}>
+              <p className={`text-sm ${result.startsWith("Error") ? "text-red-400" : "text-[var(--hl-green)]"}`}>
                 {result}
               </p>
             )}

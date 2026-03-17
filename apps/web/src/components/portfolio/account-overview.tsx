@@ -12,7 +12,7 @@ export function AccountOverview({ overview }: AccountOverviewProps) {
   if (!overview) {
     return (
       <Card>
-        <CardContent className="flex h-32 items-center justify-center text-zinc-500">
+        <CardContent className="flex h-32 items-center justify-center text-[var(--hl-muted)]">
           Connect your wallet to see your portfolio
         </CardContent>
       </Card>
@@ -49,10 +49,10 @@ export function AccountOverview({ overview }: AccountOverviewProps) {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {stats.map((stat) => (
             <div key={stat.label}>
-              <p className="text-[10px] uppercase tracking-wider text-zinc-500">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--hl-muted)]">
                 {stat.label}
               </p>
-              <p className={`mt-0.5 text-lg font-semibold ${stat.color || "text-zinc-200"}`}>
+              <p className={`mt-0.5 text-lg font-semibold ${stat.color || "text-[var(--hl-text)]"}`}>
                 {stat.value}
               </p>
             </div>

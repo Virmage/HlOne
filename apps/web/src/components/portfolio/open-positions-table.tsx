@@ -25,44 +25,44 @@ export function OpenPositionsTable({ positions, onRefresh }: OpenPositionsTableP
       </CardHeader>
       <CardContent>
         {positions.length === 0 ? (
-          <p className="py-4 text-center text-zinc-500">No open positions</p>
+          <p className="py-4 text-center text-[var(--hl-muted)]">No open positions</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-800">
-                  <th className="px-3 py-2 text-left text-xs font-medium text-zinc-400">Asset</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-zinc-400">Side</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-zinc-400">Size</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-zinc-400">Entry</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-zinc-400">Current</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-zinc-400">PnL</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-zinc-400">Source</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-zinc-400"></th>
+                <tr className="border-b border-[var(--hl-border)]">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-[var(--hl-muted)]">Asset</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-[var(--hl-muted)]">Side</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-[var(--hl-muted)]">Size</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-[var(--hl-muted)]">Entry</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-[var(--hl-muted)]">Current</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-[var(--hl-muted)]">PnL</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-[var(--hl-muted)]">Source</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-[var(--hl-muted)]"></th>
                 </tr>
               </thead>
               <tbody>
                 {positions.map((pos) => (
-                  <tr key={pos.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/20">
-                    <td className="px-3 py-2 font-medium text-zinc-200">{pos.asset}</td>
+                  <tr key={pos.id} className="border-b border-[var(--hl-border)]/50 hover:bg-[var(--hl-surface-hover)]">
+                    <td className="px-3 py-2 font-medium text-[var(--foreground)]">{pos.asset}</td>
                     <td className="px-3 py-2">
                       <Badge variant={pos.side === "long" ? "default" : "destructive"}>
                         {pos.side.toUpperCase()}
                       </Badge>
                     </td>
-                    <td className="px-3 py-2 text-right text-zinc-300">
+                    <td className="px-3 py-2 text-right text-[var(--hl-text)]">
                       {parseFloat(pos.size).toFixed(4)}
                     </td>
-                    <td className="px-3 py-2 text-right text-zinc-400">
+                    <td className="px-3 py-2 text-right text-[var(--hl-muted)]">
                       {formatUsd(pos.entryPrice)}
                     </td>
-                    <td className="px-3 py-2 text-right text-zinc-300">
+                    <td className="px-3 py-2 text-right text-[var(--hl-text)]">
                       {pos.currentPrice ? formatUsd(pos.currentPrice) : "—"}
                     </td>
                     <td className={`px-3 py-2 text-right font-medium ${pnlColor(pos.unrealizedPnl || "0")}`}>
                       {pos.unrealizedPnl ? formatUsd(pos.unrealizedPnl) : "—"}
                     </td>
-                    <td className="px-3 py-2 text-zinc-500 font-mono text-xs">
+                    <td className="px-3 py-2 text-[var(--hl-muted)] font-mono text-xs">
                       {pos.traderAddress ? shortenAddress(pos.traderAddress) : "—"}
                     </td>
                     <td className="px-3 py-2 text-right">

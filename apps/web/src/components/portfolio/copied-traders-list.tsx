@@ -38,7 +38,7 @@ export function CopiedTradersList({
       </CardHeader>
       <CardContent>
         {traders.length === 0 ? (
-          <p className="py-4 text-center text-zinc-500">
+          <p className="py-4 text-center text-[var(--hl-muted)]">
             Not copying any traders yet. Head to the Traders page to start.
           </p>
         ) : (
@@ -46,17 +46,17 @@ export function CopiedTradersList({
             {traders.map((t) => (
               <div
                 key={t.id}
-                className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-800/20 p-4"
+                className="flex items-center justify-between rounded-lg border border-[var(--hl-border)] bg-[var(--hl-surface)] p-4"
               >
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm text-zinc-200">
+                    <span className="font-mono text-sm text-[var(--foreground)]">
                       {t.traderAddress ? shortenAddress(t.traderAddress) : "—"}
                     </span>
                     {t.isPaused && <Badge variant="warning">Paused</Badge>}
                     {!t.isActive && <Badge variant="destructive">Stopped</Badge>}
                   </div>
-                  <div className="flex gap-4 text-xs text-zinc-400">
+                  <div className="flex gap-4 text-xs text-[var(--hl-muted)]">
                     <span>Allocated: {formatUsd(t.allocatedCapital || "0")}</span>
                     <span>Exposure: {formatUsd(t.currentExposure)}</span>
                     <span>Positions: {t.positionCount}</span>
@@ -68,7 +68,7 @@ export function CopiedTradersList({
                     <p className={`text-sm font-semibold ${pnlColor(t.pnlContribution)}`}>
                       {formatUsd(t.pnlContribution)}
                     </p>
-                    <p className="text-[10px] text-zinc-500">PnL</p>
+                    <p className="text-[10px] text-[var(--hl-muted)]">PnL</p>
                   </div>
 
                   <div className="flex items-center gap-1">

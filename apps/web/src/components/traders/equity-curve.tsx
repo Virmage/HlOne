@@ -22,7 +22,7 @@ interface EquityCurveProps {
 export function EquityCurve({ data }: EquityCurveProps) {
   if (data.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-zinc-500 text-sm">
+      <div className="flex h-full items-center justify-center text-[var(--hl-muted)] text-sm">
         No equity curve data available
       </div>
     );
@@ -39,38 +39,38 @@ export function EquityCurve({ data }: EquityCurveProps) {
       <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
         <defs>
           <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+            <stop offset="5%" stopColor="#50d2c1" stopOpacity={0.3} />
+            <stop offset="95%" stopColor="#50d2c1" stopOpacity={0} />
           </linearGradient>
         </defs>
         <XAxis
           dataKey="time"
           axisLine={false}
           tickLine={false}
-          tick={{ fontSize: 10, fill: "#71717a" }}
+          tick={{ fontSize: 10, fill: "#5a7872" }}
           interval="preserveStartEnd"
         />
         <YAxis
           axisLine={false}
           tickLine={false}
-          tick={{ fontSize: 10, fill: "#71717a" }}
+          tick={{ fontSize: 10, fill: "#5a7872" }}
           tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
           width={50}
         />
         <Tooltip
           contentStyle={{
-            backgroundColor: "#18181b",
-            border: "1px solid #3f3f46",
+            backgroundColor: "#0a1f1b",
+            border: "1px solid #0f2a25",
             borderRadius: "8px",
             fontSize: "12px",
           }}
-          labelStyle={{ color: "#a1a1aa" }}
+          labelStyle={{ color: "#5a7872" }}
           formatter={(value) => [formatUsd(Number(value)), "Value"]}
         />
         <Area
           type="monotone"
           dataKey="value"
-          stroke="#10b981"
+          stroke="#50d2c1"
           strokeWidth={2}
           fill="url(#equityGradient)"
         />
