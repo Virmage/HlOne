@@ -108,20 +108,21 @@ export function LeaderboardTable({
                 {trader.rank || idx + 1}
               </td>
               <td className="py-2.5 px-4">
-                {trader.displayName ? (
-                  <div>
-                    <span className="text-[var(--foreground)] text-[13px]">
-                      {trader.displayName}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[var(--foreground)] text-[13px]">
+                    {trader.displayName || shortenAddress(trader.address, 6)}
+                  </span>
+                  {trader.isSharp && (
+                    <span className="text-[8px] px-1 py-0 rounded bg-[var(--hl-green)] text-[var(--background)] font-bold">
+                      SHARP
                     </span>
-                    <span className="font-mono text-[var(--hl-muted)] text-[11px] ml-1.5">
+                  )}
+                  {trader.displayName && (
+                    <span className="font-mono text-[var(--hl-muted)] text-[10px]">
                       {shortenAddress(trader.address, 4)}
                     </span>
-                  </div>
-                ) : (
-                  <span className="font-mono text-[var(--foreground)] text-[13px]">
-                    {shortenAddress(trader.address, 6)}
-                  </span>
-                )}
+                  )}
+                </div>
               </td>
               <td className="py-2.5 px-4 text-right text-[var(--hl-text)] tabular-nums">
                 {trader.accountSize ? formatUsd(trader.accountSize) : "\u2014"}

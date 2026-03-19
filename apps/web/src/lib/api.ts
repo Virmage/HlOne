@@ -21,6 +21,7 @@ export interface TraderRow {
   id: string;
   address: string;
   displayName: string | null;
+  isSharp?: boolean;
   accountSize: string | null;
   totalPnl: string | null;
   roiPercent: number | null;

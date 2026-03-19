@@ -13,6 +13,8 @@ import {
   getUserFillsByTime,
   discoverActiveTraders,
 } from "../services/hyperliquid.js";
+import { getTraderDisplayName } from "../services/name-generator.js";
+import { isSharpAddress } from "../services/smart-money.js";
 
 export const traderRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -141,7 +143,8 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
           .map((t, i) => ({
             id: t.address,
             address: t.address,
-            displayName: t.displayName,
+            displayName: getTraderDisplayName(t.address, t.displayName),
+            isSharp: isSharpAddress(t.address),
             accountSize: t.accountValue.toFixed(2),
             totalPnl: t.totalPnl.toFixed(2),
             roiPercent: t.roiPercent,
