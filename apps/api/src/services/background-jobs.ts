@@ -7,6 +7,7 @@ import { runWhaleCheck } from "./whale-tracker.js";
 import { getSmartMoneyData } from "./smart-money.js";
 import { getTokenScores } from "./scoring.js";
 import { getCachedMids, getCachedAssetCtxs } from "./market-data.js";
+import { getSignals } from "./signals.js";
 
 let started = false;
 
@@ -32,7 +33,8 @@ export function startBackgroundJobs() {
     try {
       await getSmartMoneyData();
       await getTokenScores();
-      console.log("[bg] Smart money + scores refreshed");
+      await getSignals();
+      console.log("[bg] Smart money + scores + signals refreshed");
     } catch (err) {
       console.error("[bg] Smart money refresh failed:", (err as Error).message);
     }

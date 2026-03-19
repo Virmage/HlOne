@@ -10,6 +10,7 @@ import { getTokenScoresCached } from "../services/scoring.js";
 import { getTraderDisplayName } from "../services/name-generator.js";
 import { discoverActiveTraders, getCandleSnapshot, getFundingHistory } from "../services/hyperliquid.js";
 import { getOptionsData, getAllOptionsData, type OptionsSnapshot } from "../services/options-data.js";
+import { getSignals, getSignalsCached } from "../services/signals.js";
 
 export const marketRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -84,6 +85,9 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       for (const [k, v] of opts) optionsData[k] = v;
     } catch { /* ignore */ }
 
+    // Signals: unusual volume, funding arb, position crowding, market regime
+    const signalsData = getSignalsCached();
+
     return {
       tokens: tokenData,
       sharpFlow,
@@ -92,6 +96,10 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       hotTokens,
       topTraders,
       options: optionsData,
+      signals: signalsData?.signals || [],
+      fundingOpps: signalsData?.fundingOpps.slice(0, 5) || [],
+      regime: signalsData?.regime || null,
+      callout: signalsData?.callout || null,
       timestamp: Date.now(),
     };
   });

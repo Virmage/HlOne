@@ -7,6 +7,8 @@ import { SharpFlowTable } from "@/components/terminal/sharp-flow-table";
 import { WhaleFeed } from "@/components/terminal/whale-feed";
 import { DivergencePanel } from "@/components/terminal/divergence-panel";
 import { TopTradersPanel } from "@/components/terminal/top-traders-panel";
+import { SharpSquareCalloutPanel } from "@/components/terminal/sharp-square-callout";
+import { MarketPulse } from "@/components/terminal/market-pulse";
 import { TokenDrawer } from "@/components/terminal/token-drawer";
 import { TraderDetailPanel } from "@/components/traders/trader-detail-panel";
 import { CopyDialog } from "@/components/traders/copy-dialog";
@@ -49,6 +51,12 @@ export default function DashboardPage() {
         onSelectToken={setSelectedToken}
       />
 
+      {/* Sharps vs Squares Callout */}
+      <SharpSquareCalloutPanel
+        callout={data?.callout || null}
+        onSelectToken={setSelectedToken}
+      />
+
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-px bg-[var(--hl-border)]">
         {/* Top Left: Sharp Flow */}
@@ -83,6 +91,17 @@ export default function DashboardPage() {
             onSelectTrader={setSelectedTrader}
           />
         </div>
+      </div>
+
+      {/* Market Pulse — full width module */}
+      <div className="border-t border-[var(--hl-border)]">
+        <MarketPulse
+          signals={data?.signals || []}
+          fundingOpps={data?.fundingOpps || []}
+          regime={data?.regime || null}
+          options={data?.options || {}}
+          onSelectToken={setSelectedToken}
+        />
       </div>
 
       {/* Token Drawer Slide-in */}

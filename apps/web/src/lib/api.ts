@@ -311,6 +311,38 @@ export interface OptionsSnapshot {
   topStrikes: { strike: number; callOI: number; putOI: number }[];
 }
 
+export interface TradingSignal {
+  type: string;
+  coin: string;
+  severity: "info" | "warning" | "critical";
+  title: string;
+  description: string;
+  value: number;
+}
+
+export interface FundingOpportunity {
+  coin: string;
+  fundingRate: number;
+  annualizedPct: number;
+  direction: "long" | "short";
+  description: string;
+}
+
+export interface MarketRegime {
+  regime: "risk_on" | "risk_off" | "neutral" | "divergent";
+  bullishCount: number;
+  bearishCount: number;
+  avgChange24h: number;
+  description: string;
+}
+
+export interface SharpSquareCallout {
+  sharpTopLong: { coin: string; count: number; pct: number } | null;
+  sharpTopShort: { coin: string; count: number; pct: number } | null;
+  squareTopLong: { coin: string; count: number; pct: number } | null;
+  squareTopShort: { coin: string; count: number; pct: number } | null;
+}
+
 export interface TerminalData {
   tokens: TokenOverview[];
   sharpFlow: SharpFlow[];
@@ -319,6 +351,10 @@ export interface TerminalData {
   hotTokens: { coin: string; eventCount: number }[];
   topTraders: TopTrader[];
   options: Record<string, OptionsSnapshot>;
+  signals: TradingSignal[];
+  fundingOpps: FundingOpportunity[];
+  regime: MarketRegime | null;
+  callout: SharpSquareCallout | null;
   timestamp: number;
 }
 

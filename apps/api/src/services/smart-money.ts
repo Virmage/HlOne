@@ -197,10 +197,11 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
   let squarePositionMap: Map<string, HLPosition[]>;
 
   if (needsFullRefresh) {
-    // Fetch positions for all sharps + sample of 200 squares
+    // Fetch positions for all sharps + top 500 squares by account value
+    // (top by account value = most likely to have active positions)
     const squareSample = squares
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 200);
+      .sort((a, b) => b.accountValue - a.accountValue)
+      .slice(0, 500);
 
     [sharpPositionMap, squarePositionMap] = await Promise.all([
       fetchPositionsBatch(sharps.map(t => t.address)),
