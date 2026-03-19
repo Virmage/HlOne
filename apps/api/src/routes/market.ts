@@ -4,9 +4,9 @@
 
 import type { FastifyPluginAsync } from "fastify";
 import { getTokenOverviews, analyzeBook } from "../services/market-data.js";
-import { getSmartMoneyData, getSmartMoneyCached, getSharpPositionsForCoin } from "../services/smart-money.js";
+import { getSmartMoneyCached } from "../services/smart-money.js";
 import { getWhaleAlerts, getHotTokens, getWhaleAlertsForCoin } from "../services/whale-tracker.js";
-import { getTokenScores, getTokenScore, getTokenScoresCached } from "../services/scoring.js";
+import { getTokenScoresCached } from "../services/scoring.js";
 import { getTraderDisplayName } from "../services/name-generator.js";
 import { discoverActiveTraders, getCandleSnapshot, getFundingHistory } from "../services/hyperliquid.js";
 import { getOptionsData, getAllOptionsData, type OptionsSnapshot } from "../services/options-data.js";
@@ -108,19 +108,19 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       const now = Date.now();
 
       // Fetch everything in parallel
+      // Use cached smart money data (instant) — never block on position scan
+      const sharpPositions = (getSmartMoneyCached()?.sharpPositions.get(coin)) || [];
+      const score = getTokenScoresCached().get(coin) || null;
+
       const [
-        sharpPositions,
         bookAnalysis,
-        score,
         overviews,
         candles,
         funding,
         whaleAlerts,
         options,
       ] = await Promise.all([
-        getSharpPositionsForCoin(coin).catch(() => []),
         analyzeBook(coin).catch(() => null),
-        getTokenScore(coin),
         getTokenOverviews().catch(() => []),
         getCandleSnapshot(coin, interval, now - 7 * 24 * 60 * 60 * 1000, now).catch(() => []),
         getFundingHistory(coin, now - 3 * 24 * 60 * 60 * 1000).catch(() => []),
@@ -226,7 +226,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
    * All CPYCAT scores.
    */
   app.get("/scores", async () => {
-    const scores = await getTokenScores();
+    const scores = getTokenScoresCached();
     return {
       scores: [...scores.values()].sort((a, b) => b.score - a.score),
       timestamp: Date.now(),
