@@ -72,7 +72,7 @@ function classifyTraders(traders: DiscoveredTrader[]) {
   const sharpCandidates = traders
     .filter(t => t.roiAllTime > 30 && t.accountValue > 10_000)
     .sort((a, b) => b.roiAllTime - a.roiAllTime)
-    .slice(0, 500);
+    .slice(0, 200); // Keep small for memory — 200 sharps max
 
   const sharpAddresses = new Set(sharpCandidates.map(t => t.address.toLowerCase()));
 
@@ -200,7 +200,7 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
     // Fetch positions for all sharps + sample of 200 squares
     const squareSample = squares
       .sort(() => Math.random() - 0.5)
-      .slice(0, 200);
+      .slice(0, 100); // Sample 100 squares
 
     [sharpPositionMap, squarePositionMap] = await Promise.all([
       fetchPositionsBatch(sharps.map(t => t.address)),

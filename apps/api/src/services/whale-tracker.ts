@@ -25,7 +25,7 @@ export interface WhaleEvent {
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
-const MAX_EVENTS = 500;
+const MAX_EVENTS = 200;
 const events: WhaleEvent[] = [];
 let previousPositions = new Map<string, Map<string, { size: number; side: string }>>();
 let eventCounter = 0;
@@ -42,7 +42,7 @@ export async function runWhaleCheck(): Promise<void> {
     // Top 100 by account value
     const whales = [...traders]
       .sort((a, b) => b.accountValue - a.accountValue)
-      .slice(0, 100);
+      .slice(0, 50); // Keep small for memory on free tier
 
     const mids = await getCachedMids();
 

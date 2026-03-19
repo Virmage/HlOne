@@ -146,12 +146,13 @@ export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
   }
   if (!res.ok) throw new Error(`Leaderboard fetch failed: ${res.status}`);
 
-  const text = await res.text();
-  // Parse in a try/catch — response can be 27MB+
+  // Parse and immediately extract top 5000 by account value to limit memory
   let rows: LeaderboardRow[];
   try {
-    const data = JSON.parse(text) as { leaderboardRows: LeaderboardRow[] };
-    rows = data.leaderboardRows || [];
+    const data = JSON.parse(await res.text()) as { leaderboardRows: LeaderboardRow[] };
+    rows = (data.leaderboardRows || [])
+      .sort((a, b) => parseFloat(b.accountValue || "0") - parseFloat(a.accountValue || "0"))
+      .slice(0, 5000);
   } catch (e) {
     throw new Error(`Leaderboard JSON parse failed: ${(e as Error).message}`);
   }
