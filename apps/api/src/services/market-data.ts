@@ -100,7 +100,7 @@ export async function getTokenOverviews(): Promise<TokenOverview[]> {
       prevDayPx,
       change24h,
       volume24h: parseFloat(ctx.dayNtlVlm || "0"),
-      openInterest: parseFloat(ctx.openInterest || "0"),
+      openInterest: parseFloat(ctx.openInterest || "0") * price, // Convert from coin units to USD
       fundingRate: parseFloat(ctx.funding || "0"),
       markPx,
       oraclePx,

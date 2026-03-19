@@ -7,6 +7,7 @@ import { SharpFlowTable } from "@/components/terminal/sharp-flow-table";
 import { WhaleFeed } from "@/components/terminal/whale-feed";
 import { DivergencePanel } from "@/components/terminal/divergence-panel";
 import { TopTradersPanel } from "@/components/terminal/top-traders-panel";
+import { TokenDrawer } from "@/components/terminal/token-drawer";
 import { TraderDetailPanel } from "@/components/traders/trader-detail-panel";
 import { CopyDialog } from "@/components/traders/copy-dialog";
 import { useAccount } from "wagmi";
@@ -83,8 +84,17 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Token Drawer Slide-in */}
+      {selectedToken && (
+        <TokenDrawer
+          coin={selectedToken}
+          onClose={() => setSelectedToken(null)}
+          onCopy={setCopyTrader}
+        />
+      )}
+
       {/* Trader Detail Slide-in */}
-      {selectedTrader && (
+      {selectedTrader && !selectedToken && (
         <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[480px] overflow-y-auto bg-[var(--background)] border-l border-[var(--hl-border)] shadow-2xl">
           <TraderDetailPanel
             address={selectedTrader}

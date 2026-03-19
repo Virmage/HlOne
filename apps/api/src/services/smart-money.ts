@@ -302,6 +302,9 @@ export function isSharpAddress(address: string): boolean {
 }
 
 export async function getSharpPositionsForCoin(coin: string): Promise<TraderPosition[]> {
+  // Use cached data if available, otherwise trigger a fetch
+  const cached = getSmartMoneyCached();
+  if (cached) return cached.sharpPositions.get(coin) || [];
   const data = await getSmartMoneyData();
   return data.sharpPositions.get(coin) || [];
 }
