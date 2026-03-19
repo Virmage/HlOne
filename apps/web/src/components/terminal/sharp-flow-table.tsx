@@ -1,7 +1,7 @@
 "use client";
 
 import type { SharpFlow } from "@/lib/api";
-import { formatUsd, pnlColor } from "@/lib/utils";
+import { pnlColor } from "@/lib/utils";
 
 interface SharpFlowTableProps {
   flows: SharpFlow[];
@@ -29,23 +29,22 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
               <th className="py-1.5 px-2 text-left font-normal">Token</th>
               <th className="py-1.5 px-2 text-right font-normal">Price</th>
               <th className="py-1.5 px-2 text-right font-normal">24h</th>
-              <th className="py-1.5 px-2 text-center font-normal">Sharps</th>
-              <th className="py-1.5 px-2 text-center font-normal">Direction</th>
+              <th className="py-1.5 px-2 text-center font-normal">Sharp Str.</th>
+              <th className="py-1.5 px-2 text-center font-normal">Square Str.</th>
               <th className="py-1.5 px-2 text-right font-normal">Score</th>
             </tr>
           </thead>
           <tbody>
             {flows.map((f) => {
-              const totalSharps = f.sharpLongCount + f.sharpShortCount;
-              const longPct = totalSharps > 0 ? (f.sharpLongCount / totalSharps) * 100 : 50;
-              const isLong = longPct > 50;
-
               let scoreColor = "text-[var(--hl-muted)]";
               if (f.score !== null) {
                 if (f.score >= 70) scoreColor = "text-[var(--hl-green)]";
                 else if (f.score <= 30) scoreColor = "text-[var(--hl-red)]";
                 else scoreColor = "text-[var(--hl-text)]";
               }
+
+              const sharpColor = f.sharpDirection === "long" ? "text-[var(--hl-green)]" : f.sharpDirection === "short" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]";
+              const squareColor = f.squareDirection === "long" ? "text-[var(--hl-green)]" : f.squareDirection === "short" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]";
 
               return (
                 <tr
@@ -69,21 +68,31 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
                   <td className={`py-1.5 px-2 text-right tabular-nums ${pnlColor(f.change24h)}`}>
                     {f.change24h >= 0 ? "+" : ""}{f.change24h.toFixed(2)}%
                   </td>
-                  <td className="py-1.5 px-2 text-center">
-                    <span className="text-[var(--hl-green)]">{f.sharpLongCount}</span>
-                    <span className="text-[var(--hl-muted)] mx-0.5">/</span>
-                    <span className="text-[var(--hl-red)]">{f.sharpShortCount}</span>
-                  </td>
+                  {/* Sharp Strength */}
                   <td className="py-1.5 px-2">
-                    <div className="flex items-center gap-1">
-                      <div className="flex-1 h-1.5 rounded-full bg-[var(--hl-red)] overflow-hidden">
+                    <div className="flex items-center gap-1.5 justify-center">
+                      <div className="w-10 h-1.5 rounded-full bg-[var(--hl-border)] overflow-hidden">
                         <div
-                          className="h-full bg-[var(--hl-green)] rounded-full"
-                          style={{ width: `${longPct}%` }}
+                          className={`h-full rounded-full ${f.sharpDirection === "long" ? "bg-[var(--hl-green)]" : f.sharpDirection === "short" ? "bg-[var(--hl-red)]" : "bg-[var(--hl-muted)]"}`}
+                          style={{ width: `${f.sharpStrength}%` }}
                         />
                       </div>
-                      <span className={`text-[10px] tabular-nums ${isLong ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
-                        {Math.round(isLong ? longPct : 100 - longPct)}%
+                      <span className={`text-[10px] tabular-nums font-medium ${sharpColor}`}>
+                        {f.sharpStrength > 0 ? `${f.sharpDirection === "long" ? "L" : f.sharpDirection === "short" ? "S" : "—"} ${f.sharpStrength}` : "—"}
+                      </span>
+                    </div>
+                  </td>
+                  {/* Square Strength */}
+                  <td className="py-1.5 px-2">
+                    <div className="flex items-center gap-1.5 justify-center">
+                      <div className="w-10 h-1.5 rounded-full bg-[var(--hl-border)] overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${f.squareDirection === "long" ? "bg-[var(--hl-green)]" : f.squareDirection === "short" ? "bg-[var(--hl-red)]" : "bg-[var(--hl-muted)]"}`}
+                          style={{ width: `${f.squareStrength}%` }}
+                        />
+                      </div>
+                      <span className={`text-[10px] tabular-nums font-medium ${squareColor}`}>
+                        {f.squareStrength > 0 ? `${f.squareDirection === "long" ? "L" : f.squareDirection === "short" ? "S" : "—"} ${f.squareStrength}` : "—"}
                       </span>
                     </div>
                   </td>

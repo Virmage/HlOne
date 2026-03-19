@@ -14,9 +14,13 @@ export interface SharpSquareFlow {
   sharpShortCount: number;
   sharpNetSize: number; // positive = net long
   sharpAvgEntry: number;
+  sharpStrength: number; // 0-100 weighted by trader scores
+  sharpDirection: "long" | "short" | "neutral";
   squareLongCount: number;
   squareShortCount: number;
   squareNetSize: number;
+  squareStrength: number; // 0-100 weighted by trader scores
+  squareDirection: "long" | "short" | "neutral";
   consensus: "strong_long" | "long" | "neutral" | "short" | "strong_short";
   divergence: boolean; // sharps and squares disagree
 }
@@ -25,6 +29,7 @@ export interface TraderPosition {
   address: string;
   displayName: string;
   isSharp: boolean;
+  traderScore: number; // 0-100, how sharp or square this trader is
   accountValue: number;
   roiAllTime: number;
   coin: string;
@@ -53,6 +58,7 @@ interface SmartMoneyCache {
   sharps: DiscoveredTrader[];
   sharpAddresses: Set<string>;
   squares: DiscoveredTrader[];
+  traderScores: Map<string, number>; // address → score (0-100)
   flow: SharpSquareFlow[];
   divergences: DivergenceSignal[];
   sharpPositions: Map<string, TraderPosition[]>; // coin → positions
@@ -65,23 +71,116 @@ const FULL_REFRESH_TTL = 5 * 60_000; // 5 minutes for full position scan
 
 let lastFullRefresh = 0;
 
+// ─── Trader Scoring ──────────────────────────────────────────────────────────
+
+/**
+ * Score a trader 0-100 based on:
+ * - ROI consistency across timeframes (30%)
+ * - Magnitude of allTime ROI (30%)
+ * - Account size / skin in game (20%)
+ * - Recent activity / volume (20%)
+ */
+function scoreTrader(t: DiscoveredTrader): number {
+  // ROI consistency: all three windows positive = highest score
+  const weeklyPositive = t.roiWeekly > 0 ? 1 : 0;
+  const monthlyPositive = t.roi30d > 0 ? 1 : 0;
+  const allTimePositive = t.roiAllTime > 0 ? 1 : 0;
+  const consistencyScore = ((weeklyPositive + monthlyPositive + allTimePositive) / 3) * 100;
+
+  // ROI magnitude: log scale to handle extreme values
+  // 50% = 50, 100% = 65, 500% = 80, 1000%+ = 90+
+  const absRoi = Math.abs(t.roiAllTime);
+  const magnitudeScore = Math.min(100, absRoi > 0 ? 30 + Math.log10(1 + absRoi) * 25 : 0);
+
+  // Account size: $10K = 30, $100K = 60, $1M+ = 90
+  const sizeScore = Math.min(100, t.accountValue > 0 ? Math.log10(t.accountValue) * 20 : 0);
+
+  // Activity: has volume in recent windows
+  const hasRecentVolume = (t.roiWeekly !== 0 || t.roi30d !== 0) ? 80 : 30;
+
+  const score = Math.round(
+    consistencyScore * 0.30 +
+    magnitudeScore * 0.30 +
+    sizeScore * 0.20 +
+    hasRecentVolume * 0.20
+  );
+
+  return Math.min(100, Math.max(0, score));
+}
+
+/**
+ * Score a square (bad trader) 0-100. Higher = worse trader = better fade signal.
+ * - Consistently negative ROI across timeframes
+ * - Still has meaningful account (not zeroed)
+ * - Still actively trading (not dormant)
+ */
+function scoreSquare(t: DiscoveredTrader): number {
+  // Consistency of losses: all windows negative = highest square score
+  const weeklyNeg = t.roiWeekly < 0 ? 1 : 0;
+  const monthlyNeg = t.roi30d < 0 ? 1 : 0;
+  const allTimeNeg = t.roiAllTime < 0 ? 1 : 0;
+  const lossConsistency = ((weeklyNeg + monthlyNeg + allTimeNeg) / 3) * 100;
+
+  // Magnitude of losses (worse = higher score as fade signal)
+  const absRoi = Math.abs(t.roiAllTime);
+  const lossMagnitude = t.roiAllTime < 0 ? Math.min(100, absRoi > 0 ? 30 + Math.log10(1 + absRoi) * 20 : 0) : 0;
+
+  // Still has account value (can still trade, not zeroed)
+  const hasAccount = t.accountValue > 1000 ? 80 : t.accountValue > 100 ? 40 : 0;
+
+  // Active recently
+  const isActive = (t.roiWeekly !== 0 || t.roi30d !== 0) ? 80 : 20;
+
+  const score = Math.round(
+    lossConsistency * 0.35 +
+    lossMagnitude * 0.25 +
+    hasAccount * 0.20 +
+    isActive * 0.20
+  );
+
+  return Math.min(100, Math.max(0, score));
+}
+
 // ─── Classification ──────────────────────────────────────────────────────────
 
 function classifyTraders(traders: DiscoveredTrader[]) {
-  // Sharps: top 500 by allTime ROI where ROI > 30% AND account > $10K
+  const traderScores = new Map<string, number>();
+
+  // Score all traders
+  for (const t of traders) {
+    const addr = t.address.toLowerCase();
+    if (t.roiAllTime > 0 && t.accountValue > 5_000) {
+      traderScores.set(addr, scoreTrader(t));
+    } else if (t.roiAllTime < -10 && t.accountValue > 1_000) {
+      // Negative score for squares (stored as negative to distinguish)
+      traderScores.set(addr, -scoreSquare(t));
+    }
+  }
+
+  // Sharps: positive score > 40, sorted by score, top 500
   const sharpCandidates = traders
-    .filter(t => t.roiAllTime > 30 && t.accountValue > 10_000)
-    .sort((a, b) => b.roiAllTime - a.roiAllTime)
+    .filter(t => (traderScores.get(t.address.toLowerCase()) || 0) > 40)
+    .sort((a, b) => (traderScores.get(b.address.toLowerCase()) || 0) - (traderScores.get(a.address.toLowerCase()) || 0))
     .slice(0, 500);
 
   const sharpAddresses = new Set(sharpCandidates.map(t => t.address.toLowerCase()));
 
-  // Squares: everyone else with account > $1K
-  const squares = traders.filter(
-    t => !sharpAddresses.has(t.address.toLowerCase()) && t.accountValue > 1_000
-  );
+  // Squares: negative score (consistent losers), sorted by worst first, top 500
+  const squares = traders
+    .filter(t => {
+      const score = traderScores.get(t.address.toLowerCase()) || 0;
+      return score < -30 && !sharpAddresses.has(t.address.toLowerCase());
+    })
+    .sort((a, b) => (traderScores.get(a.address.toLowerCase()) || 0) - (traderScores.get(b.address.toLowerCase()) || 0))
+    .slice(0, 500);
 
-  return { sharps: sharpCandidates, sharpAddresses, squares };
+  // Convert scores to absolute for external use
+  const absScores = new Map<string, number>();
+  for (const [addr, score] of traderScores) {
+    absScores.set(addr, Math.abs(score));
+  }
+
+  return { sharps: sharpCandidates, sharpAddresses, squares, traderScores: absScores };
 }
 
 // ─── Position fetching ───────────────────────────────────────────────────────
@@ -126,22 +225,29 @@ function aggregateFlow(
   traders: DiscoveredTrader[],
   positionMap: Map<string, HLPosition[]>,
   isSharp: boolean,
-): Map<string, { longCount: number; shortCount: number; netSize: number; avgEntry: number; positions: TraderPosition[] }> {
-  const coinAgg = new Map<string, { longCount: number; shortCount: number; netSize: number; totalEntry: number; entryCount: number; positions: TraderPosition[] }>();
+  traderScores: Map<string, number>,
+): Map<string, { longCount: number; shortCount: number; netSize: number; avgEntry: number; weightedLong: number; weightedShort: number; positions: TraderPosition[] }> {
+  const coinAgg = new Map<string, { longCount: number; shortCount: number; netSize: number; totalEntry: number; entryCount: number; weightedLong: number; weightedShort: number; positions: TraderPosition[] }>();
 
   for (const trader of traders) {
     const positions = positionMap.get(trader.address.toLowerCase());
     if (!positions) continue;
+    const tScore = traderScores.get(trader.address.toLowerCase()) || 50;
 
     for (const pos of positions) {
       const size = parseFloat(pos.szi);
       if (size === 0) continue;
 
       const coin = pos.coin;
-      const agg = coinAgg.get(coin) || { longCount: 0, shortCount: 0, netSize: 0, totalEntry: 0, entryCount: 0, positions: [] };
+      const agg = coinAgg.get(coin) || { longCount: 0, shortCount: 0, netSize: 0, totalEntry: 0, entryCount: 0, weightedLong: 0, weightedShort: 0, positions: [] };
 
-      if (size > 0) agg.longCount++;
-      else agg.shortCount++;
+      if (size > 0) {
+        agg.longCount++;
+        agg.weightedLong += tScore;
+      } else {
+        agg.shortCount++;
+        agg.weightedShort += tScore;
+      }
       agg.netSize += size;
       agg.totalEntry += parseFloat(pos.entryPx);
       agg.entryCount++;
@@ -150,6 +256,7 @@ function aggregateFlow(
         address: trader.address,
         displayName: getTraderDisplayName(trader.address, trader.displayName),
         isSharp,
+        traderScore: tScore,
         accountValue: trader.accountValue,
         roiAllTime: trader.roiAllTime,
         coin,
@@ -166,13 +273,15 @@ function aggregateFlow(
     }
   }
 
-  const result = new Map<string, { longCount: number; shortCount: number; netSize: number; avgEntry: number; positions: TraderPosition[] }>();
+  const result = new Map<string, { longCount: number; shortCount: number; netSize: number; avgEntry: number; weightedLong: number; weightedShort: number; positions: TraderPosition[] }>();
   for (const [coin, agg] of coinAgg) {
     result.set(coin, {
       longCount: agg.longCount,
       shortCount: agg.shortCount,
       netSize: agg.netSize,
       avgEntry: agg.entryCount > 0 ? agg.totalEntry / agg.entryCount : 0,
+      weightedLong: agg.weightedLong,
+      weightedShort: agg.weightedShort,
       positions: agg.positions,
     });
   }
@@ -188,7 +297,7 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
   }
 
   const allTraders = await discoverActiveTraders();
-  const { sharps, sharpAddresses, squares } = classifyTraders(allTraders);
+  const { sharps, sharpAddresses, squares, traderScores } = classifyTraders(allTraders);
 
   // Only do full position scan every 5 minutes
   const needsFullRefresh = !cache || Date.now() - lastFullRefresh > FULL_REFRESH_TTL;
@@ -215,8 +324,8 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
   }
 
   // Aggregate per-coin flow
-  const sharpFlow = aggregateFlow(sharps, sharpPositionMap, true);
-  const squareFlow = aggregateFlow(squares, squarePositionMap, false);
+  const sharpFlow = aggregateFlow(sharps, sharpPositionMap, true, traderScores);
+  const squareFlow = aggregateFlow(squares, squarePositionMap, false, traderScores);
 
   // Build combined flow + detect divergences
   const allCoins = new Set([...sharpFlow.keys(), ...squareFlow.keys()]);
@@ -230,11 +339,27 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
 
     const sharpTotal = (sf?.longCount || 0) + (sf?.shortCount || 0);
     const sharpLongPct = sharpTotal > 0 ? (sf?.longCount || 0) / sharpTotal : 0.5;
-    const sharpDirection = sharpLongPct > 0.6 ? "long" : sharpLongPct < 0.4 ? "short" : "neutral";
+    const sharpDir: "long" | "short" | "neutral" = sharpLongPct > 0.55 ? "long" : sharpLongPct < 0.45 ? "short" : "neutral";
 
     const squareTotal = (sq?.longCount || 0) + (sq?.shortCount || 0);
     const squareLongPct = squareTotal > 0 ? (sq?.longCount || 0) / squareTotal : 0.5;
-    const squareDirection = squareLongPct > 0.6 ? "long" : squareLongPct < 0.4 ? "short" : "neutral";
+    const squareDir: "long" | "short" | "neutral" = squareLongPct > 0.55 ? "long" : squareLongPct < 0.45 ? "short" : "neutral";
+
+    // Compute weighted strength (0-100)
+    // Strength = (weighted score of winning side - weighted score of losing side) / total, normalized
+    const sharpWeightedLong = sf?.weightedLong || 0;
+    const sharpWeightedShort = sf?.weightedShort || 0;
+    const sharpWeightTotal = sharpWeightedLong + sharpWeightedShort;
+    const sharpStrength = sharpWeightTotal > 0
+      ? Math.round(Math.abs(sharpWeightedLong - sharpWeightedShort) / sharpWeightTotal * 100)
+      : 0;
+
+    const squareWeightedLong = sq?.weightedLong || 0;
+    const squareWeightedShort = sq?.weightedShort || 0;
+    const squareWeightTotal = squareWeightedLong + squareWeightedShort;
+    const squareStrength = squareWeightTotal > 0
+      ? Math.round(Math.abs(squareWeightedLong - squareWeightedShort) / squareWeightTotal * 100)
+      : 0;
 
     let consensus: SharpSquareFlow["consensus"] = "neutral";
     if (sharpLongPct > 0.75) consensus = "strong_long";
@@ -242,8 +367,8 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
     else if (sharpLongPct < 0.25) consensus = "strong_short";
     else if (sharpLongPct < 0.4) consensus = "short";
 
-    const isDivergent = (sharpDirection === "long" && squareDirection === "short") ||
-                        (sharpDirection === "short" && squareDirection === "long");
+    const isDivergent = (sharpDir === "long" && squareDir === "short") ||
+                        (sharpDir === "short" && squareDir === "long");
 
     flow.push({
       coin,
@@ -251,9 +376,13 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
       sharpShortCount: sf?.shortCount || 0,
       sharpNetSize: sf?.netSize || 0,
       sharpAvgEntry: sf?.avgEntry || 0,
+      sharpStrength,
+      sharpDirection: sharpDir,
       squareLongCount: sq?.longCount || 0,
       squareShortCount: sq?.shortCount || 0,
       squareNetSize: sq?.netSize || 0,
+      squareStrength,
+      squareDirection: squareDir,
       consensus,
       divergence: isDivergent,
     });
@@ -261,12 +390,12 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
     if (isDivergent && sharpTotal >= 3) {
       divergences.push({
         coin,
-        sharpDirection: sharpDirection as "long" | "short",
-        squareDirection: squareDirection as "long" | "short",
+        sharpDirection: sharpDir as "long" | "short",
+        squareDirection: squareDir as "long" | "short",
         sharpCount: sharpTotal,
         squareCount: squareTotal,
-        sharpConviction: Math.round(Math.max(sharpLongPct, 1 - sharpLongPct) * 100),
-        description: `Sharps are ${sharpDirection.toUpperCase()} (${sharpTotal} traders) while Squares are ${squareDirection.toUpperCase()} (${squareTotal} traders)`,
+        sharpConviction: sharpStrength,
+        description: `Sharps ${sharpDir.toUpperCase()} (strength ${sharpStrength}) vs Squares ${squareDir.toUpperCase()} (strength ${squareStrength})`,
       });
     }
 
@@ -290,6 +419,7 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
     sharps,
     sharpAddresses,
     squares,
+    traderScores,
     flow,
     divergences,
     sharpPositions: sharpPositionsByCoin,

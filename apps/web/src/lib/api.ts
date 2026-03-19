@@ -250,9 +250,13 @@ export interface SharpFlow {
   sharpLongCount: number;
   sharpShortCount: number;
   sharpNetSize: number;
+  sharpStrength: number;
+  sharpDirection: string;
   squareLongCount: number;
   squareShortCount: number;
   squareNetSize: number;
+  squareStrength: number;
+  squareDirection: string;
   consensus: string;
   divergence: boolean;
   score: number | null;
