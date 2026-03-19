@@ -72,7 +72,7 @@ function classifyTraders(traders: DiscoveredTrader[]) {
   const sharpCandidates = traders
     .filter(t => t.roiAllTime > 30 && t.accountValue > 10_000)
     .sort((a, b) => b.roiAllTime - a.roiAllTime)
-    .slice(0, 200); // Keep small for memory — 200 sharps max
+    .slice(0, 500);
 
   const sharpAddresses = new Set(sharpCandidates.map(t => t.address.toLowerCase()));
 
@@ -200,7 +200,7 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
     // Fetch positions for all sharps + sample of 200 squares
     const squareSample = squares
       .sort(() => Math.random() - 0.5)
-      .slice(0, 100); // Sample 100 squares
+      .slice(0, 200);
 
     [sharpPositionMap, squarePositionMap] = await Promise.all([
       fetchPositionsBatch(sharps.map(t => t.address)),
@@ -277,6 +277,13 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
   // Sort flow by total sharp interest
   flow.sort((a, b) => (b.sharpLongCount + b.sharpShortCount) - (a.sharpLongCount + a.sharpShortCount));
   divergences.sort((a, b) => b.sharpConviction - a.sharpConviction);
+
+  // Trim positions per coin to top 20 by position value (saves memory)
+  for (const [coin, positions] of sharpPositionsByCoin) {
+    if (positions.length > 20) {
+      sharpPositionsByCoin.set(coin, positions.sort((a, b) => b.positionValue - a.positionValue).slice(0, 20));
+    }
+  }
 
   cache = {
     sharps,

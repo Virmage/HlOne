@@ -54,6 +54,14 @@ body {
   animation: fadeIn 150ms ease-out, zoomIn95 150ms ease-out;
 }
 
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-ticker {
+  animation: ticker-scroll 60s linear infinite;
+}
+
 ::selection {
   background: rgba(80, 210, 193, 0.25);
 }
