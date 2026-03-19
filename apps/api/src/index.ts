@@ -34,7 +34,7 @@ async function main() {
   await app.register(marketRoutes, { prefix: "/api/market" });
 
   // Health check
-  app.get("/api/health", async () => ({ status: "ok", version: "2.0.0", timestamp: Date.now() }));
+  app.get("/api/health", async () => ({ status: "ok", version: "2.1.0", timestamp: Date.now() }));
 
   // Debug: test leaderboard fetch directly
   app.get("/api/debug/leaderboard", async (req, reply) => {
