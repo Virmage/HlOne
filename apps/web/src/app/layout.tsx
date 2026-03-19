@@ -4,8 +4,8 @@ import { Header } from "@/components/layout/header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CPYCAT.HL",
-  description: "Copy top Hyperliquid traders automatically",
+  title: "CPYCAT.HL — Hyperliquid Trading Terminal",
+  description: "Smart money flow, whale alerts, and copy trading for Hyperliquid",
 };
 
 export default function RootLayout({
@@ -20,7 +20,7 @@ export default function RootLayout({
       >
         <Providers>
           <Header />
-          <main className="mx-auto max-w-[1200px] px-6 py-8">{children}</main>
+          <main className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8 py-6">{children}</main>
         </Providers>
       </body>
     </html>

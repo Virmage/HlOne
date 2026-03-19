@@ -212,6 +212,164 @@ export async function checkBuilderApproval(userAddress: string) {
   );
 }
 
+// ─── Market Terminal ─────────────────────────────────────────────────────────
+
+export interface TokenOverview {
+  coin: string;
+  price: number;
+  prevDayPx: number;
+  change24h: number;
+  volume24h: number;
+  openInterest: number;
+  fundingRate: number;
+  markPx: number;
+  oraclePx: number;
+  premium: number;
+  score: CpycatScore | null;
+}
+
+export interface CpycatScore {
+  coin: string;
+  score: number;
+  signal: "strong_buy" | "buy" | "neutral" | "sell" | "strong_sell";
+  breakdown: {
+    sharpConviction: number;
+    whaleAccumulation: number;
+    priceTrend: number;
+    fundingRegime: number;
+    socialMomentum: number;
+  };
+  sharpDirection: "long" | "short" | "neutral";
+  sharpCount: number;
+  divergence: boolean;
+}
+
+export interface SharpFlow {
+  coin: string;
+  sharpLongCount: number;
+  sharpShortCount: number;
+  sharpNetSize: number;
+  squareLongCount: number;
+  squareShortCount: number;
+  squareNetSize: number;
+  consensus: string;
+  divergence: boolean;
+  score: number | null;
+  signal: string;
+  price: number;
+  change24h: number;
+  volume24h: number;
+  fundingRate: number;
+}
+
+export interface WhaleAlert {
+  id: string;
+  whaleAddress: string;
+  whaleName: string;
+  accountValue: number;
+  coin: string;
+  eventType: string;
+  oldSize: number;
+  newSize: number;
+  positionValueUsd: number;
+  price: number;
+  detectedAt: number;
+}
+
+export interface DivergenceSignal {
+  coin: string;
+  sharpDirection: string;
+  squareDirection: string;
+  sharpCount: number;
+  squareCount: number;
+  sharpConviction: number;
+  description: string;
+  score: number | null;
+  price: number;
+  change24h: number;
+}
+
+export interface TopTrader {
+  address: string;
+  displayName: string;
+  accountValue: number;
+  roi30d: number;
+  roiAllTime: number;
+  totalPnl: number;
+  isSharp: boolean;
+}
+
+export interface TerminalData {
+  tokens: TokenOverview[];
+  sharpFlow: SharpFlow[];
+  divergences: DivergenceSignal[];
+  whaleAlerts: WhaleAlert[];
+  hotTokens: { coin: string; eventCount: number }[];
+  topTraders: TopTrader[];
+  timestamp: number;
+}
+
+export interface TraderPosition {
+  address: string;
+  displayName: string;
+  isSharp: boolean;
+  accountValue: number;
+  roiAllTime: number;
+  coin: string;
+  side: "long" | "short";
+  size: number;
+  entryPx: number;
+  positionValue: number;
+  leverage: number;
+  unrealizedPnl: number;
+  liquidationPx: number | null;
+}
+
+export interface BookWall {
+  side: "bid" | "ask";
+  price: number;
+  size: number;
+  multiplier: number;
+}
+
+export interface TokenDetail {
+  coin: string;
+  overview: TokenOverview | null;
+  score: CpycatScore | null;
+  sharpPositions: TraderPosition[];
+  bookAnalysis: {
+    coin: string;
+    bidDepth: number;
+    askDepth: number;
+    imbalance: number;
+    spread: number;
+    spreadBps: number;
+    walls: BookWall[];
+  } | null;
+  candles: { time: number; open: number; high: number; low: number; close: number; volume: number }[];
+  funding: { time: number; rate: number; annualized: number }[];
+  fundingRegime: string;
+  liquidationClusters: { price: number; side: string; totalValue: number; traderCount: number }[];
+  whaleAlerts: WhaleAlert[];
+  timestamp: number;
+}
+
+export async function getTerminalData() {
+  return apiFetch<TerminalData>("/api/market/terminal");
+}
+
+export async function getTokenDetail(coin: string, interval = "1h") {
+  return apiFetch<TokenDetail>(`/api/market/token/${coin}?interval=${interval}`);
+}
+
+export async function getWhaleAlertsFeed(limit = 50, coin?: string) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (coin) params.set("coin", coin);
+  return apiFetch<{ alerts: WhaleAlert[]; hotTokens: { coin: string; eventCount: number }[] }>(
+    `/api/market/whale-alerts?${params}`
+  );
+}
+
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 export async function connectUser(walletAddress: string) {

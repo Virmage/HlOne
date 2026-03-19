@@ -291,6 +291,11 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
   return cache;
 }
 
+/** Return cached data immediately, or null if not yet available. Never triggers a fetch. */
+export function getSmartMoneyCached(): SmartMoneyCache | null {
+  return cache;
+}
+
 export function isSharpAddress(address: string): boolean {
   if (!cache) return false;
   return cache.sharpAddresses.has(address.toLowerCase());

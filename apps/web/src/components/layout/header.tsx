@@ -6,7 +6,8 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { href: "/traders", label: "Trade" },
+  { href: "/dashboard", label: "Terminal" },
+  { href: "/traders", label: "Traders" },
   { href: "/portfolio", label: "Portfolio" },
 ];
 

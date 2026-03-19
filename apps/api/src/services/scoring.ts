@@ -160,6 +160,11 @@ export async function getTokenScores(): Promise<Map<string, CpycatScore>> {
   return scores;
 }
 
+/** Return cached scores immediately, or empty map. Never triggers a fetch. */
+export function getTokenScoresCached(): Map<string, CpycatScore> {
+  return scoreCache?.scores || new Map();
+}
+
 export async function getTokenScore(coin: string): Promise<CpycatScore | null> {
   const scores = await getTokenScores();
   return scores.get(coin) || null;

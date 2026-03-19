@@ -4,9 +4,9 @@
 
 import type { FastifyPluginAsync } from "fastify";
 import { getTokenOverviews, analyzeBook } from "../services/market-data.js";
-import { getSmartMoneyData, getSharpPositionsForCoin } from "../services/smart-money.js";
+import { getSmartMoneyData, getSmartMoneyCached, getSharpPositionsForCoin } from "../services/smart-money.js";
 import { getWhaleAlerts, getHotTokens, getWhaleAlertsForCoin } from "../services/whale-tracker.js";
-import { getTokenScores, getTokenScore } from "../services/scoring.js";
+import { getTokenScores, getTokenScore, getTokenScoresCached } from "../services/scoring.js";
 import { getTraderDisplayName } from "../services/name-generator.js";
 import { discoverActiveTraders, getCandleSnapshot, getFundingHistory } from "../services/hyperliquid.js";
 
@@ -16,11 +16,11 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
    * Returns everything the main dashboard needs in one call.
    */
   app.get("/terminal", async (req) => {
-    const [overviews, smartMoney, scores] = await Promise.all([
-      getTokenOverviews(),
-      getSmartMoneyData().catch(() => null),
-      getTokenScores().catch(() => new Map()),
-    ]);
+    // Use cached smart money + scores (instant). Background jobs populate these.
+    // Only getTokenOverviews() makes a live API call (fast — just allMids + assetCtxs).
+    const overviews = await getTokenOverviews();
+    const smartMoney = getSmartMoneyCached();
+    const scores = getTokenScoresCached();
 
     const whaleAlerts = getWhaleAlerts(30);
     const hotTokens = getHotTokens(10);
