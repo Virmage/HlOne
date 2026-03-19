@@ -95,6 +95,52 @@ export function TokenDrawer({ coin, onClose, onCopy, onFade }: TokenDrawerProps)
             </div>
           )}
 
+          {/* Options Data (BTC/ETH only) */}
+          {detail.options && (
+            <div className="rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] p-2.5">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--hl-muted)] mb-2">Options (Deribit)</p>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                <div>
+                  <p className="text-[9px] text-[var(--hl-muted)]">Max Pain</p>
+                  <p className="text-[13px] font-medium text-[var(--foreground)] tabular-nums">
+                    ${detail.options.maxPain.toLocaleString()}
+                  </p>
+                  <p className="text-[9px] text-[var(--hl-muted)]">{detail.options.maxPainExpiry}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-[var(--hl-muted)]">Put/Call</p>
+                  <p className={`text-[13px] font-medium tabular-nums ${
+                    detail.options.putCallRatio > 1 ? "text-[var(--hl-red)]" : "text-[var(--hl-green)]"
+                  }`}>
+                    {detail.options.putCallRatio.toFixed(2)}
+                  </p>
+                  <p className="text-[9px] text-[var(--hl-muted)]">
+                    {detail.options.putCallRatio > 1 ? "bearish" : "bullish"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-[var(--hl-muted)]">IV (30d)</p>
+                  <p className="text-[13px] font-medium text-[var(--foreground)] tabular-nums">
+                    {detail.options.dvol.toFixed(1)}%
+                  </p>
+                  <p className="text-[9px] text-[var(--hl-muted)]">DVOL</p>
+                </div>
+              </div>
+              {detail.options.topStrikes.length > 0 && (
+                <div className="pt-2 border-t border-[var(--hl-border)]">
+                  <p className="text-[9px] text-[var(--hl-muted)] mb-1">Top Strikes by OI</p>
+                  {detail.options.topStrikes.slice(0, 3).map((s, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[10px] py-0.5">
+                      <span className="text-[var(--hl-text)]">${s.strike.toLocaleString()}</span>
+                      <span className="text-[var(--hl-green)]">C:{s.callOI.toLocaleString()}</span>
+                      <span className="text-[var(--hl-red)]">P:{s.putOI.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Book Analysis */}
           {detail.bookAnalysis && (
             <div className="rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] p-2.5">

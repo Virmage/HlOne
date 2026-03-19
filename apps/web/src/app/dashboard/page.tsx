@@ -45,6 +45,7 @@ export default function DashboardPage() {
       {/* Ticker Bar */}
       <TickerBar
         tokens={data?.tokens || []}
+        options={data?.options}
         onSelectToken={setSelectedToken}
       />
 

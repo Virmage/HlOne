@@ -1,14 +1,15 @@
 "use client";
 
 import { formatPercent } from "@/lib/utils";
-import type { TokenOverview } from "@/lib/api";
+import type { TokenOverview, OptionsSnapshot } from "@/lib/api";
 
 interface TickerBarProps {
   tokens: TokenOverview[];
+  options?: Record<string, OptionsSnapshot>;
   onSelectToken: (coin: string) => void;
 }
 
-export function TickerBar({ tokens, onSelectToken }: TickerBarProps) {
+export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProps) {
   if (!tokens.length) return null;
 
   return (
@@ -21,6 +22,7 @@ export function TickerBar({ tokens, onSelectToken }: TickerBarProps) {
             : t.score.score <= 30 ? "bg-[var(--hl-red)]"
             : "bg-[var(--hl-muted)]"
             : "";
+          const opts = options[t.coin];
 
           return (
             <button
@@ -35,6 +37,11 @@ export function TickerBar({ tokens, onSelectToken }: TickerBarProps) {
               <span className={`tabular-nums ${isPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                 {isPositive ? "+" : ""}{t.change24h.toFixed(2)}%
               </span>
+              {opts && (
+                <span className="text-[var(--hl-muted)] tabular-nums" title={`Max Pain: $${opts.maxPain.toLocaleString()} | P/C: ${opts.putCallRatio.toFixed(2)} | IV: ${opts.dvol.toFixed(0)}%`}>
+                  MP:${(opts.maxPain/1000).toFixed(0)}K
+                </span>
+              )}
               {t.score && (
                 <span className={`w-1.5 h-1.5 rounded-full ${scoreColor}`} title={`CPYCAT: ${t.score.score}`} />
               )}

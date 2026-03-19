@@ -9,6 +9,7 @@ import { getWhaleAlerts, getHotTokens, getWhaleAlertsForCoin } from "../services
 import { getTokenScores, getTokenScore, getTokenScoresCached } from "../services/scoring.js";
 import { getTraderDisplayName } from "../services/name-generator.js";
 import { discoverActiveTraders, getCandleSnapshot, getFundingHistory } from "../services/hyperliquid.js";
+import { getOptionsData, getAllOptionsData, type OptionsSnapshot } from "../services/options-data.js";
 
 export const marketRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -76,6 +77,13 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         }));
     } catch { /* ignore */ }
 
+    // Options data for BTC/ETH (from Deribit)
+    let optionsData: Record<string, OptionsSnapshot> = {};
+    try {
+      const opts = await getAllOptionsData();
+      for (const [k, v] of opts) optionsData[k] = v;
+    } catch { /* ignore */ }
+
     return {
       tokens: tokenData,
       sharpFlow,
@@ -83,6 +91,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       whaleAlerts,
       hotTokens,
       topTraders,
+      options: optionsData,
       timestamp: Date.now(),
     };
   });
@@ -107,6 +116,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         candles,
         funding,
         whaleAlerts,
+        options,
       ] = await Promise.all([
         getSharpPositionsForCoin(coin).catch(() => []),
         analyzeBook(coin).catch(() => null),
@@ -115,6 +125,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         getCandleSnapshot(coin, interval, now - 7 * 24 * 60 * 60 * 1000, now).catch(() => []),
         getFundingHistory(coin, now - 3 * 24 * 60 * 60 * 1000).catch(() => []),
         getWhaleAlertsForCoin(coin, 20),
+        getOptionsData(coin).catch(() => null),
       ]);
 
       const overview = overviews.find(o => o.coin === coin) || null;
@@ -187,6 +198,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         fundingRegime,
         liquidationClusters,
         whaleAlerts,
+        options, // null for non-BTC/ETH coins
         timestamp: Date.now(),
       };
     },

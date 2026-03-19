@@ -300,6 +300,17 @@ export interface TopTrader {
   isSharp: boolean;
 }
 
+export interface OptionsSnapshot {
+  currency: string;
+  maxPain: number;
+  maxPainExpiry: string;
+  putCallRatio: number;
+  totalCallOI: number;
+  totalPutOI: number;
+  dvol: number;
+  topStrikes: { strike: number; callOI: number; putOI: number }[];
+}
+
 export interface TerminalData {
   tokens: TokenOverview[];
   sharpFlow: SharpFlow[];
@@ -307,6 +318,7 @@ export interface TerminalData {
   whaleAlerts: WhaleAlert[];
   hotTokens: { coin: string; eventCount: number }[];
   topTraders: TopTrader[];
+  options: Record<string, OptionsSnapshot>;
   timestamp: number;
 }
 
@@ -352,6 +364,7 @@ export interface TokenDetail {
   fundingRegime: string;
   liquidationClusters: { price: number; side: string; totalValue: number; traderCount: number }[];
   whaleAlerts: WhaleAlert[];
+  options: OptionsSnapshot | null;
   timestamp: number;
 }
 
