@@ -58,8 +58,33 @@ export async function getMeta() {
 }
 
 /** Get all mid prices */
-export async function getAllMids() {
+export async function getAllMids(): Promise<Record<string, string>> {
   return infoRequest({ type: "allMids" });
+}
+
+/** Get perpetual metadata + live asset contexts (OI, funding, mark/oracle prices, 24h volume) */
+export async function getMetaAndAssetCtxs(): Promise<[unknown, AssetCtx[]]> {
+  return infoRequest({ type: "metaAndAssetCtxs" });
+}
+
+/** Get L2 order book (20 levels per side) */
+export async function getL2Book(coin: string, nSigFigs?: number): Promise<{ levels: [BookLevel[], BookLevel[]] }> {
+  return infoRequest({ type: "l2Book", coin, ...(nSigFigs ? { nSigFigs } : {}) });
+}
+
+/** Get funding rate history for a coin */
+export async function getFundingHistory(coin: string, startTime: number, endTime?: number): Promise<FundingEntry[]> {
+  return infoRequest({ type: "fundingHistory", coin, startTime, ...(endTime ? { endTime } : {}) });
+}
+
+/** Get OHLCV candle data (max 5000 candles) */
+export async function getCandleSnapshot(coin: string, interval: string, startTime: number, endTime?: number): Promise<Candle[]> {
+  return infoRequest({ type: "candleSnapshot", req: { coin, interval, startTime, ...(endTime ? { endTime } : {}) } });
+}
+
+/** Get recent trades for a coin */
+export async function getRecentTrades(coin: string): Promise<unknown[]> {
+  return infoRequest({ type: "recentTrades", coin });
 }
 
 // ─── Trader discovery via Hyperliquid leaderboard ────────────────────────────
@@ -241,4 +266,42 @@ export interface HLFill {
   crossed: boolean;
   fee: string;
   tid: number;
+}
+
+export interface AssetCtx {
+  funding: string;
+  openInterest: string;
+  prevDayPx: string;
+  dayNtlVlm: string;
+  premium: string;
+  oraclePx: string;
+  markPx: string;
+  midPx: string;
+  impactPxs: [string, string];
+}
+
+export interface BookLevel {
+  px: string;
+  sz: string;
+  n: number;
+}
+
+export interface FundingEntry {
+  coin: string;
+  fundingRate: string;
+  premium: string;
+  time: number;
+}
+
+export interface Candle {
+  t: number; // open time
+  T: number; // close time
+  s: string; // coin
+  i: string; // interval
+  o: string; // open
+  c: string; // close
+  h: string; // high
+  l: string; // low
+  v: string; // volume
+  n: number; // number of trades
 }

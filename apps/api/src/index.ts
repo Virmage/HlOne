@@ -5,6 +5,8 @@ import { traderRoutes } from "./routes/traders.js";
 import { portfolioRoutes } from "./routes/portfolio.js";
 import { copyRoutes } from "./routes/copy.js";
 import { userRoutes } from "./routes/users.js";
+import { marketRoutes } from "./routes/market.js";
+import { startBackgroundJobs } from "./services/background-jobs.js";
 
 const DATABASE_URL =
   process.env.DATABASE_URL || "postgresql://localhost:5432/hl_copy";
@@ -29,9 +31,10 @@ async function main() {
   await app.register(portfolioRoutes, { prefix: "/api/portfolio" });
   await app.register(copyRoutes, { prefix: "/api/copy" });
   await app.register(userRoutes, { prefix: "/api/users" });
+  await app.register(marketRoutes, { prefix: "/api/market" });
 
   // Health check
-  app.get("/api/health", async () => ({ status: "ok", version: "1.3.0", timestamp: Date.now() }));
+  app.get("/api/health", async () => ({ status: "ok", version: "2.0.0", timestamp: Date.now() }));
 
   // Debug: test leaderboard fetch directly
   app.get("/api/debug/leaderboard", async (req, reply) => {
@@ -58,6 +61,9 @@ async function main() {
 
   await app.listen({ port: PORT, host: "0.0.0.0" });
   console.log(`API server running on port ${PORT}`);
+
+  // Start background jobs after server is listening
+  startBackgroundJobs();
 }
 
 main().catch(console.error);
