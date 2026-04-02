@@ -48,7 +48,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy, onFad
       <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
         Whale Alerts
       </h2>
-      <div className="overflow-y-auto max-h-[220px] space-y-0">
+      <div className="overflow-y-auto max-h-[320px] space-y-0">
         {alerts.map((alert) => {
           // For flips, resolve direction from newSize
           const resolvedType = alert.eventType === "flip"
