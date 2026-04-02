@@ -443,6 +443,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const minVisible = 15;
   const maxVisible = Math.min(totalCandles, 500);
 
+  // How many empty candle-widths of padding to show on the right of the latest bar
+  const RIGHT_PAD_CANDLES = 6;
+
   // Reset view when coin changes — show recent data with room to scroll back
   useEffect(() => {
     const total = candles.length;
@@ -450,7 +453,8 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     // so there's always room to scroll back in time
     const initial = Math.min(60, Math.max(minVisible, Math.floor(total * 0.6)));
     setVisibleCount(initial);
-    setOffset(0);
+    // Start with negative offset to show padding to the right of the latest candle
+    setOffset(-RIGHT_PAD_CANDLES);
     setPriceZoom(1);
   }, [candles.length > 0 ? candles[0].time : 0]);
 
@@ -464,7 +468,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
       const delta = e.deltaY > 0 ? 5 : -5;
       setVisibleCount(prev => {
         const next = Math.max(minVisible, Math.min(maxVisible, prev + delta));
-        setOffset(o => Math.max(0, Math.min(Math.max(0, totalCandles - next), o)));
+        // Allow negative offset (right padding) down to -half of visible count
+        const minOff = -Math.floor(next / 2);
+        setOffset(o => Math.max(minOff, Math.min(Math.max(0, totalCandles - next), o)));
         return next;
       });
     };
@@ -506,7 +512,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     const dx = e.clientX - dragRef.current.startX;
     const candleDelta = Math.round(dx / pxPerCandle);
     const maxOff = Math.max(0, totalCandles - visibleCount);
-    setOffset(Math.max(0, Math.min(maxOff, dragRef.current.startOffset + candleDelta)));
+    // Allow negative offset (right padding) — up to half the visible candles
+    const minOff = -Math.floor(visibleCount / 2);
+    setOffset(Math.max(minOff, Math.min(maxOff, dragRef.current.startOffset + candleDelta)));
   }, [visibleCount, totalCandles]);
 
   const handleMouseUp = useCallback(() => {
@@ -518,9 +526,12 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     return <div className="flex items-center justify-center h-full text-[var(--hl-muted)] text-[12px]">No data</div>;
   }
 
-  // Visible slice: offset is from the RIGHT (0 = showing latest)
-  const sliceEnd = totalCandles - offset;
-  const sliceStart = Math.max(0, sliceEnd - visibleCount);
+  // Visible slice: offset is from the RIGHT (0 = latest at edge, negative = padding right)
+  // When offset < 0, we still show latest candles but leave empty space on right
+  const effectiveOffset = Math.max(0, offset);
+  const rightPadding = offset < 0 ? -offset : 0; // empty candle-widths on the right
+  const sliceEnd = totalCandles - effectiveOffset;
+  const sliceStart = Math.max(0, sliceEnd - (visibleCount - rightPadding));
   const data = candles.slice(sliceStart, sliceEnd);
   const hasOI = oiCandles.length > 0;
 
@@ -533,10 +544,10 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
       visibleOI = oiCandles.slice(sliceStart, sliceEnd);
     } else {
       // Different length: align from the right (most recent)
-      const offset = totalCandles - oiCandles.length;
+      const oiOffset = totalCandles - oiCandles.length;
       visibleOI = oiCandles.slice(
-        Math.max(0, sliceStart - offset),
-        Math.max(0, sliceEnd - offset)
+        Math.max(0, sliceStart - oiOffset),
+        Math.max(0, sliceEnd - oiOffset)
       );
     }
   }
@@ -576,7 +587,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const hovered = hover !== null && hover < data.length ? data[hover] : null;
   const hoveredOI = hover !== null && hover < visibleOI.length ? visibleOI[hover] : null;
 
-  const candleW = chartW / data.length;
+  // Size candles based on total visible slots (data + right padding)
+  const totalSlots = data.length + rightPadding;
+  const candleW = chartW / totalSlots;
   const bodyW = Math.max(candleW * 0.65, 2);
 
   const priceY = (p: number) => MT + (1 - (p - domainMin) / (domainMax - domainMin)) * priceH;
