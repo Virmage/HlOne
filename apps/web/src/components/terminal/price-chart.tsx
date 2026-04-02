@@ -182,9 +182,9 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
   const sortArrow = (col: typeof sortCol) => sortCol === col ? (sortDir === "desc" ? " ↓" : " ↑") : "";
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Row 1: Coin selector + stats bar (like HL) */}
-      <div className="flex items-center border-b border-[var(--hl-border)] px-3 py-1.5">
+      <div className="flex items-center border-b border-[var(--hl-border)] px-3 py-1.5 shrink-0">
         {/* Coin dropdown */}
         <div className="relative flex-shrink-0" ref={dropdownRef}>
           <button
@@ -197,7 +197,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
             </svg>
           </button>
           {coinDropdownOpen && (
-            <div className="absolute top-full left-0 mt-1 z-50 bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl w-[620px]"
+            <div className="fixed sm:absolute inset-x-2 sm:inset-x-auto top-12 sm:top-full sm:left-0 sm:mt-1 z-50 bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl sm:w-[620px]"
               style={{ maxHeight: "420px" }}
             >
               {/* Search */}
@@ -235,19 +235,19 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
               </div>
 
               {/* Table header */}
-              <div className="grid grid-cols-[1fr_90px_110px_90px_100px_100px] px-3 py-1 text-[10px] text-[var(--hl-muted)] uppercase border-b border-[var(--hl-border)]">
+              <div className="grid grid-cols-[1fr_80px_90px] sm:grid-cols-[1fr_90px_110px_90px_100px_100px] px-3 py-1 text-[10px] text-[var(--hl-muted)] uppercase border-b border-[var(--hl-border)]">
                 <span>Symbol</span>
                 <span className="text-right">Last Price</span>
                 <span className="text-right cursor-pointer hover:text-[var(--foreground)]" onClick={() => handleSort("change")}>
-                  24h Change{sortArrow("change")}
+                  24h{sortArrow("change")}
                 </span>
-                <span className="text-right cursor-pointer hover:text-[var(--foreground)]" onClick={() => handleSort("funding")}>
+                <span className="text-right cursor-pointer hover:text-[var(--foreground)] hidden sm:block" onClick={() => handleSort("funding")}>
                   8h Funding{sortArrow("funding")}
                 </span>
-                <span className="text-right cursor-pointer hover:text-[var(--foreground)]" onClick={() => handleSort("volume")}>
+                <span className="text-right cursor-pointer hover:text-[var(--foreground)] hidden sm:block" onClick={() => handleSort("volume")}>
                   Volume{sortArrow("volume")}
                 </span>
-                <span className="text-right cursor-pointer hover:text-[var(--foreground)]" onClick={() => handleSort("oi")}>
+                <span className="text-right cursor-pointer hover:text-[var(--foreground)] hidden sm:block" onClick={() => handleSort("oi")}>
                   Open Interest{sortArrow("oi")}
                 </span>
               </div>
@@ -258,7 +258,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
                   <button
                     key={t.coin}
                     onClick={() => { onSelectToken(t.coin); setCoinDropdownOpen(false); }}
-                    className={`w-full grid grid-cols-[1fr_90px_110px_90px_100px_100px] px-3 py-1.5 text-[12px] hover:bg-[var(--hl-surface-hover)] transition-colors ${
+                    className={`w-full grid grid-cols-[1fr_80px_90px] sm:grid-cols-[1fr_90px_110px_90px_100px_100px] px-3 py-1.5 text-[12px] hover:bg-[var(--hl-surface-hover)] transition-colors ${
                       t.coin === coin ? "bg-[var(--hl-surface)]" : ""
                     }`}
                   >
@@ -273,19 +273,20 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
                       {formatPrice(t.price)}
                     </span>
                     <span className={`text-right tabular-nums ${t.change24h >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
-                      {(() => {
+                      <span className="sm:hidden">{t.change24h >= 0 ? "+" : ""}{t.change24h.toFixed(2)}%</span>
+                      <span className="hidden sm:inline">{(() => {
                         const abs = t.price * Math.abs(t.change24h) / 100;
                         const absStr = abs >= 1 ? abs.toFixed(1) : abs.toPrecision(3);
                         return `${t.change24h >= 0 ? "+" : "-"}${absStr} / ${t.change24h >= 0 ? "+" : ""}${t.change24h.toFixed(2)}%`;
-                      })()}
+                      })()}</span>
                     </span>
-                    <span className={`text-right tabular-nums ${t.fundingRate >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                    <span className={`text-right tabular-nums hidden sm:block ${t.fundingRate >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                       {(t.fundingRate * 100).toFixed(4)}%
                     </span>
-                    <span className="text-right tabular-nums text-[var(--foreground)]">
+                    <span className="text-right tabular-nums text-[var(--foreground)] hidden sm:block">
                       ${t.volume24h.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </span>
-                    <span className="text-right tabular-nums text-[var(--foreground)]">
+                    <span className="text-right tabular-nums text-[var(--foreground)] hidden sm:block">
                       ${t.openInterest.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </span>
                   </button>
@@ -306,16 +307,16 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
         </div>
 
         {/* Stats bar — like HL's Mark/Oracle/24h/Vol/OI/Funding row */}
-        <div className="flex items-center gap-4 text-[11px] overflow-x-auto flex-shrink-0">
-          <div className="flex flex-col">
+        <div className="flex items-center gap-3 sm:gap-4 text-[11px] overflow-x-auto flex-1 min-w-0">
+          <div className="flex flex-col shrink-0">
             <span className="text-[9px] text-[var(--hl-muted)] uppercase">Mark</span>
             <span className="text-[var(--foreground)] tabular-nums font-medium">{formatPrice(markPx)}</span>
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col shrink-0">
             <span className="text-[9px] text-[var(--hl-muted)] uppercase">Oracle</span>
             <span className="text-[var(--foreground)] tabular-nums font-medium">{formatPrice(oraclePx)}</span>
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col shrink-0">
             <span className="text-[9px] text-[var(--hl-muted)] uppercase">24h Change</span>
             {overview ? (
               <span className={`tabular-nums font-medium ${overview.change24h >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
@@ -323,19 +324,19 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
               </span>
             ) : <span className="text-[var(--hl-muted)]">—</span>}
           </div>
-          <div className="flex flex-col">
-            <span className="text-[9px] text-[var(--hl-muted)] uppercase">24h Volume</span>
+          <div className="flex flex-col shrink-0">
+            <span className="text-[9px] text-[var(--hl-muted)] uppercase">24h Vol</span>
             <span className="text-[var(--foreground)] tabular-nums font-medium">
               ${overview ? (overview.volume24h / 1e6).toFixed(2) + "M" : "—"}
             </span>
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col shrink-0">
             <span className="text-[9px] text-[var(--hl-muted)] uppercase">Open Interest</span>
             <span className="text-[var(--foreground)] tabular-nums font-medium">
               ${overview ? (overview.openInterest / 1e6).toFixed(2) + "M" : "—"}
             </span>
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col shrink-0">
             <span className="text-[9px] text-[var(--hl-muted)] uppercase">Funding</span>
             {overview ? (
               <span className={`tabular-nums font-medium ${overview.fundingRate >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
@@ -347,7 +348,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
       </div>
 
       {/* Row 2: Timeframes */}
-      <div className="flex items-center border-b border-[var(--hl-border)] px-3 py-0.5">
+      <div className="flex items-center border-b border-[var(--hl-border)] px-3 py-0.5 shrink-0">
         <div className="flex items-center gap-0.5">
           {(["5m", "15m", "1h", "4h", "1d", "1w", "1M"] as Interval[]).map(i => (
             <button
@@ -619,9 +620,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const xLabelInterval = Math.max(Math.floor(data.length / 6), 1);
 
   return (
-    <div className="h-full flex flex-col relative">
+    <div className="h-full flex flex-col relative overflow-hidden">
       {/* OHLCV overlay */}
-      <div className="absolute top-1 left-2 z-10 flex items-center gap-3 text-[12px] tabular-nums pointer-events-none">
+      <div className="absolute top-1 left-2 z-10 flex items-center gap-1.5 sm:gap-3 text-[10px] sm:text-[12px] tabular-nums pointer-events-none">
         {hovered ? (
           <>
             <span className="text-[var(--hl-muted)]">{formatTime(hovered.time)}</span>
@@ -641,12 +642,13 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
         )}
       </div>
 
-      <div ref={containerRef} className="flex-1 min-h-0" style={{ cursor: dragRef.current ? "grabbing" : yDragRef.current ? "ns-resize" : "crosshair" }}>
+      <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden" style={{ cursor: dragRef.current ? "grabbing" : yDragRef.current ? "ns-resize" : "crosshair" }}>
         <svg
           ref={svgRef}
-          width={W}
-          height={H}
+          width="100%"
+          height="100%"
           viewBox={`0 0 ${W} ${H}`}
+          preserveAspectRatio="none"
           onMouseDown={handleMouseDown}
           onMouseMove={(e) => {
             handleMouseMove(e);

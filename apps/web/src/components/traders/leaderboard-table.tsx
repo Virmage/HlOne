@@ -71,8 +71,8 @@ export function LeaderboardTable({
   const arrow = sortOrder === "desc" ? " \u25BC" : " \u25B2";
 
   return (
-    <div>
-      <table className="w-full text-[13px]">
+    <div className="overflow-x-auto">
+      <table className="w-full text-[13px] min-w-[500px]">
         <thead>
           <tr className="border-b border-[var(--hl-border)]">
             {columns.map((col) => (
@@ -142,7 +142,7 @@ export function LeaderboardTable({
                     e.stopPropagation();
                     onCopyTrader(trader.address);
                   }}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity px-3 py-1 rounded text-[12px] font-medium bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
+                  className="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity px-3 py-1 rounded text-[12px] font-medium bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
                 >
                   Copy
                 </button>

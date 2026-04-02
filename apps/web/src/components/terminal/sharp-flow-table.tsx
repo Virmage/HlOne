@@ -30,12 +30,12 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
           ⓘ
         </span>
       </div>
-      <div className="overflow-y-auto max-h-[220px]">
-        <table className="w-full text-[12px]">
+      <div className="overflow-x-auto overflow-y-auto max-h-[220px]">
+        <table className="w-full text-[12px] min-w-[420px]">
           <thead>
             <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)]">
               <th className="py-1.5 px-2 text-left font-normal">Token</th>
-              <th className="py-1.5 px-2 text-right font-normal">Price</th>
+              <th className="py-1.5 px-2 text-right font-normal hidden sm:table-cell">Price</th>
               <th className="py-1.5 px-2 text-right font-normal">24h</th>
               <th className="py-1.5 px-2 text-center font-normal">Sharps</th>
               <th className="py-1.5 px-2 text-center font-normal">Squares</th>
@@ -74,7 +74,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
                       )}
                     </div>
                   </td>
-                  <td className="py-1.5 px-2 text-right text-[var(--hl-text)] tabular-nums">
+                  <td className="py-1.5 px-2 text-right text-[var(--hl-text)] tabular-nums hidden sm:table-cell">
                     ${f.price >= 1 ? f.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : f.price.toPrecision(4)}
                   </td>
                   <td className={`py-1.5 px-2 text-right tabular-nums ${pnlColor(f.change24h)}`}>
@@ -121,9 +121,9 @@ function DirectionBar({ direction, strength, count }: { direction: string; stren
   const label = isLong ? "LONG" : "SHORT";
 
   return (
-    <div className="flex items-center gap-1.5 justify-center">
+    <div className="flex items-center gap-1 sm:gap-1.5 justify-center">
       {/* Bar: centered with directional fill */}
-      <div className="w-16 h-2 rounded-full bg-[var(--hl-border)] overflow-hidden relative">
+      <div className="w-10 sm:w-16 h-2 rounded-full bg-[var(--hl-border)] overflow-hidden relative">
         {isLong ? (
           <div
             className="absolute left-0 top-0 h-full rounded-full bg-[var(--hl-green)]"

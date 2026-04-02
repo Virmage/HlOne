@@ -105,7 +105,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy, onFad
                   )}
                 </div>
               </div>
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                 {onCopy && (
                   <button
                     onClick={() => onCopy(alert.whaleAddress)}

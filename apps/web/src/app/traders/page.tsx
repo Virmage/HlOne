@@ -91,14 +91,28 @@ export default function TradersPage() {
           />
         </div>
 
+        {/* Desktop: side panel */}
         {selectedTrader && (
+          <div className="hidden lg:block">
+            <TraderDetailPanel
+              address={selectedTrader}
+              onClose={() => setSelectedTrader(null)}
+              onCopy={setCopyTrader}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Mobile: full-screen overlay */}
+      {selectedTrader && (
+        <div className="fixed inset-0 z-50 bg-[var(--background)] overflow-y-auto lg:hidden">
           <TraderDetailPanel
             address={selectedTrader}
             onClose={() => setSelectedTrader(null)}
             onCopy={setCopyTrader}
           />
-        )}
-      </div>
+        </div>
+      )}
 
       <CopyDialog
         open={!!copyTrader}

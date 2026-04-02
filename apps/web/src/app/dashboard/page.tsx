@@ -90,9 +90,9 @@ export default function DashboardPage() {
       />
 
       {/* Chart + Trading Panel */}
-      <div className="flex border-b border-[var(--hl-border)]" style={{ height: "420px" }}>
+      <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)] overflow-hidden" style={{ minHeight: "320px" }}>
         {/* Chart — takes most of the width */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 h-[300px] md:h-[420px] overflow-hidden">
           <PriceChart
             coin={chartCoin}
             tokens={data?.tokens || []}
@@ -100,12 +100,12 @@ export default function DashboardPage() {
             whaleAlerts={data?.whaleAlerts || []}
           />
         </div>
-        {/* Order Book */}
-        <div className="w-[180px] flex-shrink-0">
+        {/* Order Book — hidden on mobile */}
+        <div className="hidden lg:block w-[180px] flex-shrink-0 h-[420px]">
           <OrderBook coin={chartCoin} />
         </div>
-        {/* Trading Panel — fixed width right side */}
-        <div className="w-[240px] flex-shrink-0">
+        {/* Trading Panel — full width on mobile, fixed on desktop */}
+        <div className="w-full md:w-[240px] flex-shrink-0">
           <TradingPanel
             coin={chartCoin}
             overview={chartOverview}
