@@ -164,6 +164,9 @@ export async function runWhaleCheck(): Promise<void> {
 }
 
 function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">) {
+  // Skip small position changes — minimum $10K position value to be whale-worthy
+  if (Math.abs(event.positionValueUsd) < 10_000) return;
+
   eventCounter++;
   const now = Date.now();
   events.unshift({

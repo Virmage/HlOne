@@ -92,6 +92,17 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy, onFad
                   }</span>
                   <span>·</span>
                   <span>{timeAgo(alert.detectedAt)}</span>
+                  {alert.accountValue > 0 && (
+                    <>
+                      <span>·</span>
+                      <span title="Trader account value">
+                        Acct: ${alert.accountValue >= 1000000
+                          ? `${(alert.accountValue / 1000000).toFixed(1)}M`
+                          : `${(alert.accountValue / 1000).toFixed(0)}K`
+                        }
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

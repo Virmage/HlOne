@@ -1,6 +1,8 @@
 /**
- * Top Trader Fills — fetches and caches recent fills from the top 50 PnL traders.
- * Updates daily. Used to show buy/sell dots on the price chart.
+ * Top Trader Fills — fetches and caches fills from the top 50 traders by performance.
+ * Ranked by: 30d ROI × sharp score × log(accountValue) — rewards consistent profitable traders.
+ * Lookback: 30 days (covers daily/weekly chart timeframes).
+ * Updates every 30min. Used to show buy/sell dots on the price chart.
  */
 
 import { getUserFillsByTime } from "./hyperliquid.js";
@@ -9,37 +11,54 @@ import { getSmartMoneyData } from "./smart-money.js";
 export interface TopTraderFill {
   time: number;
   coin: string;
-  side: "buy" | "sell"; // "buy" = opening/adding long or closing short
+  side: "buy" | "sell";
   price: number;
   sizeUsd: number;
-  trader: string; // display name
+  trader: string;
   address: string;
 }
 
 // Cache: coin -> fills[]
 const fillsCache = new Map<string, TopTraderFill[]>();
 let lastFetchTime = 0;
-const CACHE_TTL = 30 * 60_000; // 30 min — fills don't change that fast
+const CACHE_TTL = 30 * 60_000; // 30 min
 const TOP_TRADER_COUNT = 50;
+const LOOKBACK_DAYS = 30;
+const MAX_FILLS_PER_COIN = 1000;
 
-// Fetch fills for all top traders, aggregate by coin
 async function refreshTopTraderFills(): Promise<void> {
   try {
     const smartMoney = await getSmartMoneyData();
     if (!smartMoney?.sharps?.length) return;
 
-    // Top 50 sharps by account value (most significant traders)
-    const topSharps = smartMoney.sharps
-      .sort((a, b) => b.accountValue - a.accountValue)
+    // Rank sharps by composite performance score:
+    // roi30d (recent performance) × sharp score (consistency) × log(account value) (skin in game)
+    // This surfaces traders who are both recently profitable AND historically consistent
+    const ranked = smartMoney.sharps
+      .filter(t => t.roi30d > 0 && t.accountValue > 5_000) // must be profitable recently, min $5K account
+      .map(t => {
+        const sharpScore = smartMoney.traderScores.get(t.address.toLowerCase()) || 50;
+        const performanceRank =
+          Math.min(t.roi30d, 500) *           // cap ROI to avoid one-hit wonders
+          (sharpScore / 100) *                  // consistency multiplier
+          Math.log10(t.accountValue + 1);       // skin in game
+        return { ...t, performanceRank };
+      })
+      .sort((a, b) => b.performanceRank - a.performanceRank)
       .slice(0, TOP_TRADER_COUNT);
 
-    // Fetch last 7 days of fills for each trader
-    const since = Date.now() - 7 * 24 * 60 * 60_000;
+    if (ranked.length === 0) {
+      console.log("[top-trader-fills] No qualifying traders found");
+      return;
+    }
+
+    // Fetch fills going back 30 days
+    const since = Date.now() - LOOKBACK_DAYS * 24 * 60 * 60_000;
     const allFills: TopTraderFill[] = [];
 
     // Batch in groups of 10 to avoid overwhelming the API
-    for (let i = 0; i < topSharps.length; i += 10) {
-      const batch = topSharps.slice(i, i + 10);
+    for (let i = 0; i < ranked.length; i += 10) {
+      const batch = ranked.slice(i, i + 10);
       const results = await Promise.allSettled(
         batch.map(t => getUserFillsByTime(t.address, since))
       );
@@ -78,18 +97,23 @@ async function refreshTopTraderFills(): Promise<void> {
       fillsCache.set(fill.coin, existing);
     }
 
-    // Sort each coin's fills by time
+    // Sort by time, keep biggest fills when capping
     for (const [coin, fills] of fillsCache) {
-      fills.sort((a, b) => a.time - b.time);
-      // Cap at 500 per coin to save memory
-      if (fills.length > 500) {
-        fillsCache.set(coin, fills.slice(-500));
+      if (fills.length > MAX_FILLS_PER_COIN) {
+        // Keep the largest fills by USD size — more meaningful on chart
+        fills.sort((a, b) => b.sizeUsd - a.sizeUsd);
+        const kept = fills.slice(0, MAX_FILLS_PER_COIN);
+        kept.sort((a, b) => a.time - b.time);
+        fillsCache.set(coin, kept);
+      } else {
+        fills.sort((a, b) => a.time - b.time);
       }
     }
 
     lastFetchTime = Date.now();
     const totalFills = [...fillsCache.values()].reduce((sum, f) => sum + f.length, 0);
-    console.log(`[top-trader-fills] Cached ${totalFills} fills across ${fillsCache.size} coins from ${topSharps.length} traders`);
+    const topTrader = ranked[0];
+    console.log(`[top-trader-fills] Cached ${totalFills} fills across ${fillsCache.size} coins from ${ranked.length} traders (top: ${topTrader.displayName || topTrader.address.slice(0, 8)} roi30d:${topTrader.roi30d.toFixed(1)}%)`);
   } catch (err) {
     console.error("[top-trader-fills] Refresh failed:", (err as Error).message);
   }
@@ -114,7 +138,7 @@ let intervalId: ReturnType<typeof setInterval> | null = null;
 
 export function startTopTraderFillsTracking(): void {
   if (intervalId) return;
-  console.log("[top-trader-fills] Starting (30min refresh, top 50 traders)");
+  console.log("[top-trader-fills] Starting (30min refresh, top 50 by performance, 30d lookback)");
   // Initial fetch after smart money has warmed up (45s)
   setTimeout(refreshTopTraderFills, 45_000);
   intervalId = setInterval(refreshTopTraderFills, CACHE_TTL);
