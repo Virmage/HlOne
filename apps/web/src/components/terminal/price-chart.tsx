@@ -550,6 +550,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const domainMax = midPrice + halfRange;
 
   const maxVol = Math.max(...data.map(c => c.volume));
+  // Hide volume section if >70% of visible candles have 0 volume (e.g. older monthly data)
+  const volCandlesWithData = data.filter(c => c.volume > 0).length;
+  const hasVolume = volCandlesWithData > data.length * 0.3;
 
   // OI domain
   let oiMin = 0, oiMax = 0;
@@ -564,7 +567,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   // Layout — SVG viewBox matches container pixel size (no stretching)
   const W = containerSize.w, H = containerSize.h;
   const ML = 0, MR = 70, MT = 8, MB = 20;
-  const volH = 60;
+  const volH = hasVolume ? 60 : 0;
   const oiH = visibleOI.length > 0 ? 80 : 0;
   const priceH = H - MT - MB - volH - oiH;
   const chartW = W - ML - MR;
@@ -626,7 +629,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             <span className="text-[var(--hl-muted)]">H <span className="text-[var(--foreground)]">{formatPrice(hovered.high)}</span></span>
             <span className="text-[var(--hl-muted)]">L <span className="text-[var(--foreground)]">{formatPrice(hovered.low)}</span></span>
             <span className="text-[var(--hl-muted)]">C <span className={hovered.bullish ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}>{formatPrice(hovered.close)}</span></span>
-            <span className="text-[var(--hl-muted)]">V <span className="text-[var(--foreground)]">{(hovered.volume / 1e6).toFixed(2)}M</span></span>
+            {hovered.volume > 0 && <span className="text-[var(--hl-muted)]">V <span className="text-[var(--foreground)]">{(hovered.volume / 1e6).toFixed(2)}M</span></span>}
             {hoveredOI && (
               <span className="text-[var(--hl-muted)]">OI <span className="text-[var(--foreground)]">${(hoveredOI.close / 1e6).toFixed(1)}M</span></span>
             )}
@@ -714,7 +717,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
           )}
 
           {/* Volume label */}
-          <text x={4} y={MT + priceH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Volume</text>
+          {hasVolume && <text x={4} y={MT + priceH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Volume</text>}
 
           {/* OI label + axis */}
           {visibleOI.length > 0 && <text x={4} y={MT + priceH + volH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Open Interest</text>}
@@ -750,7 +753,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
               <g key={i}>
                 <line x1={wickX} y1={highY} x2={wickX} y2={lowY} stroke={color} strokeWidth={1} />
                 <rect x={bodyX} y={bodyTop} width={bodyW} height={bodyHeight} fill={color} rx={0.5} />
-                <rect x={bodyX} y={vY} width={bodyW} height={Math.max(vH, 0)} fill={color} opacity={0.3} />
+                {hasVolume && <rect x={bodyX} y={vY} width={bodyW} height={Math.max(vH, 0)} fill={color} opacity={0.3} />}
               </g>
             );
           })}

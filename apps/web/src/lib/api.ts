@@ -339,7 +339,7 @@ export interface FundingOpportunity {
 }
 
 export interface MarketRegime {
-  regime: "risk_on" | "risk_off" | "neutral" | "divergent";
+  regime: "risk_on" | "risk_off" | "neutral" | "chop" | "divergent";
   bullishCount: number;
   bearishCount: number;
   avgChange24h: number;

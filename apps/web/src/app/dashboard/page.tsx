@@ -80,7 +80,7 @@ export default function DashboardPage() {
       />
 
       {/* TradFi Macro Bar */}
-      <MacroBar macro={data?.macro || []} />
+      <MacroBar macro={data?.macro || []} onSelectToken={handleSelectToken} />
 
       {/* Market Pulse — regime + Deribit options */}
       <div className="border-b border-[var(--hl-border)]">

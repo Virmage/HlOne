@@ -22,14 +22,14 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
   // Net OI = sum of all open interest (positive = capital deployed)
   const totalOI = tokens.reduce((sum, t) => sum + t.openInterest, 0);
 
-  // Duplicate items for seamless loop
+  // Duplicate items for seamless loop — use refs to prevent animation jolt on re-render
   const items = tokens.slice(0, 25);
 
   return (
     <div className="overflow-hidden border-b border-[var(--hl-border)] bg-[var(--hl-surface)]">
-      <div className="flex animate-ticker hover:[animation-play-state:paused]">
+      <div className="flex ticker-track hover:[animation-play-state:paused]">
         {[0, 1].map((copy) => (
-          <div key={copy} className="flex shrink-0">
+          <div key={copy} className="flex shrink-0" aria-hidden={copy === 1}>
             {/* USDC flows indicator */}
             <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] whitespace-nowrap border-r border-[var(--hl-border)]">
               <span className="text-[var(--hl-muted)] font-medium">USDC Flow</span>
@@ -57,10 +57,10 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
                   className="flex items-center gap-2 px-4 py-1.5 text-[11px] hover:bg-[var(--hl-surface-hover)] transition-colors whitespace-nowrap"
                 >
                   <span className="font-medium text-[var(--hl-text)]">{t.coin}</span>
-                  <span className="text-[var(--foreground)] tabular-nums">
+                  <span className="text-[var(--foreground)] tabular-nums" style={{ minWidth: "60px" }}>
                     ${t.price >= 1 ? t.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : t.price.toPrecision(4)}
                   </span>
-                  <span className={`tabular-nums ${isPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                  <span className={`tabular-nums ${isPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`} style={{ minWidth: "55px" }}>
                     {isPositive ? "+" : ""}{t.change24h.toFixed(2)}%
                   </span>
                   {opts && opts.dvol > 0 && (

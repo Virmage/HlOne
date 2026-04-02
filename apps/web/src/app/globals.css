@@ -76,10 +76,32 @@ body {
 }
 .animate-ticker {
   animation: ticker-scroll 60s linear infinite;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 .animate-ticker-slow {
   animation: ticker-scroll 90s linear infinite;
+  will-change: transform;
+  backface-visibility: hidden;
 }
+/* Ticker track — prevents jolt on re-render by using GPU compositing */
+.ticker-track {
+  animation: ticker-scroll 60s linear infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+.ticker-track-slow {
+  animation: ticker-scroll 90s linear infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+/* Hide scrollbar on options bar */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
 
 ::selection {
   background: rgba(80, 210, 193, 0.25);

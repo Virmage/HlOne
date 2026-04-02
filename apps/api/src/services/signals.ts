@@ -39,7 +39,7 @@ export interface LiquidationZone {
 }
 
 export interface MarketRegime {
-  regime: "risk_on" | "risk_off" | "neutral" | "divergent";
+  regime: "risk_on" | "risk_off" | "neutral" | "chop" | "divergent";
   bullishCount: number;
   bearishCount: number;
   avgChange24h: number;
@@ -105,7 +105,7 @@ function computeMarketRegime(overviews: TokenOverview[]): MarketRegime {
 
   const avgChange = top.length > 0 ? totalChange / top.length : 0;
 
-  let regime: MarketRegime["regime"] = "neutral";
+  let regime: MarketRegime["regime"] = "chop";
   let description = "";
 
   if (bullish >= 14) {
@@ -118,8 +118,8 @@ function computeMarketRegime(overviews: TokenOverview[]): MarketRegime {
     regime = "divergent";
     description = `Divergent: ${bullish} up, ${bearish} down — no clear direction. Selective market.`;
   } else {
-    regime = "neutral";
-    description = `Neutral: ${bullish} up, ${bearish} down. Avg ${avgChange >= 0 ? "+" : ""}${avgChange.toFixed(1)}%`;
+    regime = "chop";
+    description = `Choppy: ${bullish} up, ${bearish} down — no strong trend. Avg ${avgChange >= 0 ? "+" : ""}${avgChange.toFixed(1)}%`;
   }
 
   return { regime, bullishCount: bullish, bearishCount: bearish, avgChange24h: avgChange, description };
