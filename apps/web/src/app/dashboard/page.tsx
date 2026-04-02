@@ -6,7 +6,6 @@ import { useTerminal } from "@/hooks/use-terminal";
 import { TickerBar } from "@/components/terminal/ticker-bar";
 import { SharpFlowTable } from "@/components/terminal/sharp-flow-table";
 import { WhaleFeed } from "@/components/terminal/whale-feed";
-import { DivergencePanel } from "@/components/terminal/divergence-panel";
 import { TopTradersPanel } from "@/components/terminal/top-traders-panel";
 import { MarketPulse } from "@/components/terminal/market-pulse";
 import { SignalsPanel } from "@/components/terminal/signals-panel";
@@ -20,7 +19,6 @@ import { FundingLeaderboardPanel } from "@/components/terminal/funding-leaderboa
 import { LargeTradeTape } from "@/components/terminal/large-trade-tape";
 import { MacroBar } from "@/components/terminal/macro-bar";
 import { OIPanel } from "@/components/terminal/oi-panel";
-import { VolIVPanel } from "@/components/terminal/vol-iv-panel";
 import { TraderDetailPanel } from "@/components/traders/trader-detail-panel";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
@@ -178,22 +176,6 @@ export default function DashboardPage() {
         <div className="bg-[var(--background)] p-2">
           <OIPanel
             tokens={data?.tokens || []}
-            onSelectToken={handleSelectToken}
-          />
-        </div>
-
-        {/* Volatility: IV vs Realized */}
-        <div className="bg-[var(--background)] p-2">
-          <VolIVPanel
-            options={data?.options || {}}
-            tokens={data?.tokens || []}
-          />
-        </div>
-
-        {/* Divergence Signals */}
-        <div className="bg-[var(--background)] p-2">
-          <DivergencePanel
-            divergences={data?.divergences || []}
             onSelectToken={handleSelectToken}
           />
         </div>

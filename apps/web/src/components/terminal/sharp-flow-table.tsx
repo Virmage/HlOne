@@ -30,7 +30,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
           ⓘ
         </span>
       </div>
-      <div className="overflow-x-auto overflow-y-auto max-h-[220px]">
+      <div className="overflow-x-auto overflow-y-auto max-h-[320px]">
         <table className="w-full text-[12px] min-w-[420px]">
           <thead>
             <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)]">
