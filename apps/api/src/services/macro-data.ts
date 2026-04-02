@@ -16,17 +16,31 @@ export interface MacroAsset {
 // ─── Config ─────────────────────────────────────────────────────────────────
 
 const SYMBOLS: { symbol: string; name: string }[] = [
+  // US Indices
   { symbol: "^GSPC", name: "S&P 500" },
   { symbol: "^IXIC", name: "Nasdaq" },
+  { symbol: "^DJI", name: "Dow Jones" },
   { symbol: "^RUT", name: "Russell 2000" },
   { symbol: "^VIX", name: "VIX" },
+  // Global Indices
+  { symbol: "^FTSE", name: "FTSE 100" },
+  { symbol: "^N225", name: "Nikkei 225" },
+  { symbol: "^HSI", name: "Hang Seng" },
+  // Commodities
   { symbol: "GC=F", name: "Gold" },
   { symbol: "SI=F", name: "Silver" },
   { symbol: "CL=F", name: "Oil (WTI)" },
+  { symbol: "NG=F", name: "Nat Gas" },
+  { symbol: "HG=F", name: "Copper" },
+  // Currencies
   { symbol: "DX-Y.NYB", name: "DXY" },
   { symbol: "EURUSD=X", name: "EUR/USD" },
+  { symbol: "GBPUSD=X", name: "GBP/USD" },
+  { symbol: "JPY=X", name: "USD/JPY" },
+  // Bonds
   { symbol: "^TNX", name: "10Y Yield" },
   { symbol: "^TYX", name: "30Y Yield" },
+  { symbol: "^IRX", name: "3M T-Bill" },
 ];
 
 const CACHE_TTL = 5 * 60_000; // 5 minutes

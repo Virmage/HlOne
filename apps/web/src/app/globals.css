@@ -77,6 +77,9 @@ body {
 .animate-ticker {
   animation: ticker-scroll 60s linear infinite;
 }
+.animate-ticker-slow {
+  animation: ticker-scroll 90s linear infinite;
+}
 
 ::selection {
   background: rgba(80, 210, 193, 0.25);

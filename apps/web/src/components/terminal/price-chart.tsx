@@ -66,13 +66,15 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
   }, [detail]);
 
   const oiCandles = useMemo(() => {
-    if (detail?.oiCandles?.length) {
+    // Only use real OI candles if we have enough to fill the chart meaningfully
+    // (need at least 10 to avoid showing just a couple bars on the far left)
+    if (detail?.oiCandles && detail.oiCandles.length >= 10) {
       return detail.oiCandles.map(c => ({
         ...c,
         bullish: c.close >= c.open,
       }));
     }
-    // Generate placeholder OI candles for ALL price candles (not just last 60)
+    // Generate simulated OI candles for all price candles
     const baseOI = overview?.openInterest || 2_000_000_000;
     return chartData.map((c, i) => {
       const drift = Math.sin(i * 0.15) * 0.03 + Math.cos(i * 0.08) * 0.02;
