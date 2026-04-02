@@ -1,3 +1,9 @@
+import { config } from "dotenv";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: resolve(__dirname, "../../.env") }); // apps/api/.env
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { createDb } from "@hl-copy/db";
@@ -7,6 +13,7 @@ import { copyRoutes } from "./routes/copy.js";
 import { userRoutes } from "./routes/users.js";
 import { marketRoutes } from "./routes/market.js";
 import { startBackgroundJobs } from "./services/background-jobs.js";
+import { initWhaleTrackerDb } from "./services/whale-tracker.js";
 
 const DATABASE_URL =
   process.env.DATABASE_URL || "postgresql://localhost:5432/hl_copy";
@@ -25,6 +32,9 @@ async function main() {
   // Share db instance across routes
   const db = createDb(DATABASE_URL);
   app.decorate("db", db);
+
+  // Initialize whale tracker with DB for persistence
+  initWhaleTrackerDb(db);
 
   // Register routes
   await app.register(traderRoutes, { prefix: "/api/traders" });

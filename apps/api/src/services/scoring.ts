@@ -63,11 +63,11 @@ function computeWhaleAccumulation(coin: string): number {
 
   let netFlow = 0;
   for (const alert of recentAlerts) {
-    if (alert.eventType === "open_long" || alert.eventType === "increase") {
+    if (alert.eventType === "open_long" || alert.eventType === "added") {
       netFlow += alert.positionValueUsd;
     } else if (alert.eventType === "open_short") {
       netFlow -= alert.positionValueUsd;
-    } else if (alert.eventType === "close_long" || alert.eventType === "decrease") {
+    } else if (alert.eventType === "close_long" || alert.eventType === "trimmed") {
       netFlow -= alert.positionValueUsd;
     } else if (alert.eventType === "close_short") {
       netFlow += alert.positionValueUsd;

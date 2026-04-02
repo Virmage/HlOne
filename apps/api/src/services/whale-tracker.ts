@@ -1,11 +1,13 @@
 /**
  * Whale tracker — monitors top accounts for position changes.
- * Stores events in-memory (capped at 500).
+ * Events stored in-memory (capped) + persisted to DB for historical chart markers.
  */
 
 import { discoverActiveTraders, getClearinghouseState, type HLPosition } from "./hyperliquid.js";
 import { getTraderDisplayName } from "./name-generator.js";
 import { getCachedMids } from "./market-data.js";
+import type { Database } from "@hl-copy/db";
+import { whaleEvents } from "@hl-copy/db";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -15,7 +17,7 @@ export interface WhaleEvent {
   whaleName: string;
   accountValue: number;
   coin: string;
-  eventType: "open_long" | "open_short" | "close_long" | "close_short" | "increase" | "decrease" | "flip";
+  eventType: "open_long" | "open_short" | "close_long" | "close_short" | "added" | "trimmed" | "flip";
   oldSize: number;
   newSize: number;
   positionValueUsd: number;
@@ -30,6 +32,12 @@ const events: WhaleEvent[] = [];
 let previousPositions = new Map<string, Map<string, { size: number; side: string }>>();
 let eventCounter = 0;
 let isRunning = false;
+let db: Database | null = null;
+
+/** Initialize DB reference for persisting whale events */
+export function initWhaleTrackerDb(database: Database) {
+  db = database;
+}
 
 // ─── Core logic ──────────────────────────────────────────────────────────────
 
@@ -108,7 +116,7 @@ export async function runWhaleCheck(): Promise<void> {
                   whaleName: name,
                   accountValue: whale.accountValue,
                   coin,
-                  eventType: Math.abs(curr.size) > Math.abs(prev.size) ? "increase" : "decrease",
+                  eventType: Math.abs(curr.size) > Math.abs(prev.size) ? "added" : "trimmed",
                   oldSize: prev.size,
                   newSize: curr.size,
                   positionValueUsd: posValue,
@@ -157,15 +165,34 @@ export async function runWhaleCheck(): Promise<void> {
 
 function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">) {
   eventCounter++;
+  const now = Date.now();
   events.unshift({
     ...event,
     id: `we_${eventCounter}`,
-    detectedAt: Date.now(),
+    detectedAt: now,
   });
 
-  // Cap at MAX_EVENTS
+  // Cap in-memory at MAX_EVENTS
   if (events.length > MAX_EVENTS) {
     events.length = MAX_EVENTS;
+  }
+
+  // Persist to DB (fire-and-forget)
+  if (db) {
+    db.insert(whaleEvents).values({
+      whaleAddress: event.whaleAddress,
+      whaleName: event.whaleName,
+      accountValue: String(event.accountValue),
+      coin: event.coin,
+      eventType: event.eventType,
+      oldSize: String(event.oldSize),
+      newSize: String(event.newSize),
+      positionValueUsd: String(event.positionValueUsd),
+      price: String(event.price),
+      detectedAt: new Date(now),
+    }).catch((err) => {
+      console.error("[whale-tracker] DB insert failed:", (err as Error).message);
+    });
   }
 }
 
@@ -205,4 +232,106 @@ export function getHotTokens(limit = 10): { coin: string; eventCount: number; la
 
 export function getWhaleEventCount(): number {
   return events.length;
+}
+
+// ─── Historical whale events from DB (for chart markers) ────────────────────
+
+import { desc, eq, and, gte, gt } from "drizzle-orm";
+
+/** Min position value thresholds per interval — only show meaningful whale activity */
+const INTERVAL_THRESHOLDS: Record<string, number> = {
+  "5m": 100_000,     // $100K+
+  "15m": 250_000,    // $250K+
+  "1h": 500_000,     // $500K+
+  "4h": 1_000_000,   // $1M+
+  "1d": 2_500_000,   // $2.5M+
+};
+
+/** Max markers per candle to prevent visual clutter */
+const MAX_PER_CANDLE: Record<string, number> = {
+  "5m": 3,
+  "15m": 3,
+  "1h": 2,
+  "4h": 2,
+  "1d": 3,
+};
+
+/**
+ * Get historical whale events for chart markers.
+ * Filters by size threshold based on timeframe to prevent clutter.
+ */
+export async function getHistoricalWhaleEvents(
+  coin: string,
+  interval: string,
+  since: number, // timestamp ms — start of visible candle range
+): Promise<WhaleEvent[]> {
+  if (!db) {
+    // Fallback to in-memory events
+    return events.filter(e => e.coin === coin && e.detectedAt >= since);
+  }
+
+  const threshold = INTERVAL_THRESHOLDS[interval] || 50_000;
+  const maxPerCandle = MAX_PER_CANDLE[interval] || 3;
+
+  try {
+    const rows = await db.select()
+      .from(whaleEvents)
+      .where(
+        and(
+          eq(whaleEvents.coin, coin),
+          gte(whaleEvents.detectedAt, new Date(since)),
+          gt(whaleEvents.positionValueUsd, String(threshold))
+        )
+      )
+      .orderBy(desc(whaleEvents.detectedAt))
+      .limit(200);
+
+    // Convert DB rows to WhaleEvent format
+    const result: WhaleEvent[] = rows.map((r, i) => ({
+      id: r.id,
+      whaleAddress: r.whaleAddress,
+      whaleName: r.whaleName,
+      accountValue: Number(r.accountValue) || 0,
+      coin: r.coin,
+      eventType: r.eventType as WhaleEvent["eventType"],
+      oldSize: Number(r.oldSize) || 0,
+      newSize: Number(r.newSize) || 0,
+      positionValueUsd: Number(r.positionValueUsd) || 0,
+      price: Number(r.price) || 0,
+      detectedAt: r.detectedAt.getTime(),
+    }));
+
+    // Group by candle time bucket and limit per bucket
+    const intervalMs = getIntervalMs(interval);
+    const buckets = new Map<number, WhaleEvent[]>();
+    for (const evt of result) {
+      const bucket = Math.floor(evt.detectedAt / intervalMs) * intervalMs;
+      const arr = buckets.get(bucket) || [];
+      arr.push(evt);
+      buckets.set(bucket, arr);
+    }
+
+    // Take top N per bucket (by position value)
+    const filtered: WhaleEvent[] = [];
+    for (const [, evts] of buckets) {
+      evts.sort((a, b) => Math.abs(b.positionValueUsd) - Math.abs(a.positionValueUsd));
+      filtered.push(...evts.slice(0, maxPerCandle));
+    }
+
+    return filtered;
+  } catch (err) {
+    console.error("[whale-tracker] DB query failed:", (err as Error).message);
+    return events.filter(e => e.coin === coin && e.detectedAt >= since);
+  }
+}
+
+function getIntervalMs(interval: string): number {
+  switch (interval) {
+    case "5m": return 5 * 60_000;
+    case "15m": return 15 * 60_000;
+    case "1h": return 60 * 60_000;
+    case "4h": return 4 * 60 * 60_000;
+    case "1d": return 24 * 60 * 60_000;
+    default: return 60 * 60_000;
+  }
 }

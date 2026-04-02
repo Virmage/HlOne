@@ -8,8 +8,19 @@ interface TickerBarProps {
   onSelectToken: (coin: string) => void;
 }
 
+function formatFlow(value: number): string {
+  if (value >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+  if (value >= 1e6) return `$${(value / 1e6).toFixed(0)}M`;
+  return `$${(value / 1e3).toFixed(0)}K`;
+}
+
 export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProps) {
   if (!tokens.length) return null;
+
+  // Total 24h volume across all tokens = USDC flow proxy
+  const totalVolume = tokens.reduce((sum, t) => sum + t.volume24h, 0);
+  // Net OI = sum of all open interest (positive = capital deployed)
+  const totalOI = tokens.reduce((sum, t) => sum + t.openInterest, 0);
 
   // Duplicate items for seamless loop
   const items = tokens.slice(0, 25);
@@ -19,6 +30,17 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
       <div className="flex animate-ticker hover:[animation-play-state:paused]">
         {[0, 1].map((copy) => (
           <div key={copy} className="flex shrink-0">
+            {/* USDC flows indicator */}
+            <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] whitespace-nowrap border-r border-[var(--hl-border)]">
+              <span className="text-[var(--hl-muted)] font-medium">USDC Flow</span>
+              <span className="text-[var(--hl-green)] tabular-nums font-medium">
+                {formatFlow(totalVolume)}/24h
+              </span>
+              <span className="text-[var(--hl-muted)] tabular-nums text-[10px]">
+                OI:{formatFlow(totalOI)}
+              </span>
+              <span className="text-[var(--hl-border)]">|</span>
+            </div>
             {items.map((t) => {
               const isPositive = t.change24h >= 0;
               const scoreColor = t.score
@@ -41,13 +63,13 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
                   <span className={`tabular-nums ${isPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                     {isPositive ? "+" : ""}{t.change24h.toFixed(2)}%
                   </span>
-                  {opts && (
-                    <span className="text-[var(--hl-muted)] tabular-nums" title={`Max Pain: $${opts.maxPain.toLocaleString()} | P/C: ${opts.putCallRatio.toFixed(2)} | IV: ${opts.dvol.toFixed(0)}%`}>
-                      MP:${(opts.maxPain/1000).toFixed(0)}K
+                  {opts && opts.dvol > 0 && (
+                    <span className="text-[var(--hl-muted)] tabular-nums" title={`Deribit IV: ${opts.dvol.toFixed(0)}% | P/C: ${opts.putCallRatio.toFixed(2)} | Max Pain: $${opts.maxPain.toLocaleString()}`}>
+                      IV:{opts.dvol.toFixed(0)}%
                     </span>
                   )}
                   {t.score && (
-                    <span className={`w-1.5 h-1.5 rounded-full ${scoreColor}`} title={`CPYCAT: ${t.score.score}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${scoreColor}`} title={`HLOne: ${t.score.score}`} />
                   )}
                   <span className="text-[var(--hl-border)]">|</span>
                 </button>

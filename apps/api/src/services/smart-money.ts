@@ -151,7 +151,7 @@ function classifyTraders(traders: DiscoveredTrader[]) {
     const addr = t.address.toLowerCase();
     if (t.roiAllTime > 0 && t.accountValue > 5_000) {
       traderScores.set(addr, scoreTrader(t));
-    } else if (t.roiAllTime < -10 && t.accountValue > 1_000) {
+    } else if (t.roiAllTime < -5 && t.accountValue > 1_000) {
       // Negative score for squares (stored as negative to distinguish)
       traderScores.set(addr, -scoreSquare(t));
     }

@@ -1,0 +1,66 @@
+"use client";
+
+import type { LargeTrade } from "@/lib/api";
+
+interface LargeTradeTapeProps {
+  trades: LargeTrade[];
+  onSelectToken: (coin: string) => void;
+}
+
+function formatSize(usd: number): string {
+  if (usd >= 1e6) return `$${(usd / 1e6).toFixed(1)}M`;
+  if (usd >= 1e3) return `$${(usd / 1e3).toFixed(0)}K`;
+  return `$${usd.toFixed(0)}`;
+}
+
+function timeAgo(ts: number): string {
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h`;
+  return `${Math.floor(sec / 86400)}d`;
+}
+
+export function LargeTradeTape({ trades, onSelectToken }: LargeTradeTapeProps) {
+  if (!trades.length) {
+    return (
+      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[12px]">
+        Loading trade tape...
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
+        Large Trades (&gt;$25K)
+      </h2>
+      <div className="overflow-y-auto max-h-[220px]">
+        {trades.slice(0, 15).map((t) => {
+          const isBuy = t.side === "buy";
+          return (
+            <div
+              key={t.hash}
+              className="flex items-center justify-between px-2 py-1 text-[11px] border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
+              onClick={() => onSelectToken(t.coin)}
+            >
+              <span className="font-medium text-[var(--foreground)] w-14">{t.coin}</span>
+              <span className={`w-8 font-medium ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                {isBuy ? "BUY" : "SELL"}
+              </span>
+              <span className={`tabular-nums font-medium w-16 text-right ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                {formatSize(t.sizeUsd)}
+              </span>
+              <span className="text-[var(--hl-muted)] tabular-nums w-20 text-right">
+                ${t.price >= 1 ? t.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : t.price.toPrecision(4)}
+              </span>
+              <span className="text-[var(--hl-muted)] tabular-nums w-8 text-right text-[10px]">
+                {timeAgo(t.time)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

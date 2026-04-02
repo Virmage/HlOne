@@ -27,7 +27,7 @@ export function TokenScoreCard({ score }: TokenScoreCardProps) {
   return (
     <div className="rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] p-3">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] font-medium text-[var(--hl-muted)] uppercase tracking-wider">CPYCAT Score</span>
+        <span className="text-[11px] font-medium text-[var(--hl-muted)] uppercase tracking-wider">HLOne Score</span>
         <div className="flex items-center gap-2">
           <span className={`text-[16px] font-bold tabular-nums ${sig.color}`}>{score.score}</span>
           <span className={`text-[11px] font-medium ${sig.color}`}>{sig.label}</span>

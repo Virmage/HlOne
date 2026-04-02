@@ -4,7 +4,7 @@ import { Header } from "@/components/layout/header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CPYCAT.HL — Hyperliquid Trading Terminal",
+  title: "HLOne — Hyperliquid Trading Terminal",
   description: "Smart money flow, whale alerts, and copy trading for Hyperliquid",
 };
 
@@ -14,13 +14,27 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `
+          // localStorage polyfill — must run before ANY other JS
+          (function(){var n=false;try{if(typeof localStorage==='undefined'){n=true}else if(typeof localStorage.getItem!=='function'){n=true}else{localStorage.setItem('__t','1');localStorage.removeItem('__t')}}catch(e){n=true}if(n){var m={};var p={getItem:function(k){return m.hasOwnProperty(k)?m[k]:null},setItem:function(k,v){m[k]=String(v)},removeItem:function(k){delete m[k]},clear:function(){m={}},get length(){return Object.keys(m).length},key:function(i){return Object.keys(m)[i]||null}};try{Object.defineProperty(window,'localStorage',{value:p,writable:true,configurable:true})}catch(e){try{window.localStorage=p}catch(e2){}}}})();
+          // Theme: apply saved preference before paint to prevent flash
+          (function(){try{var t=localStorage.getItem('hlone-theme');if(t==='light'){document.documentElement.setAttribute('data-theme','light')}else{document.documentElement.setAttribute('data-theme','dark')}}catch(e){}})();
+          // Suppress localStorage errors from Next.js error overlay
+          function isLSError(e){return e&&(String(e.message||e).includes('localStorage')||String(e.reason&&e.reason.message||'').includes('localStorage'))}
+          window.addEventListener('error',function(e){if(isLSError(e)){e.stopImmediatePropagation();e.preventDefault();return false}},true);
+          window.addEventListener('unhandledrejection',function(e){if(isLSError(e)){e.stopImmediatePropagation();e.preventDefault();return false}},true);
+          // Periodically remove Next.js error overlay if it appears for localStorage
+          setInterval(function(){document.querySelectorAll('nextjs-portal').forEach(function(el){el.remove()})},500);
+        ` }} />
+      </head>
       <body
         className="min-h-screen bg-[var(--background)] text-[var(--foreground)] antialiased"
       >
         <Providers>
           <Header />
-          <main className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8 py-6">{children}</main>
+          <main className="w-full px-4 sm:px-6 lg:px-8 py-6">{children}</main>
         </Providers>
       </body>
     </html>

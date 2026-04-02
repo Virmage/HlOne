@@ -308,10 +308,15 @@ export interface OptionsSnapshot {
   currency: string;
   maxPain: number;
   maxPainExpiry: string;
+  maxPainDistance: number;
   putCallRatio: number;
   totalCallOI: number;
   totalPutOI: number;
   dvol: number;
+  ivRank: number;
+  skew25d: number;
+  gex: number;
+  gexLevel: "dampening" | "amplifying" | "neutral";
   topStrikes: { strike: number; callOI: number; putOI: number }[];
 }
 
@@ -340,11 +345,58 @@ export interface MarketRegime {
   description: string;
 }
 
+export interface NewsPost {
+  id: number;
+  title: string;
+  url: string;
+  source: string;
+  publishedAt: string;
+  currencies: string[];
+  sentiment: "positive" | "negative" | "neutral";
+  votes: { positive: number; negative: number; important: number; liked: number; toxic: number };
+}
+
+export interface SocialMetrics {
+  coin: string;
+  galaxyScore: number;
+  altRank: number;
+  socialVolume: number;
+  socialDominance: number;
+  sentiment: number;
+  socialEngagement: number;
+  socialContributors: number;
+  trendingScore: number;
+}
+
 export interface SharpSquareCallout {
   sharpTopLong: { coin: string; count: number; pct: number } | null;
   sharpTopShort: { coin: string; count: number; pct: number } | null;
   squareTopLong: { coin: string; count: number; pct: number } | null;
   squareTopShort: { coin: string; count: number; pct: number } | null;
+}
+
+export interface FundingLeaderboard {
+  topPositive: { coin: string; fundingRate: number; annualized: number; openInterest: number }[];
+  topNegative: { coin: string; fundingRate: number; annualized: number; openInterest: number }[];
+}
+
+export interface LargeTrade {
+  coin: string;
+  side: "buy" | "sell";
+  sizeUsd: number;
+  sizeNative: number;
+  price: number;
+  time: number;
+  hash: string;
+  taker: string;
+}
+
+export interface MacroAsset {
+  symbol: string;
+  name: string;
+  price: number;
+  change24h: number;
+  prevClose: number;
 }
 
 export interface TerminalData {
@@ -359,6 +411,11 @@ export interface TerminalData {
   fundingOpps: FundingOpportunity[];
   regime: MarketRegime | null;
   callout: SharpSquareCallout | null;
+  news: NewsPost[];
+  social: SocialMetrics[];
+  funding: FundingLeaderboard;
+  largeTrades: LargeTrade[];
+  macro: MacroAsset[];
   timestamp: number;
 }
 
@@ -400,11 +457,14 @@ export interface TokenDetail {
     walls: BookWall[];
   } | null;
   candles: { time: number; open: number; high: number; low: number; close: number; volume: number }[];
+  oiCandles: { time: number; open: number; high: number; low: number; close: number }[];
   funding: { time: number; rate: number; annualized: number }[];
   fundingRegime: string;
   liquidationClusters: { price: number; side: string; totalValue: number; traderCount: number }[];
   whaleAlerts: WhaleAlert[];
   options: OptionsSnapshot | null;
+  news: NewsPost[];
+  social: SocialMetrics | null;
   timestamp: number;
 }
 

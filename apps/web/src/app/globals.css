@@ -1,18 +1,34 @@
 @import "tailwindcss";
 
-:root {
-  --background: #04251f;
-  --foreground: #f6fefd;
+:root,
+[data-theme="dark"] {
+  --background: #000000;
+  --foreground: #e8e8e8;
   --hl-green: #50d2c1;
   --hl-green-dim: #3ba898;
   --hl-green-bright: #7eeadc;
   --hl-red: #f05858;
-  --hl-border: #0f2a25;
-  --hl-surface: #0a1f1b;
-  --hl-surface-hover: #0f2a25;
-  --hl-nav: #0f1a1f;
-  --hl-muted: #5a7872;
-  --hl-text: #b0cec8;
+  --hl-border: #1a1a1a;
+  --hl-surface: #0a0a0a;
+  --hl-surface-hover: #151515;
+  --hl-nav: #050505;
+  --hl-muted: #666666;
+  --hl-text: #999999;
+}
+
+[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #1a1a1a;
+  --hl-green: #0d9b87;
+  --hl-green-dim: #0a7d6d;
+  --hl-green-bright: #10b89e;
+  --hl-red: #dc3545;
+  --hl-border: #e2e2e2;
+  --hl-surface: #f8f8f8;
+  --hl-surface-hover: #f0f0f0;
+  --hl-nav: #fafafa;
+  --hl-muted: #888888;
+  --hl-text: #555555;
 }
 
 @theme inline {
@@ -35,11 +51,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a2a30;
+  background: var(--hl-border);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3a42;
+  background: var(--hl-muted);
 }
 
 @keyframes fadeIn {

@@ -57,7 +57,7 @@ export function TokenDrawer({ coin, onClose, onCopy, onFade }: TokenDrawerProps)
 
       {detail && (
         <div className="p-4 space-y-4">
-          {/* CPYCAT Score */}
+          {/* HLOne Score */}
           {detail.score && <TokenScoreCard score={detail.score} />}
 
           {/* Chart */}
@@ -98,14 +98,16 @@ export function TokenDrawer({ coin, onClose, onCopy, onFade }: TokenDrawerProps)
           {/* Options Data (BTC/ETH only) */}
           {detail.options && (
             <div className="rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] p-2.5">
-              <p className="text-[10px] uppercase tracking-wider text-[var(--hl-muted)] mb-2">Options (Deribit)</p>
+              <p className="text-[10px] uppercase tracking-wider text-[var(--hl-muted)] mb-2">Options Intelligence (Deribit)</p>
               <div className="grid grid-cols-3 gap-2 mb-2">
                 <div>
                   <p className="text-[9px] text-[var(--hl-muted)]">Max Pain</p>
                   <p className="text-[13px] font-medium text-[var(--foreground)] tabular-nums">
                     ${detail.options.maxPain.toLocaleString()}
                   </p>
-                  <p className="text-[9px] text-[var(--hl-muted)]">{detail.options.maxPainExpiry}</p>
+                  <p className={`text-[9px] tabular-nums ${detail.options.maxPainDistance > 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                    {detail.options.maxPainDistance >= 0 ? "+" : ""}{detail.options.maxPainDistance.toFixed(1)}% away
+                  </p>
                 </div>
                 <div>
                   <p className="text-[9px] text-[var(--hl-muted)]">Put/Call</p>
@@ -119,11 +121,33 @@ export function TokenDrawer({ coin, onClose, onCopy, onFade }: TokenDrawerProps)
                   </p>
                 </div>
                 <div>
-                  <p className="text-[9px] text-[var(--hl-muted)]">IV (30d)</p>
+                  <p className="text-[9px] text-[var(--hl-muted)]">IV (DVOL)</p>
                   <p className="text-[13px] font-medium text-[var(--foreground)] tabular-nums">
                     {detail.options.dvol.toFixed(1)}%
                   </p>
-                  <p className="text-[9px] text-[var(--hl-muted)]">DVOL</p>
+                  <p className={`text-[9px] tabular-nums ${detail.options.ivRank >= 70 ? "text-[var(--hl-red)]" : detail.options.ivRank <= 30 ? "text-[var(--hl-green)]" : "text-[var(--hl-muted)]"}`}>
+                    Rank {detail.options.ivRank}/100
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <p className="text-[9px] text-[var(--hl-muted)]">25Δ Skew</p>
+                  <p className={`text-[12px] font-medium tabular-nums ${detail.options.skew25d > 5 ? "text-[var(--hl-red)]" : detail.options.skew25d < -5 ? "text-[var(--hl-green)]" : "text-[var(--hl-text)]"}`}>
+                    {detail.options.skew25d > 0 ? "+" : ""}{detail.options.skew25d.toFixed(1)}%
+                  </p>
+                  <p className="text-[9px] text-[var(--hl-muted)]">
+                    {detail.options.skew25d > 5 ? "fear / hedging" : detail.options.skew25d < -5 ? "greed / calls bid" : "balanced"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-[var(--hl-muted)]">Gamma Exposure</p>
+                  <p className={`text-[12px] font-medium tabular-nums ${detail.options.gexLevel === "dampening" ? "text-[var(--hl-green)]" : detail.options.gexLevel === "amplifying" ? "text-[var(--hl-red)]" : "text-[var(--hl-text)]"}`}>
+                    {detail.options.gex > 0 ? "+" : ""}{detail.options.gex}M
+                  </p>
+                  <p className="text-[9px] text-[var(--hl-muted)]">
+                    {detail.options.gexLevel === "dampening" ? "dealers pin price" : detail.options.gexLevel === "amplifying" ? "dealers amplify moves" : "neutral"}
+                  </p>
                 </div>
               </div>
               {detail.options.topStrikes.length > 0 && (
@@ -216,11 +240,11 @@ export function TokenDrawer({ coin, onClose, onCopy, onFade }: TokenDrawerProps)
                   <div key={alert.id} className="flex items-center gap-2 text-[11px] py-1 border-b border-[var(--hl-border)]">
                     <span className="text-[var(--foreground)] font-medium">{alert.whaleName}</span>
                     <span className={
-                      alert.eventType.includes("long") || alert.eventType === "increase"
+                      alert.eventType.includes("long") || alert.eventType === "added"
                         ? "text-[var(--hl-green)]"
                         : "text-[var(--hl-red)]"
                     }>
-                      {alert.eventType.replace(/_/g, " ")}
+                      {alert.eventType === "added" ? "Added" : alert.eventType === "trimmed" ? "Trimmed" : alert.eventType.replace(/_/g, " ")}
                     </span>
                     <span className="text-[var(--hl-muted)] ml-auto">
                       ${(alert.positionValueUsd / 1000).toFixed(0)}K

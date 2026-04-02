@@ -12,7 +12,30 @@
       "Bash(ls \"/Users/jack/iCloud Drive \\(Archive\\) - 1/Documents/BOt/Hyperliquid Copy/apps/web/src/app/\")",
       "Bash(ls -la \"/Users/jack/iCloud Drive \\(Archive\\) - 1/Documents/BOt/Hyperliquid Copy/apps/web/\")",
       "Bash(npx create-next-app@latest web --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-turbopack --use-npm --no-react-compiler)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(ls \"/Users/jack/iCloud Drive \\(Archive\\) - 1/Documents/BOt/Hyperliquid Copy/\")",
+      "WebFetch(domain:web3.career)",
+      "WebFetch(domain:cryptocurrencyjobs.co)",
+      "WebFetch(domain:www.coingecko.com)",
+      "WebFetch(domain:crypto.jobs)",
+      "WebFetch(domain:remote3.co)",
+      "Bash(node scan.mjs)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(kill 59863 59885)",
+      "Bash(curl -s \"https://www.deribit.com/api/v2/public/get_instruments?currency=any_currency&kind=option&expired=false\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\(''''error'''',{}\\)\\)\")",
+      "Bash(curl -s \"https://www.deribit.com/api/v2/public/get_instruments?currency=USDC&kind=option&expired=false\")",
+      "Bash(curl -s \"https://www.deribit.com/api/v2/public/get_instruments?currency=USDT&kind=option&expired=false\")",
+      "Bash(curl -s \"https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency=USDC&kind=option\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\(''''result'''',d.get\\(''''error'''',''''?''''\\)\\)\\)\")",
+      "Bash(curl -s \"http://localhost:3001/api/market/terminal\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); opts=d.get\\(''''options'''',{}\\); print\\(''''Options keys:'''', list\\(opts.keys\\(\\)\\)\\); [print\\(f''''  {k}: MP={v.get\\(maxPain,0\\)}, IV={v.get\\(dvol,0\\):.1f}''''\\) for k,v in opts.items\\(\\)]\")",
+      "Bash(/usr/local/bin/node --version)",
+      "Bash(/opt/homebrew/bin/node --version)",
+      "Bash(nvm use:*)",
+      "Bash(/opt/homebrew/bin/node scan.mjs)",
+      "Bash(export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\")",
+      "Bash(export PATH=\"/opt/homebrew/bin:$PATH\")"
     ]
   }
 }

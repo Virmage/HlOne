@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useSafeAccount as useAccount } from "@/hooks/use-safe-account";
 import { usePortfolio } from "@/hooks/use-portfolio";
 import { AccountOverview } from "@/components/portfolio/account-overview";
 import { CopiedTradersList } from "@/components/portfolio/copied-traders-list";

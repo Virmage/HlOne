@@ -3,14 +3,50 @@
  */
 
 import type { FastifyPluginAsync } from "fastify";
-import { getTokenOverviews, analyzeBook } from "../services/market-data.js";
+import { getTokenOverviews, analyzeBook, getCachedAssetCtxs } from "../services/market-data.js";
 import { getSmartMoneyCached } from "../services/smart-money.js";
-import { getWhaleAlerts, getHotTokens, getWhaleAlertsForCoin } from "../services/whale-tracker.js";
+import { getWhaleAlerts, getHotTokens, getWhaleAlertsForCoin, getHistoricalWhaleEvents } from "../services/whale-tracker.js";
 import { getTokenScoresCached } from "../services/scoring.js";
 import { getTraderDisplayName } from "../services/name-generator.js";
-import { discoverActiveTraders, getCandleSnapshot, getFundingHistory } from "../services/hyperliquid.js";
+import { discoverActiveTraders, getCandleSnapshot, getFundingHistory, getL2Book, getRecentTrades } from "../services/hyperliquid.js";
 import { getOptionsData, getAllOptionsData, type OptionsSnapshot } from "../services/options-data.js";
 import { getSignals, getSignalsCached } from "../services/signals.js";
+import { getOICandlesForInterval } from "../services/oi-tracker.js";
+import { getNewsFeedCached, getCoinNews, type NewsPost } from "../services/crypto-panic.js";
+import { getAllSocialMetricsCached, getSocialMetricsCached, type SocialMetrics } from "../services/lunar-crush.js";
+import { getLargeTradesCached } from "../services/trade-tape.js";
+import { getMacroDataCached } from "../services/macro-data.js";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+async function buildFundingLeaderboard() {
+  const ctxs = await getCachedAssetCtxs();
+  const entries: { coin: string; fundingRate: number; annualized: number; openInterest: number }[] = [];
+
+  for (const [coin, ctx] of ctxs) {
+    const rate = parseFloat(ctx.funding || "0");
+    const price = parseFloat(ctx.markPx || ctx.midPx || "0");
+    const oiCoins = parseFloat(ctx.openInterest || "0");
+    entries.push({
+      coin,
+      fundingRate: rate,
+      annualized: Math.round(rate * 24 * 365 * 100 * 10) / 10, // 1 decimal
+      openInterest: Math.round(oiCoins * price),
+    });
+  }
+
+  const sorted = entries.filter(e => e.fundingRate !== 0);
+  const topPositive = sorted
+    .filter(e => e.fundingRate > 0)
+    .sort((a, b) => b.fundingRate - a.fundingRate)
+    .slice(0, 10);
+  const topNegative = sorted
+    .filter(e => e.fundingRate < 0)
+    .sort((a, b) => a.fundingRate - b.fundingRate)
+    .slice(0, 10);
+
+  return { topPositive, topNegative };
+}
 
 export const marketRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -88,6 +124,19 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     // Signals: unusual volume, funding arb, position crowding, market regime
     const signalsData = getSignalsCached();
 
+    // News (CryptoPanic) + Social (LunarCrush) — cached, never blocks
+    const newsFeed = getNewsFeedCached();
+    const socialMetrics = getAllSocialMetricsCached();
+
+    // Funding leaderboard
+    const funding = await buildFundingLeaderboard().catch(() => ({ topPositive: [], topNegative: [] }));
+
+    // Large trades (cached, never blocks)
+    const largeTrades = getLargeTradesCached().slice(0, 10);
+
+    // Macro data (cached, never blocks)
+    const macro = getMacroDataCached();
+
     return {
       tokens: tokenData,
       sharpFlow,
@@ -100,6 +149,11 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       fundingOpps: signalsData?.fundingOpps.slice(0, 5) || [],
       regime: signalsData?.regime || null,
       callout: signalsData?.callout || null,
+      news: newsFeed?.posts.slice(0, 20) || [],
+      social: socialMetrics.slice(0, 30),
+      funding,
+      largeTrades,
+      macro,
       timestamp: Date.now(),
     };
   });
@@ -120,6 +174,18 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       const sharpPositions = (getSmartMoneyCached()?.sharpPositions.get(coin)) || [];
       const score = getTokenScoresCached().get(coin) || null;
 
+      // Adjust lookback based on interval
+      const lookbackMs: Record<string, number> = {
+        "5m": 2 * 24 * 3600_000,   // 2 days
+        "15m": 5 * 24 * 3600_000,  // 5 days
+        "1h": 14 * 24 * 3600_000,  // 14 days
+        "4h": 30 * 24 * 3600_000,  // 30 days
+        "1d": 180 * 24 * 3600_000, // 6 months
+        "1w": 365 * 24 * 3600_000, // 1 year
+        "1M": 3 * 365 * 24 * 3600_000, // 3 years
+      };
+      const candleSince = now - (lookbackMs[interval] || 7 * 24 * 3600_000);
+
       const [
         bookAnalysis,
         overviews,
@@ -130,9 +196,9 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       ] = await Promise.all([
         analyzeBook(coin).catch(() => null),
         getTokenOverviews().catch(() => []),
-        getCandleSnapshot(coin, interval, now - 7 * 24 * 60 * 60 * 1000, now).catch(() => []),
+        getCandleSnapshot(coin, interval, candleSince, now).catch(() => []),
         getFundingHistory(coin, now - 3 * 24 * 60 * 60 * 1000).catch(() => []),
-        getWhaleAlertsForCoin(coin, 20),
+        getHistoricalWhaleEvents(coin, interval, candleSince),
         getOptionsData(coin).catch(() => null),
       ]);
 
@@ -184,12 +250,20 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       }
       liquidationClusters.sort((a, b) => a.price - b.price);
 
+      // OI candles from in-memory tracker
+      const oiCandles = getOICandlesForInterval(coin, interval);
+
+      // Coin-specific news + social
+      const coinNews = await getCoinNews(coin).catch(() => [] as NewsPost[]);
+      const coinSocial = getSocialMetricsCached(coin);
+
       return {
         coin,
         overview,
         score,
         sharpPositions: sharpPositions.sort((a, b) => b.positionValue - a.positionValue),
         bookAnalysis,
+        oiCandles,
         candles: candles.map(c => ({
           time: c.t,
           open: parseFloat(c.o),
@@ -206,7 +280,9 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         fundingRegime,
         liquidationClusters,
         whaleAlerts,
-        options, // null for non-BTC/ETH coins
+        options, // null for non-supported coins
+        news: coinNews.slice(0, 10),
+        social: coinSocial,
         timestamp: Date.now(),
       };
     },
@@ -230,6 +306,26 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
+   * GET /api/market/book/:coin
+   * L2 order book + recent trades for a coin.
+   */
+  app.get<{ Params: { coin: string } }>(
+    "/book/:coin",
+    async (req) => {
+      const { coin } = req.params;
+      const [book, trades] = await Promise.all([
+        getL2Book(coin).catch(() => ({ levels: [[], []] })),
+        getRecentTrades(coin).catch(() => []),
+      ]);
+      return {
+        bids: (book.levels[0] || []).slice(0, 15),
+        asks: (book.levels[1] || []).slice(0, 15),
+        trades: (trades as { px: string; sz: string; side: string; time: number }[]).slice(0, 30),
+      };
+    },
+  );
+
+  /**
    * GET /api/market/scores
    * All CPYCAT scores.
    */
@@ -240,4 +336,32 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       timestamp: Date.now(),
     };
   });
+
+  /**
+   * GET /api/market/funding
+   * Top positive and negative funding rates.
+   */
+  app.get("/funding", async () => {
+    const { topPositive, topNegative } = await buildFundingLeaderboard();
+    return {
+      topPositive,
+      topNegative,
+      timestamp: Date.now(),
+    };
+  });
+
+  /**
+   * GET /api/market/trades
+   * Recent large trades across top coins.
+   */
+  app.get<{ Querystring: { limit?: string } }>(
+    "/trades",
+    async (req) => {
+      const limit = parseInt(req.query.limit || "50");
+      return {
+        trades: getLargeTradesCached().slice(0, Math.min(limit, 200)),
+        timestamp: Date.now(),
+      };
+    },
+  );
 };

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useSafeAccount as useAccount } from "@/hooks/use-safe-account";
 import { useTraders } from "@/hooks/use-traders";
 import { LeaderboardTable } from "@/components/traders/leaderboard-table";
 import { TraderDetailPanel } from "@/components/traders/trader-detail-panel";

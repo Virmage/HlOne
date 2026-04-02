@@ -15,9 +15,12 @@ const EVENT_LABELS: Record<string, { label: string; color: string }> = {
   open_short: { label: "Opened Short", color: "text-[var(--hl-red)]" },
   close_long: { label: "Closed Long", color: "text-[var(--hl-muted)]" },
   close_short: { label: "Closed Short", color: "text-[var(--hl-muted)]" },
-  increase: { label: "Increased", color: "text-[var(--hl-green)]" },
-  decrease: { label: "Decreased", color: "text-[var(--hl-red)]" },
+  added: { label: "Added", color: "text-[var(--hl-green)]" },
+  trimmed: { label: "Trimmed", color: "text-[var(--hl-red)]" },
   flip: { label: "Flipped", color: "text-yellow-400" },
+  // Legacy support
+  increase: { label: "Added", color: "text-[var(--hl-green)]" },
+  decrease: { label: "Trimmed", color: "text-[var(--hl-red)]" },
 };
 
 function timeAgo(ts: number): string {
@@ -42,14 +45,19 @@ export function WhaleFeed({ alerts, onSelectToken, onCopy, onFade }: WhaleFeedPr
       <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
         Whale Alerts
       </h2>
-      <div className="overflow-y-auto max-h-[calc(50vh-60px)] space-y-0">
+      <div className="overflow-y-auto max-h-[220px] space-y-0">
         {alerts.map((alert) => {
           const evt = EVENT_LABELS[alert.eventType] || { label: alert.eventType, color: "text-[var(--hl-text)]" };
+
+          // For added/trimmed, show Long/Short direction
+          const isAddedOrTrimmed = ["added", "trimmed", "increase", "decrease"].includes(alert.eventType);
+          const posDirection = alert.newSize > 0 ? "Long" : alert.newSize < 0 ? "Short" : "";
+          const dirColor = alert.newSize > 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
 
           return (
             <div
               key={alert.id}
-              className="group flex items-start gap-2 py-2 px-2 border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors"
+              className="group flex items-start gap-2 py-1.5 px-2 border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 text-[12px]">
@@ -57,6 +65,9 @@ export function WhaleFeed({ alerts, onSelectToken, onCopy, onFade }: WhaleFeedPr
                     {alert.whaleName}
                   </span>
                   <span className={`font-medium ${evt.color}`}>{evt.label}</span>
+                  {isAddedOrTrimmed && posDirection && (
+                    <span className={`text-[10px] font-medium ${dirColor}`}>{posDirection}</span>
+                  )}
                   <button
                     onClick={() => onSelectToken(alert.coin)}
                     className="font-medium text-[var(--foreground)] hover:text-[var(--hl-green)] transition-colors"

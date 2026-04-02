@@ -170,6 +170,29 @@ export const sourcePositions = pgTable(
   ]
 );
 
+// ─── Whale Events (persisted position change alerts) ────────────────────────
+
+export const whaleEvents = pgTable(
+  "whale_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    whaleAddress: text("whale_address").notNull(),
+    whaleName: text("whale_name").notNull(),
+    accountValue: numeric("account_value", { precision: 20, scale: 2 }),
+    coin: text("coin").notNull(),
+    eventType: text("event_type").notNull(),
+    oldSize: numeric("old_size", { precision: 20, scale: 6 }),
+    newSize: numeric("new_size", { precision: 20, scale: 6 }),
+    positionValueUsd: numeric("position_value_usd", { precision: 20, scale: 2 }),
+    price: numeric("price", { precision: 20, scale: 6 }),
+    detectedAt: timestamp("detected_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_whale_events_coin_time").on(table.coin, table.detectedAt),
+    index("idx_whale_events_time").on(table.detectedAt),
+  ]
+);
+
 // ─── Copied Positions (follower's mirrored positions) ────────────────────────
 
 export const copiedPositions = pgTable(

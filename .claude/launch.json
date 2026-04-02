@@ -3,18 +3,26 @@
   "configurations": [
     {
       "name": "api",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["apps/api/dist/index.js"],
-      "port": 3001
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "export PATH=/opt/homebrew/bin:$PATH && cd '/Users/jack/iCloud Drive (Archive) - 1/Documents/BOt/Hyperliquid Copy' && npx tsx apps/api/src/index.ts"],
+      "port": 3001,
+      "autoPort": false
     },
     {
       "name": "web",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:web"],
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "export PATH=/opt/homebrew/bin:$PATH && cd '/Users/jack/iCloud Drive (Archive) - 1/Documents/BOt/Hyperliquid Copy' && npm run dev:web"],
       "port": 3000,
+      "autoPort": false,
       "env": {
-        "NEXT_PUBLIC_API_URL": "https://hl-copyapi-production.up.railway.app"
+        "NEXT_PUBLIC_API_URL": "http://localhost:3001"
       }
+    },
+    {
+      "name": "jobboard",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd '/Users/jack/iCloud Drive (Archive) - 1/Documents/BOt/Job Tool' && npx next dev --turbopack --port 3002"],
+      "port": 3002
     }
   ]
 }

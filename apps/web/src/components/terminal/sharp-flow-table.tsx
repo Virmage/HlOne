@@ -22,15 +22,15 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
       <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
         Sharp Flow
       </h2>
-      <div className="overflow-y-auto max-h-[calc(50vh-60px)]">
+      <div className="overflow-y-auto max-h-[220px]">
         <table className="w-full text-[12px]">
           <thead>
             <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)]">
               <th className="py-1.5 px-2 text-left font-normal">Token</th>
               <th className="py-1.5 px-2 text-right font-normal">Price</th>
               <th className="py-1.5 px-2 text-right font-normal">24h</th>
-              <th className="py-1.5 px-2 text-center font-normal">Sharp Str.</th>
-              <th className="py-1.5 px-2 text-center font-normal">Square Str.</th>
+              <th className="py-1.5 px-2 text-center font-normal">Sharps</th>
+              <th className="py-1.5 px-2 text-center font-normal">Squares</th>
               <th className="py-1.5 px-2 text-right font-normal">Score</th>
             </tr>
           </thead>
@@ -43,9 +43,6 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
                 else scoreColor = "text-[var(--hl-text)]";
               }
 
-              const sharpColor = f.sharpDirection === "long" ? "text-[var(--hl-green)]" : f.sharpDirection === "short" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]";
-              const squareColor = f.squareDirection === "long" ? "text-[var(--hl-green)]" : f.squareDirection === "short" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]";
-
               return (
                 <tr
                   key={f.coin}
@@ -56,8 +53,8 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium text-[var(--foreground)]">{f.coin}</span>
                       {f.divergence && (
-                        <span className="text-[9px] px-1 py-0.5 rounded bg-[#f058581a] text-[var(--hl-red)] font-medium">
-                          DIV
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-500/15 text-yellow-400 font-medium">
+                          ⚡
                         </span>
                       )}
                     </div>
@@ -68,33 +65,19 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
                   <td className={`py-1.5 px-2 text-right tabular-nums ${pnlColor(f.change24h)}`}>
                     {f.change24h >= 0 ? "+" : ""}{f.change24h.toFixed(2)}%
                   </td>
-                  {/* Sharp Strength */}
+                  {/* Sharps — direction + strength bar */}
                   <td className="py-1.5 px-2">
-                    <div className="flex items-center gap-1.5 justify-center">
-                      <div className="w-10 h-1.5 rounded-full bg-[var(--hl-border)] overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${f.sharpDirection === "long" ? "bg-[var(--hl-green)]" : f.sharpDirection === "short" ? "bg-[var(--hl-red)]" : "bg-[var(--hl-muted)]"}`}
-                          style={{ width: `${f.sharpStrength}%` }}
-                        />
-                      </div>
-                      <span className={`text-[10px] tabular-nums font-medium ${sharpColor}`}>
-                        {f.sharpStrength > 0 ? `${f.sharpDirection === "long" ? "L" : f.sharpDirection === "short" ? "S" : "—"} ${f.sharpStrength}` : "—"}
-                      </span>
-                    </div>
+                    <DirectionBar
+                      direction={f.sharpDirection}
+                      strength={f.sharpStrength}
+                    />
                   </td>
-                  {/* Square Strength */}
+                  {/* Squares — direction + strength bar */}
                   <td className="py-1.5 px-2">
-                    <div className="flex items-center gap-1.5 justify-center">
-                      <div className="w-10 h-1.5 rounded-full bg-[var(--hl-border)] overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${f.squareDirection === "long" ? "bg-[var(--hl-green)]" : f.squareDirection === "short" ? "bg-[var(--hl-red)]" : "bg-[var(--hl-muted)]"}`}
-                          style={{ width: `${f.squareStrength}%` }}
-                        />
-                      </div>
-                      <span className={`text-[10px] tabular-nums font-medium ${squareColor}`}>
-                        {f.squareStrength > 0 ? `${f.squareDirection === "long" ? "L" : f.squareDirection === "short" ? "S" : "—"} ${f.squareStrength}` : "—"}
-                      </span>
-                    </div>
+                    <DirectionBar
+                      direction={f.squareDirection}
+                      strength={f.squareStrength}
+                    />
                   </td>
                   <td className={`py-1.5 px-2 text-right tabular-nums font-medium ${scoreColor}`}>
                     {f.score !== null ? f.score : "—"}
@@ -105,6 +88,45 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** Centered bar: green fills right for long, red fills left for short */
+function DirectionBar({ direction, strength }: { direction: string; strength: number }) {
+  if (strength === 0 || direction === "neutral") {
+    return <div className="text-center text-[10px] text-[var(--hl-muted)]">—</div>;
+  }
+
+  const isLong = direction === "long";
+  const pct = Math.min(strength, 100);
+  const color = isLong ? "var(--hl-green)" : "var(--hl-red)";
+  const label = isLong ? "LONG" : "SHORT";
+
+  return (
+    <div className="flex items-center gap-1.5 justify-center">
+      {/* Bar: centered with directional fill */}
+      <div className="w-16 h-2 rounded-full bg-[var(--hl-border)] overflow-hidden relative">
+        {isLong ? (
+          // Green fills from left
+          <div
+            className="absolute left-0 top-0 h-full rounded-full bg-[var(--hl-green)]"
+            style={{ width: `${pct}%` }}
+          />
+        ) : (
+          // Red fills from right
+          <div
+            className="absolute right-0 top-0 h-full rounded-full bg-[var(--hl-red)]"
+            style={{ width: `${pct}%` }}
+          />
+        )}
+      </div>
+      <span
+        className="text-[10px] tabular-nums font-semibold min-w-[44px]"
+        style={{ color }}
+      >
+        {label} {pct}
+      </span>
     </div>
   );
 }
