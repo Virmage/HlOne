@@ -12,6 +12,14 @@ import type { WalletClient } from "viem";
 
 const HL_API = "https://api.hyperliquid.xyz";
 
+// ─── Builder fee config ─────────────────────────────────────────────────────
+// 2 bps (0.02%) — industry standard for trading terminals (Dreamcash, Tread.fi)
+// Fee unit: tenths of a basis point → 20 = 2 bps = 0.02%
+export const BUILDER_ADDRESS = "0xB4a59142607C744CCF6C4828f01A6ab79c1f2520";
+export const BUILDER_FEE = 20; // 2 bps in tenths-of-bps
+export const BUILDER_FEE_PERCENT = 0.0002; // 0.02% as decimal
+export const BUILDER_FEE_DISPLAY = "0.02%"; // for UI
+
 // Hyperliquid uses custom EIP-712 domain (chain 1337 = HL L1)
 const EIP712_DOMAIN = {
   name: "Exchange",
@@ -247,6 +255,10 @@ export async function placeOrder(
       type: "order",
       orders: [orderWire],
       grouping: "na",
+      builder: {
+        b: BUILDER_ADDRESS,
+        f: BUILDER_FEE,
+      },
     };
 
     const signature = await signL1Action(walletClient, address, action, nonce);
@@ -317,22 +329,44 @@ export async function cancelOrder(
   }
 }
 
+// ─── Check builder fee approval ─────────────────────────────────────────────
+
+export async function checkBuilderApproval(
+  userAddress: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${HL_API}/info`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "maxBuilderFee",
+        user: userAddress,
+        builder: BUILDER_ADDRESS,
+      }),
+    });
+    const maxFee = await res.json();
+    // maxFee is the max approved fee rate as a number (in bps)
+    // If > 0, user has approved; check it covers our fee
+    return typeof maxFee === "number" && maxFee >= BUILDER_FEE;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Approve builder fee ─────────────────────────────────────────────────────
 
 export async function approveBuilderFee(
   walletClient: WalletClient,
   address: `0x${string}`,
-  builderAddress: string,
-  maxFeeRate: string = "0.01%",
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const nonce = Date.now();
 
     const action = {
       type: "approveBuilderFee",
-      hyppieLiquidChain: "Mainnet",
-      maxFeeRate,
-      builder: builderAddress,
+      hyperliquidChain: "Mainnet",
+      maxFeeRate: "0.02%",
+      builder: BUILDER_ADDRESS,
       nonce,
     };
 

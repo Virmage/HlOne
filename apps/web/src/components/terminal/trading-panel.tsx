@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import type { TokenOverview, CpycatScore } from "@/lib/api";
 import type { PlaceOrderResult } from "@/lib/hl-exchange";
+import { BUILDER_FEE_PERCENT, BUILDER_FEE_DISPLAY } from "@/lib/hl-exchange";
 // Note: wagmi + hl-exchange are dynamically imported in handleSubmit to avoid SSR/static build crash
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
@@ -26,6 +27,8 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
   const [submitting, setSubmitting] = useState(false);
   const [lastResult, setLastResult] = useState<PlaceOrderResult | null>(null);
   const [leverageSet, setLeverageSet] = useState(false);
+  const [builderApproved, setBuilderApproved] = useState(false);
+  const [approvalChecked, setApprovalChecked] = useState(false);
 
   const { address, isConnected } = useSafeAccount();
 
@@ -68,6 +71,26 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
         return;
       }
 
+      // Check + request builder fee approval (one-time per wallet)
+      if (!builderApproved) {
+        const alreadyApproved = await exchange.checkBuilderApproval(address as string);
+        if (alreadyApproved) {
+          setBuilderApproved(true);
+        } else {
+          // Request user to sign builder fee approval
+          const approvalResult = await exchange.approveBuilderFee(
+            walletClient,
+            address as `0x${string}`,
+          );
+          if (!approvalResult.success) {
+            setLastResult({ success: false, error: `Fee approval: ${approvalResult.error}` });
+            setSubmitting(false);
+            return;
+          }
+          setBuilderApproved(true);
+        }
+      }
+
       // Set leverage first if not yet confirmed
       if (!leverageSet) {
         const levResult = await exchange.setLeverage(
@@ -106,7 +129,7 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
     } finally {
       setSubmitting(false);
     }
-  }, [address, coin, side, sizeNum, orderType, limitPrice, leverage, leverageSet]);
+  }, [address, coin, side, sizeNum, orderType, limitPrice, leverage, leverageSet, builderApproved]);
 
   return (
     <div className="flex flex-col h-full border-l border-[var(--hl-border)] bg-[var(--background)]">
@@ -250,8 +273,12 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
               <span className="text-[var(--foreground)]">${margin.toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-[var(--hl-muted)]">Fee (0.035%)</span>
+              <span className="text-[var(--hl-muted)]">HL taker fee (0.035%)</span>
               <span className="text-[var(--foreground)]">${(notional * 0.00035).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-[var(--hl-muted)]">HLOne fee ({BUILDER_FEE_DISPLAY})</span>
+              <span className="text-[var(--foreground)]">${(notional * BUILDER_FEE_PERCENT).toFixed(2)}</span>
             </div>
             {tpPercent && (
               <div className="flex justify-between">
@@ -315,8 +342,8 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
         )}
         <p className="text-[9px] text-[var(--hl-muted)] text-center mt-1">
           {isConnected
-            ? `Orders signed by your wallet · 0.035% taker fee`
-            : "Connect wallet to trade · 0.035% taker fee"
+            ? `Orders signed by your wallet · 0.035% + ${BUILDER_FEE_DISPLAY} fee`
+            : `Connect wallet to trade · 0.035% + ${BUILDER_FEE_DISPLAY} fee`
           }
         </p>
       </div>

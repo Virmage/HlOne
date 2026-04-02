@@ -47,9 +47,9 @@ const AGENT_TYPE = {
 } as const;
 
 // ─── Builder fee configuration ──────────────────────────────────────────────
-// Fee is in tenths of basis points: 5 = 0.5 bps = 0.05%
-const BUILDER_ADDRESS = process.env.BUILDER_ADDRESS || "";
-const BUILDER_FEE = parseInt(process.env.BUILDER_FEE || "5", 10); // 5 = 0.05% default
+// Fee is in tenths of basis points: 20 = 2 bps = 0.02% (industry standard)
+const BUILDER_ADDRESS = process.env.BUILDER_ADDRESS || "0xB4a59142607C744CCF6C4828f01A6ab79c1f2520";
+const BUILDER_FEE = parseInt(process.env.BUILDER_FEE || "20", 10); // 20 = 0.02% default
 
 export interface OrderRequest {
   asset: string;
