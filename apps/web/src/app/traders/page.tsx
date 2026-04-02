@@ -1,11 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useSafeAccount as useAccount } from "@/hooks/use-safe-account";
 import { useTraders } from "@/hooks/use-traders";
 import { LeaderboardTable } from "@/components/traders/leaderboard-table";
 import { TraderDetailPanel } from "@/components/traders/trader-detail-panel";
-import { CopyDialog } from "@/components/traders/copy-dialog";
+
+const CopyDialog = dynamic(
+  () => import("@/components/traders/copy-dialog").then(mod => ({ default: mod.CopyDialog })),
+  { ssr: false }
+);
 
 export default function TradersPage() {
   const { address } = useAccount();

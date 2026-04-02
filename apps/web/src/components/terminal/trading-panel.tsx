@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useWalletClient } from "wagmi";
 import type { TokenOverview, CpycatScore } from "@/lib/api";
-import { placeOrder, setLeverage, type PlaceOrderResult } from "@/lib/hl-exchange";
+import type { PlaceOrderResult } from "@/lib/hl-exchange";
+// Note: wagmi + hl-exchange are dynamically imported in handleSubmit to avoid SSR/static build crash
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
 interface TradingPanelProps {
@@ -28,7 +28,6 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
   const [leverageSet, setLeverageSet] = useState(false);
 
   const { address, isConnected } = useSafeAccount();
-  const { data: walletClient } = useWalletClient();
 
   const price = overview?.price ?? 0;
   const sizeNum = parseFloat(size) || 0;
@@ -50,14 +49,28 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!walletClient || !address || sizeNum <= 0) return;
+    if (!address || sizeNum <= 0) return;
     setSubmitting(true);
     setLastResult(null);
 
     try {
+      // Dynamically import wagmi core + exchange lib (avoids SSR crash)
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"),
+        import("@/lib/hl-exchange"),
+        import("@/config/wagmi"),
+      ]);
+
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) {
+        setLastResult({ success: false, error: "Wallet not connected" });
+        setSubmitting(false);
+        return;
+      }
+
       // Set leverage first if not yet confirmed
       if (!leverageSet) {
-        const levResult = await setLeverage(
+        const levResult = await exchange.setLeverage(
           walletClient,
           address as `0x${string}`,
           coin,
@@ -72,7 +85,7 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
       }
 
       // Place the order
-      const result = await placeOrder(walletClient, address as `0x${string}`, {
+      const result = await exchange.placeOrder(walletClient, address as `0x${string}`, {
         asset: coin,
         isBuy: side === "long",
         size: sizeNum,
@@ -93,7 +106,7 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
     } finally {
       setSubmitting(false);
     }
-  }, [walletClient, address, coin, side, sizeNum, orderType, limitPrice, leverage, leverageSet]);
+  }, [address, coin, side, sizeNum, orderType, limitPrice, leverage, leverageSet]);
 
   return (
     <div className="flex flex-col h-full border-l border-[var(--hl-border)] bg-[var(--background)]">
