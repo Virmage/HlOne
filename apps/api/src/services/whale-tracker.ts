@@ -168,9 +168,16 @@ export async function runWhaleCheck(): Promise<void> {
 // rolling window, it's likely a bot and we suppress it.
 
 const BOT_WINDOW_MS = 60 * 60 * 1000; // 1 hour window
-const BOT_EVENT_THRESHOLD = 12;        // >12 events/hr = likely bot
+const BOT_EVENT_THRESHOLD = 6;         // >6 events/hr = likely bot/MM
 const addressEventTimes = new Map<string, number[]>();  // address → timestamps
 const knownBots = new Set<string>(); // addresses flagged as bots
+
+// Known market makers / HFT bots — suppress from day 1
+const KNOWN_MM_NAMES = new Set([
+  "@auros", "@abc", "@bobbybigsize", "@wintermute", "@cumberland",
+  "@jump", "@flowtraders", "@dvchain", "@gsr", "@alameda",
+]);
+
 
 function isLikelyBot(address: string): boolean {
   if (knownBots.has(address.toLowerCase())) return true;
@@ -201,6 +208,9 @@ function trackEventFrequency(address: string) {
 function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">) {
   // Skip small position changes — minimum $10K position value to be whale-worthy
   if (Math.abs(event.positionValueUsd) < 10_000) return;
+
+  // Skip known market makers by name
+  if (KNOWN_MM_NAMES.has(event.whaleName.toLowerCase())) return;
 
   // Track frequency and skip if likely market maker bot
   trackEventFrequency(event.whaleAddress);

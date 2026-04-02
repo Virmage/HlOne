@@ -12,10 +12,10 @@ RUN npm ci --workspace=packages/db --workspace=apps/api --include-workspace-root
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
 COPY . .
-RUN npm run build --workspace=apps/api
+# Build db package first (API depends on it)
+RUN npx tsc --project packages/db/tsconfig.json
+RUN npx tsc --project apps/api/tsconfig.json
 
 # Run
 FROM base AS runner
