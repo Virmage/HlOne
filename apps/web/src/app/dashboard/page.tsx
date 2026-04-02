@@ -139,6 +139,7 @@ export default function DashboardPage() {
           <WhaleFeed
             alerts={data?.whaleAlerts || []}
             onSelectToken={handleSelectToken}
+            onSelectTrader={setSelectedTrader}
             onCopy={setCopyTrader}
           />
         </div>

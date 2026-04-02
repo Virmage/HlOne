@@ -16,6 +16,7 @@ import { getNewsFeedCached, getCoinNews, type NewsPost } from "../services/crypt
 import { getAllSocialMetricsCached, getSocialMetricsCached, type SocialMetrics } from "../services/lunar-crush.js";
 import { getLargeTradesCached } from "../services/trade-tape.js";
 import { getMacroDataCached } from "../services/macro-data.js";
+import { getTopTraderFills } from "../services/top-trader-fills.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -181,8 +182,8 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         "1h": 14 * 24 * 3600_000,  // 14 days
         "4h": 30 * 24 * 3600_000,  // 30 days
         "1d": 180 * 24 * 3600_000, // 6 months
-        "1w": 365 * 24 * 3600_000, // 1 year
-        "1M": 3 * 365 * 24 * 3600_000, // 3 years
+        "1w": 3 * 365 * 24 * 3600_000, // 3 years
+        "1M": 5 * 365 * 24 * 3600_000, // 5 years
       };
       const candleSince = now - (lookbackMs[interval] || 7 * 24 * 3600_000);
 
@@ -253,6 +254,17 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       // OI candles from in-memory tracker
       const oiCandles = getOICandlesForInterval(coin, interval);
 
+      // Top trader fills for chart markers
+      const topTraderFillsRaw = getTopTraderFills(coin, candleSince);
+      // Aggregate fills by trader+candle to avoid clutter — keep top fills per candle period
+      const topTraderFillsData = topTraderFillsRaw.map(f => ({
+        time: f.time,
+        side: f.side,
+        price: f.price,
+        sizeUsd: f.sizeUsd,
+        trader: f.trader,
+      }));
+
       // Coin-specific news + social
       const coinNews = await getCoinNews(coin).catch(() => [] as NewsPost[]);
       const coinSocial = getSocialMetricsCached(coin);
@@ -280,6 +292,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         fundingRegime,
         liquidationClusters,
         whaleAlerts,
+        topTraderFills: topTraderFillsData,
         options, // null for non-supported coins
         news: coinNews.slice(0, 10),
         social: coinSocial,

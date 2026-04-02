@@ -65,29 +65,16 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
     }));
   }, [detail]);
 
+  // Only show real OI candles from the tracker — no simulated data
   const oiCandles = useMemo(() => {
-    // Only use real OI candles if we have enough to fill the chart meaningfully
-    // (need at least 10 to avoid showing just a couple bars on the far left)
     if (detail?.oiCandles && detail.oiCandles.length >= 10) {
       return detail.oiCandles.map(c => ({
         ...c,
         bullish: c.close >= c.open,
       }));
     }
-    // Generate simulated OI candles for all price candles
-    const baseOI = overview?.openInterest || 2_000_000_000;
-    return chartData.map((c, i) => {
-      const drift = Math.sin(i * 0.15) * 0.03 + Math.cos(i * 0.08) * 0.02;
-      const noise = (Math.sin(i * 1.7 + 3) * 0.008);
-      const base = baseOI * (1 + drift + noise);
-      const spread = baseOI * 0.005;
-      const open = base - spread * (c.bullish ? -0.5 : 0.5);
-      const close = base + spread * (c.bullish ? 0.5 : -0.5);
-      const high = Math.max(open, close) + Math.abs(spread * 0.3);
-      const low = Math.min(open, close) - Math.abs(spread * 0.3);
-      return { time: c.time, open, high, low, close, bullish: close >= open };
-    });
-  }, [detail, chartData, overview]);
+    return [];
+  }, [detail]);
 
   // Whale alerts: prefer historical from token detail (DB-backed), fallback to live feed
   const coinWhaleAlerts = useMemo(() => {
@@ -393,6 +380,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
             walls={detail?.bookAnalysis?.walls}
             currentPrice={overview?.price}
             whaleAlerts={coinWhaleAlerts}
+            topTraderFills={detail?.topTraderFills || []}
           />
         )}
       </div>
@@ -406,7 +394,15 @@ interface CandleData {
   time: number; open: number; high: number; low: number; close: number; volume: number; bullish: boolean;
 }
 
-function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [] }: {
+interface TopTraderFillData {
+  time: number;
+  side: "buy" | "sell";
+  price: number;
+  sizeUsd: number;
+  trader: string;
+}
+
+function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [] }: {
   candles: CandleData[];
   oiCandles: { time: number; open: number; high: number; low: number; close: number; bullish: boolean }[];
   formatTime: (t: number) => string;
@@ -414,6 +410,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   walls?: { side: string; price: number; size: number; multiplier: number }[] | null;
   currentPrice?: number;
   whaleAlerts?: WhaleAlert[];
+  topTraderFills?: TopTraderFillData[];
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [visibleCount, setVisibleCount] = useState(60);
@@ -445,9 +442,13 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const minVisible = 15;
   const maxVisible = Math.min(totalCandles, 500);
 
-  // Reset view when coin changes
+  // Reset view when coin changes — show recent data with room to scroll back
   useEffect(() => {
-    setVisibleCount(60);
+    const total = candles.length;
+    // Show at most 60 candles initially, but never more than 60% of total
+    // so there's always room to scroll back in time
+    const initial = Math.min(60, Math.max(minVisible, Math.floor(total * 0.6)));
+    setVisibleCount(initial);
     setOffset(0);
     setPriceZoom(1);
   }, [candles.length > 0 ? candles[0].time : 0]);
@@ -564,7 +565,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const W = containerSize.w, H = containerSize.h;
   const ML = 0, MR = 70, MT = 8, MB = 20;
   const volH = 60;
-  const oiH = 80;
+  const oiH = visibleOI.length > 0 ? 80 : 0;
   const priceH = H - MT - MB - volH - oiH;
   const chartW = W - ML - MR;
 
@@ -581,33 +582,25 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     return oiTop + (1 - (val - oiMin) / (oiMax - oiMin)) * oiH;
   };
 
-  // Map whale alerts to candle indices with size thresholds per timeframe
-  // Higher timeframes = bigger threshold to avoid clutter
+  // Map top trader fills to candle indices for chart dots
   const candleDuration = data.length > 1 ? data[1].time - data[0].time : 3600_000;
-  const intervalMs = candleDuration;
-  // Threshold: 5m=$200K, 15m=$500K, 1h=$1M, 4h=$2M, 1d=$5M
-  const sizeThreshold = intervalMs <= 300_000 ? 200_000
-    : intervalMs <= 900_000 ? 500_000
-    : intervalMs <= 3600_000 ? 1_000_000
-    : intervalMs <= 14400_000 ? 2_000_000
-    : 5_000_000;
+  // Visible time range
+  const visibleStart = data[0].time;
+  const visibleEnd = data[data.length - 1].time + candleDuration;
 
   const whaleMarkers: { candleIdx: number; isBuy: boolean; price: number; name: string; size: number }[] = [];
   if (data.length >= 2) {
-    for (const alert of whaleAlerts) {
-      const posVal = Math.abs(alert.positionValueUsd);
-      if (posVal < sizeThreshold) continue; // skip small fish
+    // Use top trader fills (preferred) or whale alerts as fallback
+    const fills = topTraderFills.filter(f => f.time >= visibleStart && f.time < visibleEnd);
+    for (const fill of fills) {
       for (let i = 0; i < data.length; i++) {
-        if (alert.detectedAt >= data[i].time && alert.detectedAt < data[i].time + candleDuration) {
-          const isBuy = ["open_long", "close_short"].includes(alert.eventType)
-            || (["added", "flip", "increase", "open"].includes(alert.eventType) && alert.newSize > 0)
-            || (alert.newSize > alert.oldSize && alert.newSize > 0);
+        if (fill.time >= data[i].time && fill.time < data[i].time + candleDuration) {
           whaleMarkers.push({
             candleIdx: i,
-            isBuy,
-            price: alert.price || data[i].close,
-            name: alert.whaleName,
-            size: posVal,
+            isBuy: fill.side === "buy",
+            price: fill.price,
+            name: fill.trader,
+            size: fill.sizeUsd,
           });
           break;
         }
@@ -724,7 +717,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
           <text x={4} y={MT + priceH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Volume</text>
 
           {/* OI label + axis */}
-          <text x={4} y={MT + priceH + volH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Open Interest</text>
+          {visibleOI.length > 0 && <text x={4} y={MT + priceH + volH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Open Interest</text>}
           {visibleOI.length > 0 && [0, 0.5, 1].map((pct, i) => {
             const val = oiMin + (oiMax - oiMin) * pct;
             const y = oiY(val);

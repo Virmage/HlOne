@@ -19,9 +19,17 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
 
   return (
     <div>
-      <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
-        Sharp Flow
-      </h2>
+      <div className="flex items-center gap-2 mb-2 px-1">
+        <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider">
+          Sharp Flow
+        </h2>
+        <span
+          className="text-[10px] text-[var(--hl-muted)] cursor-help"
+          title="Sharps = top profitable traders (by 30d ROI). Squares = rest of market. ⚡ = sharps and squares strongly disagree — potential opportunity. Ordered by divergence score (conviction × liquidity)."
+        >
+          ⓘ
+        </span>
+      </div>
       <div className="overflow-y-auto max-h-[220px]">
         <table className="w-full text-[12px]">
           <thead>
@@ -43,6 +51,10 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
                 else scoreColor = "text-[var(--hl-text)]";
               }
 
+              const divTooltip = f.divergenceScore > 0
+                ? `Divergence: ${f.divergenceScore}/100 — Sharps ${f.sharpDirection.toUpperCase()} (${f.sharpStrength}%) vs Squares ${f.squareDirection.toUpperCase()} (${f.squareStrength}%). ${f.sharpLongCount + f.sharpShortCount} sharps, ${f.squareLongCount + f.squareShortCount} squares.`
+                : "";
+
               return (
                 <tr
                   key={f.coin}
@@ -53,8 +65,11 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium text-[var(--foreground)]">{f.coin}</span>
                       {f.divergence && (
-                        <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-500/15 text-yellow-400 font-medium">
-                          ⚡
+                        <span
+                          className="text-[9px] px-1 py-0.5 rounded bg-yellow-500/15 text-yellow-400 font-medium cursor-help"
+                          title={divTooltip}
+                        >
+                          ⚡{f.divergenceScore}
                         </span>
                       )}
                     </div>
@@ -70,6 +85,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
                     <DirectionBar
                       direction={f.sharpDirection}
                       strength={f.sharpStrength}
+                      count={f.sharpLongCount + f.sharpShortCount}
                     />
                   </td>
                   {/* Squares — direction + strength bar */}
@@ -77,6 +93,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
                     <DirectionBar
                       direction={f.squareDirection}
                       strength={f.squareStrength}
+                      count={f.squareLongCount + f.squareShortCount}
                     />
                   </td>
                   <td className={`py-1.5 px-2 text-right tabular-nums font-medium ${scoreColor}`}>
@@ -93,7 +110,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
 }
 
 /** Centered bar: green fills right for long, red fills left for short */
-function DirectionBar({ direction, strength }: { direction: string; strength: number }) {
+function DirectionBar({ direction, strength, count }: { direction: string; strength: number; count: number }) {
   if (strength === 0 || direction === "neutral") {
     return <div className="text-center text-[10px] text-[var(--hl-muted)]">—</div>;
   }
@@ -108,13 +125,11 @@ function DirectionBar({ direction, strength }: { direction: string; strength: nu
       {/* Bar: centered with directional fill */}
       <div className="w-16 h-2 rounded-full bg-[var(--hl-border)] overflow-hidden relative">
         {isLong ? (
-          // Green fills from left
           <div
             className="absolute left-0 top-0 h-full rounded-full bg-[var(--hl-green)]"
             style={{ width: `${pct}%` }}
           />
         ) : (
-          // Red fills from right
           <div
             className="absolute right-0 top-0 h-full rounded-full bg-[var(--hl-red)]"
             style={{ width: `${pct}%` }}
@@ -125,7 +140,7 @@ function DirectionBar({ direction, strength }: { direction: string; strength: nu
         className="text-[10px] tabular-nums font-semibold min-w-[44px]"
         style={{ color }}
       >
-        {label} {pct}
+        {label} {count}
       </span>
     </div>
   );

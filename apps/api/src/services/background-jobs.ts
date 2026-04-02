@@ -13,6 +13,7 @@ import { getNewsFeed } from "./crypto-panic.js";
 import { getBatchSocialMetrics } from "./lunar-crush.js";
 import { startTradeTapeTracking } from "./trade-tape.js";
 import { getMacroData } from "./macro-data.js";
+import { startTopTraderFillsTracking } from "./top-trader-fills.js";
 
 let started = false;
 
@@ -24,6 +25,8 @@ export function startBackgroundJobs() {
 
   // Start trade tape polling (every 20s, self-managed interval)
   startTradeTapeTracking();
+  // Start top trader fills tracking (30min refresh, starts after smart money warms up)
+  startTopTraderFillsTracking();
 
   // Every 60s: whale position check + price refresh + OI snapshot
   setInterval(async () => {

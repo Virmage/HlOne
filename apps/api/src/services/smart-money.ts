@@ -22,7 +22,8 @@ export interface SharpSquareFlow {
   squareStrength: number; // 0-100 weighted by trader scores
   squareDirection: "long" | "short" | "neutral";
   consensus: "strong_long" | "long" | "neutral" | "short" | "strong_short";
-  divergence: boolean; // sharps and squares disagree
+  divergence: boolean; // sharps and squares disagree — standout opportunity
+  divergenceScore: number; // 0-100, higher = stronger divergence signal
 }
 
 export interface TraderPosition {
@@ -367,8 +368,13 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
     else if (sharpLongPct < 0.25) consensus = "strong_short";
     else if (sharpLongPct < 0.4) consensus = "short";
 
-    const isDivergent = (sharpDir === "long" && squareDir === "short") ||
-                        (sharpDir === "short" && squareDir === "long");
+    // Divergence = sharps and squares strongly disagree
+    // Require: both sides have clear direction (>65% conviction), minimum 5 traders each side
+    const strongSharpDir = sharpLongPct > 0.65 ? "long" : sharpLongPct < 0.35 ? "short" : "neutral";
+    const strongSquareDir = squareLongPct > 0.65 ? "long" : squareLongPct < 0.35 ? "short" : "neutral";
+    const isDivergent = sharpTotal >= 10 && squareTotal >= 10 &&
+                        strongSharpDir !== "neutral" && strongSquareDir !== "neutral" &&
+                        strongSharpDir !== strongSquareDir;
 
     flow.push({
       coin,
@@ -385,6 +391,7 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
       squareDirection: squareDir,
       consensus,
       divergence: isDivergent,
+      divergenceScore: 0, // computed below after all coins scored
     });
 
     if (isDivergent && sharpTotal >= 3) {
@@ -404,9 +411,31 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
     }
   }
 
-  // Sort flow by total sharp interest
-  flow.sort((a, b) => (b.sharpLongCount + b.sharpShortCount) - (a.sharpLongCount + a.sharpShortCount));
+  // Score every coin's divergence quality: conviction × liquidity
+  // Raw score = sharpStrength × squareStrength × log2(traderCount)
+  const rawScores = flow.map(f => {
+    const traders = f.sharpLongCount + f.sharpShortCount + f.squareLongCount + f.squareShortCount;
+    return f.divergence
+      ? f.sharpStrength * f.squareStrength * Math.log2(traders + 1)
+      : 0;
+  });
+  const maxRaw = Math.max(...rawScores, 1);
+
+  // Normalize to 0-100 and assign
+  for (let i = 0; i < flow.length; i++) {
+    flow[i].divergenceScore = Math.round((rawScores[i] / maxRaw) * 100);
+  }
+
+  // Sort flow by divergence score (best opportunities first), then by trader count
+  flow.sort((a, b) => b.divergenceScore - a.divergenceScore ||
+    (b.sharpLongCount + b.sharpShortCount) - (a.sharpLongCount + a.sharpShortCount));
   divergences.sort((a, b) => b.sharpConviction - a.sharpConviction);
+
+  // Flag divergence bolt using threshold (score >= 40) — typically ~3-7 coins
+  // Not a fixed cap: some markets have many good divergences, others have none
+  for (const f of flow) {
+    f.divergence = f.divergenceScore >= 40;
+  }
 
   // Trim positions per coin to top 20 by position value (saves memory)
   for (const [coin, positions] of sharpPositionsByCoin) {

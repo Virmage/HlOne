@@ -259,6 +259,7 @@ export interface SharpFlow {
   squareDirection: string;
   consensus: string;
   divergence: boolean;
+  divergenceScore: number;
   score: number | null;
   signal: string;
   price: number;
@@ -462,6 +463,7 @@ export interface TokenDetail {
   fundingRegime: string;
   liquidationClusters: { price: number; side: string; totalValue: number; traderCount: number }[];
   whaleAlerts: WhaleAlert[];
+  topTraderFills: { time: number; side: "buy" | "sell"; price: number; sizeUsd: number; trader: string }[];
   options: OptionsSnapshot | null;
   news: NewsPost[];
   social: SocialMetrics | null;

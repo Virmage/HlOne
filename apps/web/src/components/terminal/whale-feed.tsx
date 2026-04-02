@@ -6,6 +6,7 @@ import { formatUsd } from "@/lib/utils";
 interface WhaleFeedProps {
   alerts: WhaleAlert[];
   onSelectToken: (coin: string) => void;
+  onSelectTrader?: (address: string) => void;
   onCopy?: (address: string) => void;
   onFade?: (address: string) => void;
 }
@@ -17,6 +18,8 @@ const EVENT_LABELS: Record<string, { label: string; color: string }> = {
   close_short: { label: "Closed Short", color: "text-[var(--hl-muted)]" },
   added: { label: "Added", color: "text-[var(--hl-green)]" },
   trimmed: { label: "Trimmed", color: "text-[var(--hl-red)]" },
+  flip_long: { label: "Flipped Short → Long", color: "text-[var(--hl-green)]" },
+  flip_short: { label: "Flipped Long → Short", color: "text-[var(--hl-red)]" },
   flip: { label: "Flipped", color: "text-yellow-400" },
   // Legacy support
   increase: { label: "Added", color: "text-[var(--hl-green)]" },
@@ -31,7 +34,7 @@ function timeAgo(ts: number): string {
   return `${Math.floor(diff / 86400_000)}d ago`;
 }
 
-export function WhaleFeed({ alerts, onSelectToken, onCopy, onFade }: WhaleFeedProps) {
+export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy, onFade }: WhaleFeedProps) {
   if (!alerts.length) {
     return (
       <div className="flex h-40 items-center justify-center text-[var(--hl-muted)] text-[13px]">
@@ -47,7 +50,11 @@ export function WhaleFeed({ alerts, onSelectToken, onCopy, onFade }: WhaleFeedPr
       </h2>
       <div className="overflow-y-auto max-h-[220px] space-y-0">
         {alerts.map((alert) => {
-          const evt = EVENT_LABELS[alert.eventType] || { label: alert.eventType, color: "text-[var(--hl-text)]" };
+          // For flips, resolve direction from newSize
+          const resolvedType = alert.eventType === "flip"
+            ? (alert.newSize > 0 ? "flip_long" : "flip_short")
+            : alert.eventType;
+          const evt = EVENT_LABELS[resolvedType] || { label: alert.eventType, color: "text-[var(--hl-text)]" };
 
           // For added/trimmed, show Long/Short direction
           const isAddedOrTrimmed = ["added", "trimmed", "increase", "decrease"].includes(alert.eventType);
@@ -61,9 +68,12 @@ export function WhaleFeed({ alerts, onSelectToken, onCopy, onFade }: WhaleFeedPr
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 text-[12px]">
-                  <span className="font-medium text-[var(--foreground)] truncate max-w-[100px]">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onSelectTrader?.(alert.whaleAddress); }}
+                    className="font-medium text-[var(--foreground)] truncate max-w-[100px] hover:text-[var(--hl-green)] hover:underline transition-colors"
+                  >
                     {alert.whaleName}
-                  </span>
+                  </button>
                   <span className={`font-medium ${evt.color}`}>{evt.label}</span>
                   {isAddedOrTrimmed && posDirection && (
                     <span className={`text-[10px] font-medium ${dirColor}`}>{posDirection}</span>
