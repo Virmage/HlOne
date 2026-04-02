@@ -339,11 +339,13 @@ export interface FundingOpportunity {
 }
 
 export interface MarketRegime {
-  regime: "risk_on" | "risk_off" | "neutral" | "chop" | "divergent";
+  regime: "risk_on" | "risk_off" | "chop" | "rotation" | "squeeze" | "capitulation";
+  action: string;
+  description: string;
+  confidence: number;
   bullishCount: number;
   bearishCount: number;
   avgChange24h: number;
-  description: string;
 }
 
 export interface NewsPost {

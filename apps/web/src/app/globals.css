@@ -74,6 +74,10 @@ body {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
+@keyframes ticker-scroll-reverse {
+  0% { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
+}
 .animate-ticker {
   animation: ticker-scroll 60s linear infinite;
   will-change: transform;
@@ -94,6 +98,21 @@ body {
 }
 .ticker-track-slow {
   animation: ticker-scroll 90s linear infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+/* Reverse direction tickers */
+.ticker-track-reverse {
+  animation: ticker-scroll-reverse 60s linear infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+.ticker-track-slow-reverse {
+  animation: ticker-scroll-reverse 90s linear infinite;
   will-change: transform;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;

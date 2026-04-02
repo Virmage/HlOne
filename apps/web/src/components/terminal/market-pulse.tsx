@@ -9,11 +9,12 @@ interface MarketPulseProps {
 }
 
 const REGIME_STYLES: Record<string, { text: string; label: string; bg: string }> = {
-  risk_on: { text: "text-[var(--hl-green)]", label: "RISK ON", bg: "bg-[rgba(80,210,193,0.1)]" },
-  risk_off: { text: "text-[var(--hl-red)]", label: "RISK OFF", bg: "bg-[rgba(240,88,88,0.1)]" },
-  neutral: { text: "text-orange-400", label: "CHOP", bg: "bg-[rgba(251,146,60,0.1)]" },
-  chop: { text: "text-orange-400", label: "CHOP", bg: "bg-[rgba(251,146,60,0.1)]" },
-  divergent: { text: "text-yellow-400", label: "DIVERGENT", bg: "bg-[rgba(250,204,21,0.1)]" },
+  risk_on:      { text: "text-[var(--hl-green)]",  label: "RISK ON",      bg: "bg-[rgba(80,210,193,0.12)]" },
+  risk_off:     { text: "text-[var(--hl-red)]",    label: "RISK OFF",     bg: "bg-[rgba(240,88,88,0.12)]" },
+  chop:         { text: "text-orange-400",          label: "CHOP",         bg: "bg-[rgba(251,146,60,0.12)]" },
+  rotation:     { text: "text-blue-400",            label: "ROTATION",     bg: "bg-[rgba(96,165,250,0.12)]" },
+  squeeze:      { text: "text-purple-400",          label: "SQUEEZE",      bg: "bg-[rgba(192,132,252,0.12)]" },
+  capitulation: { text: "text-yellow-400",          label: "CAPITULATION", bg: "bg-[rgba(250,204,21,0.12)]" },
 };
 
 function formatOI(val: number): string {
@@ -32,120 +33,104 @@ export function MarketPulse({ regime, options, onSelectToken }: MarketPulseProps
   const totalOI = totalCallOI + totalPutOI;
 
   return (
-    <div className="flex items-center gap-0 px-0 py-0 text-[11px] overflow-x-auto scrollbar-none">
-      {/* Market Regime — stands out */}
-      <div className={`flex items-center gap-1.5 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] ${regimeStyle.bg}`}>
-        <span className={`font-bold text-[12px] tracking-wide ${regimeStyle.text}`}>
-          {regimeStyle.label}
-        </span>
-        {regime && (
-          <span className={`tabular-nums font-medium ${regime.avgChange24h >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
-            {regime.avgChange24h >= 0 ? "+" : ""}{regime.avgChange24h.toFixed(1)}%
-          </span>
-        )}
-        {regime && (
-          <span className="text-[var(--hl-muted)] text-[10px]" title={regime.description}>
-            {regime.bullishCount}↑ {regime.bearishCount}↓
-          </span>
-        )}
+    <div className="overflow-hidden border-b border-[var(--hl-border)] bg-[var(--hl-surface)]">
+      <div className="flex ticker-track-slow hover:[animation-play-state:paused]">
+        {[0, 1].map((copy) => (
+          <div key={copy} className="flex items-center shrink-0" aria-hidden={copy === 1}>
+            {/* Market Regime — stands out */}
+            <div className={`flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] ${regimeStyle.bg}`}>
+              <span className={`font-bold text-[12px] tracking-wide ${regimeStyle.text}`}>
+                {regimeStyle.label}
+              </span>
+              {regime && regime.confidence > 0 && (
+                <span className="text-[var(--hl-muted)] text-[10px] tabular-nums">
+                  {regime.confidence}%
+                </span>
+              )}
+              {regime?.action && (
+                <span className="text-[var(--hl-text)] text-[10px] max-w-[280px] truncate" title={regime.action}>
+                  {regime.action}
+                </span>
+              )}
+              {regime?.description && (
+                <span className="text-[var(--hl-muted)] text-[10px] max-w-[300px] truncate" title={regime.description}>
+                  — {regime.description}
+                </span>
+              )}
+            </div>
+
+            {/* Aggregate Options OI */}
+            {totalOI > 0 && (
+              <div className="flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] text-[11px]">
+                <span className="text-[var(--hl-muted)] text-[10px] font-medium">Options OI</span>
+                <span className="tabular-nums text-[var(--foreground)]">{formatOI(totalOI)}</span>
+                <span className="text-[var(--hl-green)] tabular-nums text-[10px]">C:{formatOI(totalCallOI)}</span>
+                <span className="text-[var(--hl-red)] tabular-nums text-[10px]">P:{formatOI(totalPutOI)}</span>
+              </div>
+            )}
+
+            {/* Per-coin Deribit data */}
+            {optionCoins.map((coin) => {
+              const opt = options[coin];
+              if (!opt) return null;
+              const maxPain = opt.maxPain ?? 0;
+              const putCall = opt.putCallRatio ?? 0;
+              const dvol = opt.dvol ?? 0;
+              const skew = opt.skew25d ?? 0;
+              const gex = opt.gex ?? 0;
+              const gexLvl = opt.gexLevel ?? "neutral";
+              const ivRank = opt.ivRank ?? 0;
+              const topStrikes = opt.topStrikes ?? [];
+              const maxPainDist = opt.maxPainDistance ?? 0;
+
+              return (
+                <button
+                  key={`${copy}-${coin}`}
+                  onClick={() => onSelectToken(coin)}
+                  className="flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors text-[11px]"
+                >
+                  <span className="font-semibold text-[var(--foreground)]">{coin}</span>
+                  <span className="text-[var(--hl-muted)] text-[10px]">MP</span>
+                  <span className="tabular-nums">${maxPain.toLocaleString()}</span>
+                  {maxPainDist !== 0 && (
+                    <span className={`tabular-nums text-[10px] ${maxPainDist > 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                      {maxPainDist > 0 ? "+" : ""}{maxPainDist.toFixed(1)}%
+                    </span>
+                  )}
+                  <span className={`tabular-nums ${putCall > 1 ? "text-[var(--hl-red)]" : "text-[var(--hl-green)]"}`}>
+                    P/C {putCall.toFixed(2)}
+                  </span>
+                  <span className="tabular-nums">IV {dvol.toFixed(0)}%</span>
+                  {ivRank > 0 && (
+                    <span className={`tabular-nums text-[10px] ${ivRank > 70 ? "text-[var(--hl-red)]" : ivRank < 30 ? "text-[var(--hl-green)]" : "text-[var(--hl-muted)]"}`}
+                      title={`IV Rank: ${ivRank}% — percentile of current IV vs 1yr range`}
+                    >
+                      Rank:{ivRank}%
+                    </span>
+                  )}
+                  {skew !== 0 && (
+                    <span className={`tabular-nums ${skew > 5 ? "text-[var(--hl-red)]" : skew < -5 ? "text-[var(--hl-green)]" : "text-[var(--hl-muted)]"}`}>
+                      Skew {skew > 0 ? "+" : ""}{skew.toFixed(1)}
+                    </span>
+                  )}
+                  {gex !== 0 && (
+                    <span className={`tabular-nums ${gexLvl === "dampening" ? "text-[var(--hl-green)]" : gexLvl === "amplifying" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]"}`}>
+                      GEX {gex > 0 ? "+" : ""}{gex}M
+                    </span>
+                  )}
+                  {topStrikes.length > 0 && (
+                    <span className="text-[var(--hl-muted)] tabular-nums text-[10px]"
+                      title={`Top strikes: ${topStrikes.slice(0, 3).map(s => `$${s.strike.toLocaleString()} (C:${(s.callOI/1e6).toFixed(0)}M P:${(s.putOI/1e6).toFixed(0)}M)`).join(", ")}`}
+                    >
+                      Top:${topStrikes[0]?.strike.toLocaleString()}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
-
-      {/* Aggregate Options OI */}
-      {totalOI > 0 && (
-        <div className="flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)]">
-          <span className="text-[var(--hl-muted)] text-[10px] font-medium uppercase">Options OI</span>
-          <span className="tabular-nums text-[var(--foreground)]">{formatOI(totalOI)}</span>
-          <span className="text-[var(--hl-green)] tabular-nums text-[10px]">C:{formatOI(totalCallOI)}</span>
-          <span className="text-[var(--hl-red)] tabular-nums text-[10px]">P:{formatOI(totalPutOI)}</span>
-        </div>
-      )}
-
-      {/* Per-coin Deribit data — expanded */}
-      {optionCoins.map((coin) => {
-        const opt = options[coin];
-        if (!opt) return null;
-        const maxPain = opt.maxPain ?? 0;
-        const putCall = opt.putCallRatio ?? 0;
-        const dvol = opt.dvol ?? 0;
-        const skew = opt.skew25d ?? 0;
-        const gex = opt.gex ?? 0;
-        const gexLvl = opt.gexLevel ?? "neutral";
-        const ivRank = opt.ivRank ?? 0;
-        const callOI = opt.totalCallOI ?? 0;
-        const putOI = opt.totalPutOI ?? 0;
-        const topStrikes = opt.topStrikes ?? [];
-        const maxPainDist = opt.maxPainDistance ?? 0;
-
-        return (
-          <button
-            key={coin}
-            onClick={() => onSelectToken(coin)}
-            className="flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors"
-          >
-            <span className="font-semibold text-[var(--foreground)]">{coin}</span>
-
-            {/* Max Pain + distance */}
-            <span className="text-[var(--hl-muted)] text-[10px]">MP</span>
-            <span className="tabular-nums">${maxPain.toLocaleString()}</span>
-            {maxPainDist !== 0 && (
-              <span className={`tabular-nums text-[10px] ${maxPainDist > 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
-                {maxPainDist > 0 ? "+" : ""}{maxPainDist.toFixed(1)}%
-              </span>
-            )}
-
-            {/* P/C Ratio */}
-            <span className={`tabular-nums ${putCall > 1 ? "text-[var(--hl-red)]" : "text-[var(--hl-green)]"}`}>
-              P/C {putCall.toFixed(2)}
-            </span>
-
-            {/* DVOL */}
-            <span className="tabular-nums">IV {dvol.toFixed(0)}%</span>
-
-            {/* IV Rank */}
-            {ivRank > 0 && (
-              <span className={`tabular-nums text-[10px] ${ivRank > 70 ? "text-[var(--hl-red)]" : ivRank < 30 ? "text-[var(--hl-green)]" : "text-[var(--hl-muted)]"}`}
-                title={`IV Rank: ${ivRank}% — percentile of current IV vs 1yr range`}
-              >
-                Rank:{ivRank}%
-              </span>
-            )}
-
-            {/* 25-delta skew */}
-            {skew !== 0 && (
-              <span className={`tabular-nums ${skew > 5 ? "text-[var(--hl-red)]" : skew < -5 ? "text-[var(--hl-green)]" : "text-[var(--hl-muted)]"}`}
-                title="25-delta skew: positive = puts expensive (fear), negative = calls expensive (greed)"
-              >
-                Skew {skew > 0 ? "+" : ""}{skew.toFixed(1)}
-              </span>
-            )}
-
-            {/* GEX */}
-            {gex !== 0 && (
-              <span className={`tabular-nums ${gexLvl === "dampening" ? "text-[var(--hl-green)]" : gexLvl === "amplifying" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]"}`}
-                title={`Gamma Exposure: ${gexLvl} — ${gexLvl === "dampening" ? "dealers hedge = lower vol" : "dealers amplify = higher vol"}`}
-              >
-                GEX {gex > 0 ? "+" : ""}{gex}M
-              </span>
-            )}
-
-            {/* Top Strike */}
-            {topStrikes.length > 0 && (
-              <span className="text-[var(--hl-muted)] tabular-nums text-[10px]"
-                title={`Top strikes: ${topStrikes.slice(0, 3).map(s => `$${s.strike.toLocaleString()} (C:${(s.callOI/1e6).toFixed(0)}M P:${(s.putOI/1e6).toFixed(0)}M)`).join(", ")}`}
-              >
-                Top:${topStrikes[0]?.strike.toLocaleString()}
-              </span>
-            )}
-          </button>
-        );
-      })}
-
-      {/* If no options data, show placeholder */}
-      {optionCoins.length === 0 && (
-        <div className="flex items-center gap-2 px-3 py-1.5 text-[var(--hl-muted)] text-[10px]">
-          Options data loading...
-        </div>
-      )}
     </div>
   );
 }

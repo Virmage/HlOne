@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { useWalletClient } from "wagmi";
 import type { TokenOverview, CpycatScore } from "@/lib/api";
+import { placeOrder, setLeverage, type PlaceOrderResult } from "@/lib/hl-exchange";
+import { useSafeAccount } from "@/hooks/use-safe-account";
 
 interface TradingPanelProps {
   coin: string;
@@ -17,9 +20,15 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
   const [orderType, setOrderType] = useState<OrderType>("market");
   const [size, setSize] = useState("");
   const [limitPrice, setLimitPrice] = useState("");
-  const [leverage, setLeverage] = useState(5);
+  const [leverage, setLeverageVal] = useState(5);
   const [tpPercent, setTpPercent] = useState("");
   const [slPercent, setSlPercent] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [lastResult, setLastResult] = useState<PlaceOrderResult | null>(null);
+  const [leverageSet, setLeverageSet] = useState(false);
+
+  const { address, isConnected } = useSafeAccount();
+  const { data: walletClient } = useWalletClient();
 
   const price = overview?.price ?? 0;
   const sizeNum = parseFloat(size) || 0;
@@ -33,6 +42,58 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
       ? "text-[var(--hl-red)]"
       : "text-[var(--hl-muted)]"
     : "";
+
+  // Handle leverage change — set on HL when user adjusts
+  const handleLeverageChange = useCallback(async (newLev: number) => {
+    setLeverageVal(newLev);
+    setLeverageSet(false);
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
+    if (!walletClient || !address || sizeNum <= 0) return;
+    setSubmitting(true);
+    setLastResult(null);
+
+    try {
+      // Set leverage first if not yet confirmed
+      if (!leverageSet) {
+        const levResult = await setLeverage(
+          walletClient,
+          address as `0x${string}`,
+          coin,
+          leverage,
+        );
+        if (!levResult.success) {
+          setLastResult({ success: false, error: `Leverage: ${levResult.error}` });
+          setSubmitting(false);
+          return;
+        }
+        setLeverageSet(true);
+      }
+
+      // Place the order
+      const result = await placeOrder(walletClient, address as `0x${string}`, {
+        asset: coin,
+        isBuy: side === "long",
+        size: sizeNum,
+        orderType,
+        limitPrice: orderType === "limit" ? parseFloat(limitPrice) : undefined,
+        slippageBps: 50, // 0.5% slippage for market
+      });
+
+      setLastResult(result);
+      if (result.success) {
+        setSize(""); // Clear size on success
+      }
+    } catch (err) {
+      setLastResult({
+        success: false,
+        error: err instanceof Error ? err.message : "Transaction failed",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }, [walletClient, address, coin, side, sizeNum, orderType, limitPrice, leverage, leverageSet]);
 
   return (
     <div className="flex flex-col h-full border-l border-[var(--hl-border)] bg-[var(--background)]">
@@ -133,7 +194,7 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
             min={1}
             max={50}
             value={leverage}
-            onChange={e => setLeverage(Number(e.target.value))}
+            onChange={e => handleLeverageChange(Number(e.target.value))}
             className="w-full mt-1 accent-[var(--hl-green)]"
           />
           <div className="flex justify-between text-[9px] text-[var(--hl-muted)]">
@@ -197,25 +258,53 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
             )}
           </div>
         )}
+
+        {/* Order result feedback */}
+        {lastResult && (
+          <div className={`rounded p-2 text-[10px] ${
+            lastResult.success
+              ? "bg-[rgba(80,210,193,0.1)] text-[var(--hl-green)]"
+              : "bg-[rgba(240,88,88,0.1)] text-[var(--hl-red)]"
+          }`}>
+            {lastResult.success ? (
+              <>
+                Order filled{lastResult.avgPrice ? ` @ $${parseFloat(lastResult.avgPrice).toLocaleString()}` : ""}
+                {lastResult.filledSize ? ` · ${lastResult.filledSize} ${coin}` : ""}
+              </>
+            ) : (
+              <>{lastResult.error}</>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Submit button */}
       <div className="px-3 py-2 border-t border-[var(--hl-border)]">
-        <button
-          className={`w-full py-2 rounded font-semibold text-[13px] transition-colors ${
-            side === "long"
-              ? "bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
-              : "bg-[var(--hl-red)] text-white hover:brightness-110"
-          }`}
-          onClick={() => {
-            // TODO: Connect to HL API for actual trading
-            alert(`Connect wallet to ${side} ${size} ${coin} at ${orderType === "market" ? "market" : limitPrice}`);
-          }}
-        >
-          {side === "long" ? "Long" : "Short"} {coin}
-        </button>
+        {isConnected ? (
+          <button
+            className={`w-full py-2 rounded font-semibold text-[13px] transition-colors disabled:opacity-50 ${
+              side === "long"
+                ? "bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
+                : "bg-[var(--hl-red)] text-white hover:brightness-110"
+            }`}
+            disabled={submitting || sizeNum <= 0}
+            onClick={handleSubmit}
+          >
+            {submitting ? "Signing..." : `${side === "long" ? "Long" : "Short"} ${coin}`}
+          </button>
+        ) : (
+          <button
+            className="w-full py-2 rounded font-semibold text-[13px] bg-[var(--hl-surface)] text-[var(--hl-muted)] cursor-not-allowed"
+            disabled
+          >
+            Connect wallet to trade
+          </button>
+        )}
         <p className="text-[9px] text-[var(--hl-muted)] text-center mt-1">
-          Connect wallet to trade · 0.035% taker fee
+          {isConnected
+            ? `Orders signed by your wallet · 0.035% taker fee`
+            : "Connect wallet to trade · 0.035% taker fee"
+          }
         </p>
       </div>
     </div>

@@ -27,7 +27,7 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
 
   return (
     <div className="overflow-hidden border-b border-[var(--hl-border)] bg-[var(--hl-surface)]">
-      <div className="flex ticker-track hover:[animation-play-state:paused]">
+      <div className="flex hover:[animation-play-state:paused]" style={{ animation: "ticker-scroll-reverse 60s linear infinite", willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
           <div key={copy} className="flex shrink-0" aria-hidden={copy === 1}>
             {/* USDC flows indicator */}

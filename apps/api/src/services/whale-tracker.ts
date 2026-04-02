@@ -163,9 +163,48 @@ export async function runWhaleCheck(): Promise<void> {
   }
 }
 
+// ─── Bot detection: track event frequency per address ───────────────────────
+// Market makers flip/adjust constantly — if an address fires >N events in a
+// rolling window, it's likely a bot and we suppress it.
+
+const BOT_WINDOW_MS = 60 * 60 * 1000; // 1 hour window
+const BOT_EVENT_THRESHOLD = 12;        // >12 events/hr = likely bot
+const addressEventTimes = new Map<string, number[]>();  // address → timestamps
+const knownBots = new Set<string>(); // addresses flagged as bots
+
+function isLikelyBot(address: string): boolean {
+  if (knownBots.has(address.toLowerCase())) return true;
+
+  const addr = address.toLowerCase();
+  const times = addressEventTimes.get(addr) || [];
+  const now = Date.now();
+
+  // Clean old timestamps
+  const recent = times.filter(t => now - t < BOT_WINDOW_MS);
+  addressEventTimes.set(addr, recent);
+
+  if (recent.length >= BOT_EVENT_THRESHOLD) {
+    knownBots.add(addr);
+    console.log(`[whale-tracker] Flagged bot: ${address} (${recent.length} events/hr)`);
+    return true;
+  }
+  return false;
+}
+
+function trackEventFrequency(address: string) {
+  const addr = address.toLowerCase();
+  const times = addressEventTimes.get(addr) || [];
+  times.push(Date.now());
+  addressEventTimes.set(addr, times);
+}
+
 function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">) {
   // Skip small position changes — minimum $10K position value to be whale-worthy
   if (Math.abs(event.positionValueUsd) < 10_000) return;
+
+  // Track frequency and skip if likely market maker bot
+  trackEventFrequency(event.whaleAddress);
+  if (isLikelyBot(event.whaleAddress)) return;
 
   eventCounter++;
   const now = Date.now();

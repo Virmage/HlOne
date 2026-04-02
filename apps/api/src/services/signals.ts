@@ -38,12 +38,16 @@ export interface LiquidationZone {
   distanceFromCurrent: number; // percentage
 }
 
+export type RegimeType = "risk_on" | "risk_off" | "chop" | "rotation" | "squeeze" | "capitulation";
+
 export interface MarketRegime {
-  regime: "risk_on" | "risk_off" | "neutral" | "chop" | "divergent";
+  regime: RegimeType;
+  action: string;       // what to do: "Buy dips, hold longs" etc
+  description: string;  // why: "BTC flat, 8 alts breaking out on volume"
+  confidence: number;   // 0-100 how many signals agree
   bullishCount: number;
   bearishCount: number;
   avgChange24h: number;
-  description: string;
 }
 
 export interface SharpSquareCallout {
@@ -90,39 +94,196 @@ function computeFundingOpportunities(overviews: TokenOverview[]): FundingOpportu
   return opps;
 }
 
+// ─── Regime persistence (debounce) ──────────────────────────────────────────
+
+let lastRegime: { regime: RegimeType; since: number } | null = null;
+const REGIME_MIN_HOLD_MS = 5 * 60_000; // hold regime for at least 5 minutes
+
+const REGIME_CONFIG: Record<RegimeType, { label: string; action: string; color: string }> = {
+  risk_on:      { label: "RISK ON",      action: "Buy dips, ride longs, chase breakouts",           color: "green" },
+  risk_off:     { label: "RISK OFF",     action: "Short rallies, reduce size, move to stables",     color: "red" },
+  chop:         { label: "CHOP",         action: "Fade extremes, tight stops, reduce size",         color: "orange" },
+  rotation:     { label: "ROTATION",     action: "Scan alts, follow volume, sector plays",          color: "blue" },
+  squeeze:      { label: "SQUEEZE",      action: "Vol compressed — set alerts, prepare for move",   color: "purple" },
+  capitulation: { label: "CAPITULATION", action: "Liquidation cascade — watch for reversal entries", color: "yellow" },
+};
+
 function computeMarketRegime(overviews: TokenOverview[]): MarketRegime {
-  // Use top 20 coins by volume
-  const top = overviews.slice(0, 20);
-  let bullish = 0;
-  let bearish = 0;
-  let totalChange = 0;
+  const top = overviews.slice(0, 20); // top 20 by volume
+  if (top.length === 0) {
+    return { regime: "chop", action: REGIME_CONFIG.chop.action, description: "No data", confidence: 0, bullishCount: 0, bearishCount: 0, avgChange24h: 0 };
+  }
+
+  // ── 1. Breadth: volume-weighted advance/decline ───────────────────────────
+  let bullish = 0, bearish = 0, flat = 0;
+  let volWeightedChange = 0;
+  let totalVol = 0;
+  const changes: number[] = [];
 
   for (const t of top) {
-    totalChange += t.change24h;
     if (t.change24h > 1) bullish++;
     else if (t.change24h < -1) bearish++;
+    else flat++;
+    volWeightedChange += t.change24h * t.volume24h;
+    totalVol += t.volume24h;
+    changes.push(t.change24h);
   }
 
-  const avgChange = top.length > 0 ? totalChange / top.length : 0;
+  const avgChange = totalVol > 0 ? volWeightedChange / totalVol : 0;
+  const breadthRatio = top.length > 0 ? bullish / top.length : 0.5;
 
-  let regime: MarketRegime["regime"] = "chop";
-  let description = "";
+  // ── 2. BTC vs alts divergence (rotation detection) ────────────────────────
+  const btc = overviews.find(t => t.coin === "BTC");
+  const eth = overviews.find(t => t.coin === "ETH");
+  const btcChange = btc?.change24h ?? 0;
+  const ethChange = eth?.change24h ?? 0;
+  const majorsFlat = Math.abs(btcChange) < 2 && Math.abs(ethChange) < 2;
 
-  if (bullish >= 14) {
-    regime = "risk_on";
-    description = `Strong risk-on: ${bullish}/20 top coins up >1%. Avg ${avgChange >= 0 ? "+" : ""}${avgChange.toFixed(1)}%`;
-  } else if (bearish >= 14) {
-    regime = "risk_off";
-    description = `Risk-off: ${bearish}/20 top coins down >1%. Avg ${avgChange.toFixed(1)}%`;
-  } else if (bullish >= 8 && bearish >= 8) {
-    regime = "divergent";
-    description = `Divergent: ${bullish} up, ${bearish} down — no clear direction. Selective market.`;
-  } else {
-    regime = "chop";
-    description = `Choppy: ${bullish} up, ${bearish} down — no strong trend. Avg ${avgChange >= 0 ? "+" : ""}${avgChange.toFixed(1)}%`;
+  // Count alts (non-BTC/ETH) with strong moves
+  const alts = top.filter(t => t.coin !== "BTC" && t.coin !== "ETH");
+  const altMovers = alts.filter(t => Math.abs(t.change24h) > 3).length;
+  const altBullish = alts.filter(t => t.change24h > 3).length;
+  const isRotation = majorsFlat && altMovers >= 5;
+
+  // ── 3. Volatility compression (squeeze detection) ─────────────────────────
+  // Low dispersion among top coins = compressed, breakout incoming
+  const mean = changes.reduce((s, c) => s + c, 0) / changes.length;
+  const variance = changes.reduce((s, c) => s + (c - mean) ** 2, 0) / changes.length;
+  const stdDev = Math.sqrt(variance);
+  const isCompressed = stdDev < 1.5 && Math.abs(avgChange) < 1;
+
+  // ── 4. Funding & positioning tilt ─────────────────────────────────────────
+  let positiveFunding = 0, negativeFunding = 0;
+  let totalFundingTilt = 0;
+  for (const t of top) {
+    const annualized = t.fundingRate * 24 * 365 * 100;
+    if (annualized > 5) positiveFunding++;
+    else if (annualized < -5) negativeFunding++;
+    totalFundingTilt += annualized;
+  }
+  const avgFunding = totalFundingTilt / top.length;
+  const crowdedLongs = positiveFunding >= 10 && avgFunding > 10;
+  const crowdedShorts = negativeFunding >= 8 && avgFunding < -10;
+
+  // ── 5. Liquidation cascade detection ──────────────────────────────────────
+  // Sharp move + high OI drop + extreme funding = capitulation
+  const whaleAlerts = getWhaleAlerts(50);
+  const recentLiqs = whaleAlerts.filter(w =>
+    (w.eventType === "close_long" || w.eventType === "close_short") &&
+    Date.now() - w.detectedAt < 60 * 60 * 1000 // last hour
+  ).length;
+  const sharpSelloff = avgChange < -4 && bearish >= 12;
+  const isCapitulation = sharpSelloff && (recentLiqs >= 5 || crowdedLongs);
+
+  // ── 6. Score each regime ──────────────────────────────────────────────────
+  const scores: Record<RegimeType, number> = {
+    risk_on: 0,
+    risk_off: 0,
+    chop: 0,
+    rotation: 0,
+    squeeze: 0,
+    capitulation: 0,
+  };
+
+  // RISK ON: broad rally, most coins up, positive momentum
+  if (breadthRatio >= 0.6) scores.risk_on += 30;
+  if (breadthRatio >= 0.7) scores.risk_on += 20;
+  if (avgChange > 1) scores.risk_on += 20;
+  if (avgChange > 3) scores.risk_on += 15;
+  if (negativeFunding > 5) scores.risk_on += 15; // shorts paying = healthy rally
+
+  // RISK OFF: broad sell, most coins down
+  if (bearish / top.length >= 0.6) scores.risk_off += 30;
+  if (bearish / top.length >= 0.7) scores.risk_off += 20;
+  if (avgChange < -1) scores.risk_off += 20;
+  if (avgChange < -3) scores.risk_off += 15;
+  if (crowdedLongs) scores.risk_off += 15; // fragile positioning
+
+  // CAPITULATION: extreme sell + liquidations
+  if (isCapitulation) scores.capitulation += 60;
+  if (avgChange < -5) scores.capitulation += 20;
+  if (recentLiqs >= 10) scores.capitulation += 20;
+  if (bearish >= 16) scores.capitulation += 15;
+
+  // ROTATION: majors flat, alts moving
+  if (isRotation) scores.rotation += 50;
+  if (majorsFlat && altMovers >= 8) scores.rotation += 25;
+  if (altBullish >= 5 && Math.abs(btcChange) < 1) scores.rotation += 25;
+
+  // SQUEEZE: everything compressed
+  if (isCompressed) scores.squeeze += 50;
+  if (stdDev < 1) scores.squeeze += 25;
+  if (flat >= 10) scores.squeeze += 25;
+
+  // CHOP: default — nothing strong
+  if (bullish >= 5 && bearish >= 5 && bullish < 12 && bearish < 12) scores.chop += 40;
+  if (stdDev >= 1.5 && stdDev < 4 && Math.abs(avgChange) < 2) scores.chop += 30;
+  if (!isRotation && !isCompressed && breadthRatio > 0.3 && breadthRatio < 0.7) scores.chop += 30;
+
+  // ── 7. Pick winner ───────────────────────────────────────────────────────
+  let bestRegime: RegimeType = "chop";
+  let bestScore = 0;
+  for (const [r, s] of Object.entries(scores) as [RegimeType, number][]) {
+    if (s > bestScore) { bestScore = s; bestRegime = r; }
   }
 
-  return { regime, bullishCount: bullish, bearishCount: bearish, avgChange24h: avgChange, description };
+  // Confidence = winner score capped at 100
+  const confidence = Math.min(100, bestScore);
+
+  // ── 8. Debounce — hold regime for minimum time unless new signal is strong
+  if (lastRegime && lastRegime.regime !== bestRegime) {
+    const held = Date.now() - lastRegime.since;
+    if (held < REGIME_MIN_HOLD_MS && confidence < 70) {
+      // Keep previous regime unless new one is high confidence
+      bestRegime = lastRegime.regime;
+    } else {
+      lastRegime = { regime: bestRegime, since: Date.now() };
+    }
+  } else if (!lastRegime) {
+    lastRegime = { regime: bestRegime, since: Date.now() };
+  }
+
+  // ── 9. Build description (the "why") ──────────────────────────────────────
+  const description = buildRegimeDescription(bestRegime, {
+    bullish, bearish, flat, avgChange, btcChange, altMovers, altBullish,
+    stdDev, crowdedLongs, crowdedShorts, recentLiqs, top: top.length,
+  });
+
+  return {
+    regime: bestRegime,
+    action: REGIME_CONFIG[bestRegime].action,
+    description,
+    confidence,
+    bullishCount: bullish,
+    bearishCount: bearish,
+    avgChange24h: avgChange,
+  };
+}
+
+function buildRegimeDescription(
+  regime: RegimeType,
+  d: {
+    bullish: number; bearish: number; flat: number; avgChange: number;
+    btcChange: number; altMovers: number; altBullish: number;
+    stdDev: number; crowdedLongs: boolean; crowdedShorts: boolean;
+    recentLiqs: number; top: number;
+  },
+): string {
+  switch (regime) {
+    case "risk_on":
+      return `${d.bullish}/${d.top} coins rallying${d.crowdedShorts ? " — shorts getting squeezed" : ""}. Broad strength, buy dips`;
+    case "risk_off":
+      return `${d.bearish}/${d.top} coins selling off${d.crowdedLongs ? " — longs overleveraged" : ""}. Defensive mode`;
+    case "capitulation":
+      return `Sharp sell across ${d.bearish} coins${d.recentLiqs > 0 ? `, ${d.recentLiqs} liquidation events` : ""}. Watch for reversal`;
+    case "rotation":
+      return `BTC flat, ${d.altMovers} alts moving${d.altBullish >= 3 ? ` (${d.altBullish} breaking out)` : ""}. Hunt sector plays`;
+    case "squeeze":
+      return `Vol compressed (${d.stdDev.toFixed(1)} std dev), ${d.flat} coins rangebound. Breakout setup building`;
+    case "chop":
+    default:
+      return `${d.bullish} up, ${d.bearish} down — mixed signals. No clear trend, fade extremes`;
+  }
 }
 
 function computeUnusualVolumeSignals(overviews: TokenOverview[]): Signal[] {

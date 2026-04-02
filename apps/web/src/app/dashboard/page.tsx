@@ -72,24 +72,22 @@ export default function DashboardPage() {
 
   return (
     <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-6">
-      {/* Ticker Bar */}
+      {/* Row 1: TradFi Macro — top of page */}
+      <MacroBar macro={data?.macro || []} onSelectToken={handleSelectToken} />
+
+      {/* Row 2: Crypto Ticker */}
       <TickerBar
         tokens={data?.tokens || []}
         options={data?.options}
         onSelectToken={handleSelectToken}
       />
 
-      {/* TradFi Macro Bar */}
-      <MacroBar macro={data?.macro || []} onSelectToken={handleSelectToken} />
-
-      {/* Market Pulse — regime + Deribit options */}
-      <div className="border-b border-[var(--hl-border)]">
-        <MarketPulse
-          regime={data?.regime || null}
-          options={data?.options || {}}
-          onSelectToken={handleSelectToken}
-        />
-      </div>
+      {/* Row 3: Market Regime + Deribit Options — scrolling */}
+      <MarketPulse
+        regime={data?.regime || null}
+        options={data?.options || {}}
+        onSelectToken={handleSelectToken}
+      />
 
       {/* Chart + Trading Panel */}
       <div className="flex border-b border-[var(--hl-border)]" style={{ height: "420px" }}>

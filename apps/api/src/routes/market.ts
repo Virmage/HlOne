@@ -70,8 +70,8 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       score: scores.get(t.coin) || null,
     }));
 
-    // Sharp flow — top tokens by smart money interest
-    const sharpFlow = smartMoney?.flow.slice(0, 20).map(f => ({
+    // Sharp flow — top tokens by smart money interest, min 5 rows
+    const rawFlow = smartMoney?.flow.slice(0, 20).map(f => ({
       ...f,
       score: scores.get(f.coin)?.score ?? null,
       signal: scores.get(f.coin)?.signal ?? "neutral",
@@ -80,6 +80,40 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       volume24h: overviews.find(o => o.coin === f.coin)?.volume24h ?? 0,
       fundingRate: overviews.find(o => o.coin === f.coin)?.fundingRate ?? 0,
     })) || [];
+
+    // Pad with top coins by volume if fewer than 5 sharp flow entries
+    const MIN_SHARP_ROWS = 5;
+    const sharpFlow = [...rawFlow];
+    if (sharpFlow.length < MIN_SHARP_ROWS) {
+      const existingCoins = new Set(sharpFlow.map(f => f.coin));
+      for (const t of overviews) {
+        if (sharpFlow.length >= MIN_SHARP_ROWS) break;
+        if (existingCoins.has(t.coin)) continue;
+        sharpFlow.push({
+          coin: t.coin,
+          sharpDirection: "neutral" as const,
+          sharpStrength: 0,
+          sharpLongCount: 0,
+          sharpShortCount: 0,
+          sharpNetSize: 0,
+          sharpAvgEntry: 0,
+          squareDirection: "neutral" as const,
+          squareStrength: 0,
+          squareLongCount: 0,
+          squareShortCount: 0,
+          squareNetSize: 0,
+          consensus: "neutral" as const,
+          divergence: false,
+          divergenceScore: 0,
+          score: scores.get(t.coin)?.score ?? null,
+          signal: scores.get(t.coin)?.signal ?? "neutral",
+          price: t.price,
+          change24h: t.change24h,
+          volume24h: t.volume24h,
+          fundingRate: t.fundingRate,
+        });
+      }
+    }
 
     // Divergences
     const divergences = smartMoney?.divergences.slice(0, 10).map(d => ({
