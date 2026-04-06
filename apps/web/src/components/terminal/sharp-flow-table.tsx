@@ -30,7 +30,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
           ⓘ
         </span>
       </div>
-      <div className="overflow-x-auto overflow-y-auto flex-1">
+      <div className="overflow-x-auto overflow-y-auto scroll-on-hover flex-1">
         <table className="w-full text-[12px] min-w-[420px]">
           <thead>
             <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)]">
@@ -63,7 +63,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
                 >
                   <td className="py-1.5 px-2">
                     <div className="flex items-center gap-1.5">
-                      <span className="font-medium text-[var(--foreground)]">{f.coin}</span>
+                      <span className="font-medium text-[var(--foreground)]">{f.coin.includes(":") ? f.coin.split(":")[1] : f.coin}</span>
                       {f.divergence && (
                         <span
                           className="text-[9px] px-1 py-0.5 rounded bg-yellow-500/15 text-yellow-400 font-medium cursor-help"

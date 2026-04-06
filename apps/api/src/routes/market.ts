@@ -21,6 +21,7 @@ import { getLiquidationHeatmap } from "../services/liquidation-heatmap.js";
 import { getCorrelationMatrixCached } from "../services/correlation-matrix.js";
 import { getOrderFlow } from "../services/order-flow.js";
 import { getPositionConcentration } from "../services/position-concentration.js";
+import { logTrade, getTradeLog, getTradeStats } from "../services/trade-log.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -53,12 +54,34 @@ async function buildFundingLeaderboard() {
   return { topPositive, topNegative };
 }
 
+// ─── Terminal response cache ────────────────────────────────────────────────
+// Cache the full /terminal response for 10s so N concurrent users = 1 computation.
+let terminalCache: { data: unknown; fetchedAt: number } | null = null;
+let terminalInFlight: Promise<unknown> | null = null;
+const TERMINAL_CACHE_TTL = 10_000; // 10 seconds
+
+// ─── Sub-query caches (avoid redundant fetches per terminal request) ────────
+let fundingCache: { data: { topPositive: unknown[]; topNegative: unknown[] }; fetchedAt: number } | null = null;
+const FUNDING_CACHE_TTL = 30_000; // 30 seconds
+
+let tradersCache: { data: unknown[]; fetchedAt: number } | null = null;
+const TRADERS_CACHE_TTL = 60_000; // 60 seconds
+
 export const marketRoutes: FastifyPluginAsync = async (app) => {
   /**
    * GET /api/market/terminal
    * Returns everything the main dashboard needs in one call.
    */
   app.get("/terminal", async (req) => {
+    // Serve cached terminal response if fresh (10s TTL).
+    // This means 100 concurrent users = 1 computation, not 100.
+    if (terminalCache && Date.now() - terminalCache.fetchedAt < TERMINAL_CACHE_TTL) {
+      return terminalCache.data;
+    }
+    // Deduplicate: if already computing, wait for that result
+    if (terminalInFlight) return terminalInFlight;
+
+    terminalInFlight = (async () => {
     // Use cached smart money + scores (instant). Background jobs populate these.
     // Only getTokenOverviews() makes a live API call (fast — just allMids + assetCtxs).
     const overviews = await getTokenOverviews();
@@ -68,8 +91,8 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     const whaleAlerts = getWhaleAlerts(30);
     const hotTokens = getHotTokens(10);
 
-    // Top 30 tokens with scores
-    const tokenData = overviews.slice(0, 30).map(t => ({
+    // All tokens with scores (perps + spot + HIP-3 tradfi)
+    const tokenData = overviews.map(t => ({
       ...t,
       score: scores.get(t.coin) || null,
     }));
@@ -127,7 +150,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       change24h: overviews.find(o => o.coin === d.coin)?.change24h ?? 0,
     })) || [];
 
-    // Top traders (mini leaderboard)
+    // Top traders (mini leaderboard) — cached 60s to avoid fetching 32K traders per request
     let topTraders: {
       address: string;
       displayName: string;
@@ -138,19 +161,25 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       isSharp: boolean;
     }[] = [];
     try {
-      const allTraders = await discoverActiveTraders();
-      topTraders = allTraders
-        .sort((a, b) => b.roi30d - a.roi30d)
-        .slice(0, 20)
-        .map(t => ({
-          address: t.address,
-          displayName: getTraderDisplayName(t.address, t.displayName),
-          accountValue: t.accountValue,
-          roi30d: t.roi30d,
-          roiAllTime: t.roiAllTime,
-          totalPnl: t.totalPnl,
-          isSharp: smartMoney?.sharpAddresses.has(t.address.toLowerCase()) ?? false,
-        }));
+      const now = Date.now();
+      if (tradersCache && now - tradersCache.fetchedAt < TRADERS_CACHE_TTL) {
+        topTraders = tradersCache.data as typeof topTraders;
+      } else {
+        const allTraders = await discoverActiveTraders();
+        topTraders = allTraders
+          .sort((a, b) => b.roi30d - a.roi30d)
+          .slice(0, 20)
+          .map(t => ({
+            address: t.address,
+            displayName: getTraderDisplayName(t.address, t.displayName),
+            accountValue: t.accountValue,
+            roi30d: t.roi30d,
+            roiAllTime: t.roiAllTime,
+            totalPnl: t.totalPnl,
+            isSharp: smartMoney?.sharpAddresses.has(t.address.toLowerCase()) ?? false,
+          }));
+        tradersCache = { data: topTraders, fetchedAt: now };
+      }
     } catch { /* ignore */ }
 
     // Options data for BTC/ETH (from Deribit)
@@ -167,8 +196,15 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     const newsFeed = getNewsFeedCached();
     const socialMetrics = getAllSocialMetricsCached();
 
-    // Funding leaderboard
-    const funding = await buildFundingLeaderboard().catch(() => ({ topPositive: [], topNegative: [] }));
+    // Funding leaderboard — cached 30s
+    let funding: { topPositive: unknown[]; topNegative: unknown[] };
+    const fnow = Date.now();
+    if (fundingCache && fnow - fundingCache.fetchedAt < FUNDING_CACHE_TTL) {
+      funding = fundingCache.data;
+    } else {
+      funding = await buildFundingLeaderboard().catch(() => ({ topPositive: [], topNegative: [] }));
+      fundingCache = { data: funding, fetchedAt: fnow };
+    }
 
     // Large trades (cached, never blocks)
     const largeTrades = getLargeTradesCached().slice(0, 10);
@@ -182,7 +218,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     const orderFlow = getOrderFlow();
     const positionConcentration = await getPositionConcentration().catch(() => []);
 
-    return {
+    const result = {
       tokens: tokenData,
       sharpFlow,
       divergences,
@@ -205,6 +241,11 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       positionConcentration,
       timestamp: Date.now(),
     };
+    terminalCache = { data: result, fetchedAt: Date.now() };
+    return result;
+    })().finally(() => { terminalInFlight = null; });
+
+    return terminalInFlight;
   });
 
   /**
@@ -214,7 +255,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { coin: string }; Querystring: { interval?: string } }>(
     "/token/:coin",
     async (req) => {
-      const { coin } = req.params;
+      const coin = decodeURIComponent(req.params.coin);
       const interval = (req.query.interval as string) || "1h";
       const now = Date.now();
 
@@ -235,20 +276,23 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       };
       const candleSince = now - (lookbackMs[interval] || 7 * 24 * 3600_000);
 
+      // Critical path: candles first (needed for chart render).
+      // Non-critical data loaded in parallel but doesn't block candles.
       const [
-        bookAnalysis,
-        overviews,
         candles,
+        bookAnalysis,
         funding,
         whaleAlerts,
         options,
+        overviews,
       ] = await Promise.all([
-        analyzeBook(coin).catch(() => null),
-        getTokenOverviews().catch(() => []),
         getCandleSnapshot(coin, interval, candleSince, now).catch(() => []),
+        analyzeBook(coin).catch(() => null),
         getFundingHistory(coin, now - 3 * 24 * 60 * 60 * 1000).catch(() => []),
         getHistoricalWhaleEvents(coin, interval, candleSince),
         getOptionsData(coin).catch(() => null),
+        // Use cached overviews only (don't trigger fresh HIP-3 fetch)
+        getTokenOverviews().catch(() => []),
       ]);
 
       const overview = overviews.find(o => o.coin === coin) || null;
@@ -425,4 +469,114 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       };
     },
   );
+
+  /**
+   * POST /api/market/trade-log
+   * Log a trade executed from the frontend (for auditing + fee tracking).
+   * Called by the trading panel after every order attempt.
+   */
+  app.post<{
+    Body: {
+      userAddress: string;
+      asset: string;
+      side: "buy" | "sell";
+      orderType: "market" | "limit";
+      size: number;
+      price: number;
+      success: boolean;
+      orderId?: string;
+      filledSize?: string;
+      avgPrice?: string;
+      error?: string;
+      latencyMs: number;
+    };
+  }>("/trade-log", async (req) => {
+    const b = req.body;
+    const notionalUsd = b.size * b.price;
+    const feeEstimatedUsd = notionalUsd * 0.0002; // 0.02% builder fee
+
+    logTrade({
+      userAddress: b.userAddress,
+      asset: b.asset,
+      side: b.side,
+      orderType: b.orderType,
+      size: b.size,
+      price: b.price,
+      notionalUsd,
+      feeEstimatedUsd,
+      success: b.success,
+      orderId: b.orderId,
+      filledSize: b.filledSize,
+      avgPrice: b.avgPrice,
+      error: b.error,
+      latencyMs: b.latencyMs,
+    });
+
+    return { ok: true };
+  });
+
+  /**
+   * GET /api/market/trade-stats
+   * Dashboard for trade volume, fees, success rates.
+   */
+  app.get("/trade-stats", async () => {
+    return {
+      stats: getTradeStats(),
+      recentTrades: getTradeLog(20),
+      timestamp: Date.now(),
+    };
+  });
+
+  /**
+   * GET /api/market/system-health
+   * Comprehensive health check — cache states, background jobs, trade stats.
+   */
+  app.get("/system-health", async () => {
+    const tradeStats = getTradeStats();
+
+    // Check cache freshness
+    const now = Date.now();
+    const cacheChecks = {
+      terminalCache: terminalCache
+        ? { fresh: now - terminalCache.fetchedAt < TERMINAL_CACHE_TTL, ageMs: now - terminalCache.fetchedAt }
+        : { fresh: false, ageMs: -1 },
+    };
+
+    // Check if background data is populated
+    const smartMoney = getSmartMoneyCached();
+    const scores = getTokenScoresCached();
+    const signals = getSignalsCached();
+    const whaleAlerts = getWhaleAlerts(1);
+
+    const dataHealth = {
+      smartMoney: !!smartMoney,
+      smartMoneyAge: smartMoney ? Math.round((now - smartMoney.fetchedAt) / 1000) + "s" : "not loaded",
+      sharpCount: smartMoney?.flow.length ?? 0,
+      tokenScores: scores.size,
+      signals: signals?.signals.length ?? 0,
+      whaleEvents: whaleAlerts.length > 0,
+    };
+
+    let overviewCount = 0;
+    try {
+      const overviews = await getTokenOverviews();
+      overviewCount = overviews.length;
+    } catch { /* ignore */ }
+
+    return {
+      status: dataHealth.smartMoney && overviewCount > 0 ? "healthy" : "degraded",
+      uptime: tradeStats.uptimeHours + "h",
+      tokens: overviewCount,
+      caches: cacheChecks,
+      data: dataHealth,
+      trades: {
+        total: tradeStats.total,
+        successRate: tradeStats.successRate + "%",
+        volumeUsd: tradeStats.totalVolumeUsd,
+        feesUsd: tradeStats.totalFeesEstimatedUsd,
+        last1h: tradeStats.last1h,
+      },
+      timestamp: now,
+    };
+  });
 };

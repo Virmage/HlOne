@@ -227,6 +227,9 @@ export interface TokenOverview {
   oraclePx: number;
   premium: number;
   score: CpycatScore | null;
+  isSpot?: boolean;
+  dex?: string;       // HIP-3 builder dex (xyz, flx, etc.)
+  category?: string;  // stocks, indices, commodities, fx, pre-ipo, sectors
 }
 
 export interface CpycatScore {
@@ -559,7 +562,7 @@ export async function getTerminalData() {
 }
 
 export async function getTokenDetail(coin: string, interval = "1h") {
-  return apiFetch<TokenDetail>(`/api/market/token/${coin}?interval=${interval}`);
+  return apiFetch<TokenDetail>(`/api/market/token/${encodeURIComponent(coin)}?interval=${interval}`);
 }
 
 export async function getWhaleAlertsFeed(limit = 50, coin?: string) {

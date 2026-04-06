@@ -65,7 +65,7 @@ export function OrderFlowPanel({ data, onSelectToken }: OrderFlowPanelProps) {
           <span className="w-16 text-center">15m</span>
           <span className="flex-1 text-right">Net 5m</span>
         </div>
-        <div className="overflow-y-auto max-h-[220px]">
+        <div className="overflow-y-auto scroll-on-hover max-h-[220px]">
           {data.map((coin) => {
             const w1m = coin.windows.find(w => w.interval === "1m");
             const w5m = coin.windows.find(w => w.interval === "5m");

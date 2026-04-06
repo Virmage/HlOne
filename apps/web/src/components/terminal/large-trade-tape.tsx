@@ -35,7 +35,7 @@ export function LargeTradeTape({ trades, onSelectToken }: LargeTradeTapeProps) {
       <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
         Large Trades (&gt;$25K)
       </h2>
-      <div className="overflow-y-auto max-h-[220px]">
+      <div className="overflow-y-auto scroll-on-hover max-h-[220px]">
         {trades.slice(0, 15).map((t) => {
           const isBuy = t.side === "buy";
           return (
@@ -44,7 +44,7 @@ export function LargeTradeTape({ trades, onSelectToken }: LargeTradeTapeProps) {
               className="flex items-center justify-between px-2 py-1 text-[11px] border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
               onClick={() => onSelectToken(t.coin)}
             >
-              <span className="font-medium text-[var(--foreground)] w-14">{t.coin}</span>
+              <span className="font-medium text-[var(--foreground)] w-14">{t.coin.includes(":") ? t.coin.split(":")[1] : t.coin}</span>
               <span className={`w-8 font-medium ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                 {isBuy ? "BUY" : "SELL"}
               </span>

@@ -74,22 +74,28 @@ export default function DashboardPage() {
 
   return (
     <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-6">
-      {/* Row 1: TradFi Macro — top of page */}
-      <MacroBar macro={data?.macro || []} onSelectToken={handleSelectToken} />
+      {/* Row 1: TradFi Macro — desktop only */}
+      <div className="hidden md:block">
+        <MacroBar macro={data?.macro || []} onSelectToken={handleSelectToken} />
+      </div>
 
-      {/* Row 2: Crypto Ticker */}
-      <TickerBar
-        tokens={data?.tokens || []}
-        options={data?.options}
-        onSelectToken={handleSelectToken}
-      />
+      {/* Row 2: Crypto Ticker — desktop only */}
+      <div className="hidden md:block">
+        <TickerBar
+          tokens={data?.tokens || []}
+          options={data?.options}
+          onSelectToken={handleSelectToken}
+        />
+      </div>
 
-      {/* Row 3: Market Regime + Deribit Options — scrolling */}
-      <MarketPulse
-        regime={data?.regime || null}
-        options={data?.options || {}}
-        onSelectToken={handleSelectToken}
-      />
+      {/* Row 3: Market Regime + Deribit Options — desktop only */}
+      <div className="hidden md:block">
+        <MarketPulse
+          regime={data?.regime || null}
+          options={data?.options || {}}
+          onSelectToken={handleSelectToken}
+        />
+      </div>
 
       {/* Chart + Trading Panel */}
       <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)] overflow-hidden" style={{ minHeight: "320px" }}>
@@ -100,6 +106,7 @@ export default function DashboardPage() {
             tokens={data?.tokens || []}
             onSelectToken={handleSelectToken}
             whaleAlerts={data?.whaleAlerts || []}
+            liquidationBands={data?.liquidationHeatmap?.find(h => h.coin === chartCoin)?.bands}
           />
         </div>
         {/* Order Book — hidden on mobile */}
@@ -124,8 +131,14 @@ export default function DashboardPage() {
         onSelectToken={handleSelectToken}
       />
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-px bg-[var(--hl-border)]">
+      {/* Mobile: App coming soon */}
+      <div className="md:hidden border-t border-[var(--hl-border)] py-12 px-4 text-center">
+        <div className="text-[var(--hl-muted)] text-[14px] font-medium mb-1">App coming soon.</div>
+        <div className="text-[var(--hl-muted)] text-[11px] opacity-60">Full dashboard available on desktop</div>
+      </div>
+
+      {/* Main Grid — desktop only */}
+      <div className="hidden md:grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-px bg-[var(--hl-border)]">
         {/* Left: Sharp Flow */}
         <div className="bg-[var(--background)] p-2">
           <SharpFlowTable

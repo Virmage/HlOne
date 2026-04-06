@@ -24,7 +24,7 @@ export function SocialPanel({ social, onSelectToken }: SocialPanelProps) {
       <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
         Social Sentiment <span className="text-[10px] font-normal">LunarCrush</span>
       </h2>
-      <div className="overflow-y-auto max-h-[220px]">
+      <div className="overflow-y-auto scroll-on-hover max-h-[220px]">
         <table className="w-full text-[11px]">
           <thead>
             <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)] text-[10px]">

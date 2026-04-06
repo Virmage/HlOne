@@ -9,6 +9,9 @@ import { getCandleSnapshot, getRecentTrades } from "./hyperliquid.js";
 import { getSmartMoneyCached } from "./smart-money.js";
 import { getWhaleAlerts } from "./whale-tracker.js";
 
+/** Strip dex prefix for display (e.g. "xyz:GOLD" → "GOLD") */
+const displayCoin = (c: string) => c.includes(":") ? c.split(":")[1] : c;
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface Signal {
@@ -300,7 +303,7 @@ function computeUnusualVolumeSignals(overviews: TokenOverview[]): Signal[] {
         type: "unusual_volume",
         coin: t.coin,
         severity: "critical",
-        title: `${t.coin} volume ${turnover.toFixed(0)}x OI`,
+        title: `${displayCoin(t.coin)} volume ${turnover.toFixed(0)}x OI`,
         description: `24h volume $${(t.volume24h / 1e6).toFixed(0)}M vs $${(t.openInterest / 1e6).toFixed(0)}M OI — extreme turnover`,
         value: turnover,
         timestamp: Date.now(),
@@ -310,7 +313,7 @@ function computeUnusualVolumeSignals(overviews: TokenOverview[]): Signal[] {
         type: "unusual_volume",
         coin: t.coin,
         severity: "warning",
-        title: `${t.coin} high volume`,
+        title: `${displayCoin(t.coin)} high volume`,
         description: `24h volume ${turnover.toFixed(1)}x open interest`,
         value: turnover,
         timestamp: Date.now(),
@@ -362,7 +365,7 @@ function computeFundingRegimeSignals(overviews: TokenOverview[]): Signal[] {
         type: "funding_extreme",
         coin: t.coin,
         severity: "critical",
-        title: `${t.coin} funding ${annualized.toFixed(0)}% APR — crowded long`,
+        title: `${displayCoin(t.coin)} funding ${annualized.toFixed(0)}% APR — crowded long`,
         description: `Extreme positive funding. Longs paying ${annualized.toFixed(0)}% annualized. Squeeze risk.`,
         value: annualized,
         timestamp: Date.now(),
@@ -372,7 +375,7 @@ function computeFundingRegimeSignals(overviews: TokenOverview[]): Signal[] {
         type: "funding_extreme",
         coin: t.coin,
         severity: "critical",
-        title: `${t.coin} funding ${annualized.toFixed(0)}% APR — crowded short`,
+        title: `${displayCoin(t.coin)} funding ${annualized.toFixed(0)}% APR — crowded short`,
         description: `Extreme negative funding. Shorts paying ${Math.abs(annualized).toFixed(0)}% annualized. Short squeeze risk.`,
         value: annualized,
         timestamp: Date.now(),

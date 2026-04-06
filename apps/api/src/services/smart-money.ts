@@ -68,9 +68,11 @@ interface SmartMoneyCache {
 
 let cache: SmartMoneyCache | null = null;
 const CACHE_TTL = 60_000; // 60 seconds
+const STALE_TTL = 10 * 60_000; // 10 minutes — serve stale data while refreshing in background
 const FULL_REFRESH_TTL = 5 * 60_000; // 5 minutes for full position scan
 
 let lastFullRefresh = 0;
+let refreshInFlight = false;
 
 // ─── Trader Scoring ──────────────────────────────────────────────────────────
 
@@ -297,6 +299,23 @@ export async function getSmartMoneyData(): Promise<SmartMoneyCache> {
     return cache;
   }
 
+  // Stale-while-revalidate: if cache is < 10 min old, return stale + refresh in background
+  if (cache && Date.now() - cache.fetchedAt < STALE_TTL && !refreshInFlight) {
+    refreshInFlight = true;
+    // Fire-and-forget background refresh
+    doSmartMoneyRefresh().catch(e => console.error("[smart-money] background refresh failed:", e)).finally(() => { refreshInFlight = false; });
+    return cache;
+  }
+  // If already refreshing, return whatever we have
+  if (cache && refreshInFlight) {
+    return cache;
+  }
+
+  return doSmartMoneyRefresh();
+}
+
+/** Core refresh logic — fetches traders + positions, rebuilds cache */
+async function doSmartMoneyRefresh(): Promise<SmartMoneyCache> {
   const allTraders = await discoverActiveTraders();
   const { sharps, sharpAddresses, squares, traderScores } = classifyTraders(allTraders);
 

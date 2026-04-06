@@ -1,7 +1,8 @@
 /**
  * Large Trade Tape service — tracks large trades across top coins.
  * Polls recentTrades for top 15 coins by volume, aggregates fills
- * by hash, and keeps a capped buffer of trades > $25K.
+ * by taker address (a single market order fills against many resting
+ * orders, each producing a separate hash), and keeps a capped buffer.
  */
 
 import { getRecentTrades } from "./hyperliquid.js";
@@ -26,11 +27,12 @@ const MAX_TRADES = 200;
 const MIN_SIZE_MAJOR = 100_000;  // $100K+ for BTC, ETH, SOL
 const MIN_SIZE_ALT = 25_000;     // $25K+ for everything else
 const MAJOR_COINS = new Set(["BTC", "ETH", "SOL"]);
-const POLL_INTERVAL = 20_000; // 20 seconds
+const POLL_INTERVAL = 30_000; // 30 seconds — avoid rate limits
 const TOP_COINS_COUNT = 15;
+const COIN_DELAY = 300; // ms between each coin request to avoid 429s
 
 let trades: LargeTrade[] = [];
-const seenHashes = new Set<string>();
+const seenTids = new Set<number>();
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
 // ─── Polling ────────────────────────────────────────────────────────────────
@@ -52,7 +54,9 @@ async function pollTrades(): Promise<void> {
     const coins = await getTopCoins();
     const mids = await getCachedMids();
 
-    for (const coin of coins) {
+    for (let ci = 0; ci < coins.length; ci++) {
+      const coin = coins[ci];
+      if (ci > 0) await new Promise(r => setTimeout(r, COIN_DELAY));
       try {
         const rawTrades = await getRecentTrades(coin) as {
           coin: string;
@@ -70,58 +74,65 @@ async function pollTrades(): Promise<void> {
         const price = mids[coin] || 0;
         if (price === 0) continue;
 
-        // Aggregate fills by hash (same hash = same order)
-        const byHash = new Map<string, {
+        // Aggregate fills by taker+side — a single market order fills
+        // against many resting orders, each with a different hash.
+        // Grouping by taker+side within the same batch captures the full order.
+        const byTaker = new Map<string, {
           coin: string;
           side: string;
           totalSize: number;
           totalNotional: number;
-          weightedPrice: number;
           time: number;
-          hash: string;
+          hash: string; // keep first hash as reference
           taker: string;
+          fillCount: number;
         }>();
 
         for (const t of rawTrades) {
-          const hash = t.hash;
-          if (seenHashes.has(hash)) continue;
+          if (seenTids.has(t.tid)) continue;
 
           const sz = parseFloat(t.sz) || 0;
           const px = parseFloat(t.px) || 0;
           if (sz === 0 || px === 0) continue;
           const notional = sz * px;
+          const taker = (t.users && t.users[0]) || t.hash;
+          const key = `${taker}_${t.side}`;
 
-          const existing = byHash.get(hash);
+          seenTids.add(t.tid);
+
+          const existing = byTaker.get(key);
           if (existing) {
             existing.totalSize += sz;
             existing.totalNotional += notional;
-            existing.weightedPrice = existing.totalNotional / existing.totalSize;
-            if (t.time > existing.time) existing.time = t.time;
+            existing.fillCount++;
+            if (t.time > existing.time) {
+              existing.time = t.time;
+              existing.hash = t.hash;
+            }
           } else {
-            byHash.set(hash, {
+            byTaker.set(key, {
               coin,
               side: t.side,
               totalSize: sz,
               totalNotional: notional,
-              weightedPrice: px,
               time: t.time,
-              hash,
-              taker: (t.users && t.users[0]) || "",
+              hash: t.hash,
+              taker,
+              fillCount: 1,
             });
           }
         }
 
         // Filter for large trades — higher threshold for majors
-        for (const [hash, agg] of byHash) {
-          const minSize = MAJOR_COINS.has(agg.coin) ? MIN_SIZE_MAJOR : MIN_SIZE_ALT;
+        const minSize = MAJOR_COINS.has(coin) ? MIN_SIZE_MAJOR : MIN_SIZE_ALT;
+        for (const [, agg] of byTaker) {
           if (agg.totalNotional >= minSize) {
-            seenHashes.add(hash);
             trades.push({
               coin: agg.coin,
               side: agg.side === "B" ? "buy" : "sell",
               sizeUsd: agg.totalNotional,
               sizeNative: agg.totalSize,
-              price: agg.weightedPrice,
+              price: agg.totalNotional / agg.totalSize,
               time: agg.time,
               hash: agg.hash,
               taker: agg.taker,
@@ -136,15 +147,14 @@ async function pollTrades(): Promise<void> {
     // Sort by time descending and cap
     trades.sort((a, b) => b.time - a.time);
     if (trades.length > MAX_TRADES) {
-      const removed = trades.splice(MAX_TRADES);
-      for (const t of removed) seenHashes.delete(t.hash);
+      trades = trades.slice(0, MAX_TRADES);
     }
 
-    // Also prune seenHashes if it gets too large (keep last 5000)
-    if (seenHashes.size > 5000) {
-      const hashArr = [...seenHashes];
-      const toRemove = hashArr.slice(0, hashArr.length - 5000);
-      for (const h of toRemove) seenHashes.delete(h);
+    // Prune seenTids if it gets too large (keep last 10000)
+    if (seenTids.size > 10_000) {
+      const arr = [...seenTids];
+      const toRemove = arr.slice(0, arr.length - 10_000);
+      for (const tid of toRemove) seenTids.delete(tid);
     }
   } catch (err) {
     console.error("[trade-tape] Poll failed:", (err as Error).message);
@@ -155,10 +165,10 @@ async function pollTrades(): Promise<void> {
 
 export function startTradeTapeTracking(): void {
   if (intervalId) return;
-  console.log("[trade-tape] Starting large trade tracking (20s interval, top 15 coins, $100K+ majors / $25K+ alts)");
+  console.log("[trade-tape] Starting large trade tracking (30s interval, top 15 coins, $100K+ majors / $25K+ alts)");
   intervalId = setInterval(pollTrades, POLL_INTERVAL);
-  // Initial poll after a short delay
-  setTimeout(pollTrades, 5000);
+  // Initial poll after whale tracker settles
+  setTimeout(pollTrades, 60_000);
 }
 
 export function getLargeTrades(limit?: number): LargeTrade[] {

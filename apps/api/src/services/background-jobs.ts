@@ -17,6 +17,7 @@ import { startTopTraderFillsTracking } from "./top-trader-fills.js";
 import { computeCorrelationMatrix } from "./correlation-matrix.js";
 import { startOrderFlowTracking, warmOrderFlowMids } from "./order-flow.js";
 import { warmLiquidationMids } from "./liquidation-heatmap.js";
+import { getCachedHip3Tokens } from "./market-data.js";
 
 let started = false;
 
@@ -93,7 +94,25 @@ export function startBackgroundJobs() {
     }
   }, 30_000);
 
-  // News + social + correlation warm-up (after 15s to stagger)
+  // HIP-3 builder perps warm-up (after 90s — needs dedicated time slot, 6 DEX calls with delays)
+  setTimeout(async () => {
+    try {
+      console.log("[bg] Initial warm-up: HIP-3 builder perps...");
+      await getCachedHip3Tokens();
+      console.log("[bg] HIP-3 warm-up complete");
+    } catch (err) {
+      console.error("[bg] HIP-3 warm-up failed:", (err as Error).message);
+    }
+  }, 20_000);
+
+  // Refresh HIP-3 every 60s
+  setInterval(async () => {
+    try {
+      await getCachedHip3Tokens();
+    } catch { /* ignore */ }
+  }, 60_000);
+
+  // News + social + correlation warm-up (after 40s to stagger past HIP-3)
   setTimeout(async () => {
     try {
       console.log("[bg] Initial warm-up: news + social + macro + correlation...");

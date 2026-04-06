@@ -59,7 +59,7 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
                   onClick={() => onSelectToken(t.coin)}
                   className="flex items-center gap-2 px-4 py-1.5 text-[11px] hover:bg-[var(--hl-surface-hover)] transition-colors whitespace-nowrap"
                 >
-                  <span className="font-medium text-[var(--hl-text)]">{t.coin}</span>
+                  <span className="font-medium text-[var(--hl-text)]">{t.coin.includes(":") ? t.coin.split(":")[1] : t.coin}</span>
                   <span className="text-[var(--foreground)] tabular-nums" style={{ minWidth: "60px" }}>
                     ${t.price >= 1 ? t.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : t.price.toPrecision(4)}
                   </span>

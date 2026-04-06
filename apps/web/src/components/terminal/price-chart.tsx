@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import type { TokenDetail, TokenOverview, WhaleAlert } from "@/lib/api";
+import type { TokenDetail, TokenOverview, WhaleAlert, LiquidationBand } from "@/lib/api";
 import { getTokenDetail } from "@/lib/api";
 
 interface PriceChartProps {
@@ -9,6 +9,7 @@ interface PriceChartProps {
   tokens: TokenOverview[];
   onSelectToken: (coin: string) => void;
   whaleAlerts?: WhaleAlert[];
+  liquidationBands?: LiquidationBand[];
 }
 
 type Interval = "5m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1M";
@@ -25,7 +26,7 @@ interface DrawingLine {
 
 const POLL_INTERVAL = 15_000; // 15 seconds
 
-export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: PriceChartProps) {
+export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liquidationBands }: PriceChartProps) {
   const [interval, setInterval] = useState<Interval>("1h");
   const [detail, setDetail] = useState<TokenDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -114,11 +115,56 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
     return p.toPrecision(4);
   };
 
-  // Drawing tools
+  // Drawing tools — persist to localStorage
+  const [magnetMode, setMagnetMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("hlone_magnet") === "on";
+  });
   const [drawingTool, setDrawingTool] = useState<DrawingTool>("none");
-  const [drawings, setDrawings] = useState<DrawingLine[]>([]);
+  const [drawings, setDrawings] = useState<DrawingLine[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(`hlone_drawings_${coin}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [pendingDrawing, setPendingDrawing] = useState<Partial<DrawingLine> | null>(null);
   const drawingCounter = useRef(0);
+
+  // Heatmap toggle — persist preference
+  const [showHeatmap, setShowHeatmap] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("hlone_heatmap") !== "off";
+  });
+
+  // Load drawings when coin changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`hlone_drawings_${coin}`);
+      setDrawings(saved ? JSON.parse(saved) : []);
+    } catch { setDrawings([]); }
+  }, [coin]);
+
+  // Save drawings to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(`hlone_drawings_${coin}`, JSON.stringify(drawings));
+    } catch { /* ignore */ }
+  }, [drawings, coin]);
+
+  // Save heatmap preference
+  useEffect(() => {
+    try {
+      localStorage.setItem("hlone_heatmap", showHeatmap ? "on" : "off");
+    } catch { /* ignore */ }
+  }, [showHeatmap]);
+
+  // Save magnet preference
+  useEffect(() => {
+    try {
+      localStorage.setItem("hlone_magnet", magnetMode ? "on" : "off");
+    } catch { /* ignore */ }
+  }, [magnetMode]);
 
   const addDrawing = useCallback((d: DrawingLine) => {
     setDrawings(prev => [...prev, d]);
@@ -136,7 +182,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
 
   const [coinDropdownOpen, setCoinDropdownOpen] = useState(false);
   const [search, setSearch] = useState("");
-  type FilterType = "All" | "Perps" | "Spot" | "Crypto" | "Tradfi" | "Trending";
+  type FilterType = "All" | "Perps" | "Spot" | "Tradfi" | "Stocks" | "Indices" | "Commodities" | "FX" | "Trending";
   const [filter, setFilter] = useState<FilterType>("All");
   const [sortCol, setSortCol] = useState<"volume" | "change" | "oi" | "funding">("volume");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -166,20 +212,6 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
   const markPx = overview?.markPx ?? overview?.price ?? 0;
   const oraclePx = overview?.oraclePx ?? overview?.price ?? 0;
 
-  // Token classification — matches Hyperliquid's categories
-  const TRADFI_TOKENS = new Set(["WTIOIL", "SILVER", "BRENTOIL", "GOLD", "SPX", "S&P500", "XAU", "NIKKEI"]);
-  const SPOT_TOKENS = new Set(["HYPE/USDC"]); // spot pairs show differently
-
-  const getTokenCategory = useCallback((coin: string): string[] => {
-    const cats: string[] = ["All"];
-    if (TRADFI_TOKENS.has(coin)) {
-      cats.push("Perps", "Tradfi");
-    } else {
-      cats.push("Perps", "Crypto");
-    }
-    return cats;
-  }, []);
-
   // Filtered + sorted tokens for dropdown
   const filteredTokens = useMemo(() => {
     let list = [...tokens];
@@ -189,8 +221,20 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
     }
     if (filter === "Trending") {
       list = list.filter(t => Math.abs(t.change24h) > 3);
-    } else if (filter !== "All") {
-      list = list.filter(t => getTokenCategory(t.coin).includes(filter));
+    } else if (filter === "Perps") {
+      list = list.filter(t => !t.isSpot && !t.dex);
+    } else if (filter === "Spot") {
+      list = list.filter(t => t.isSpot);
+    } else if (filter === "Tradfi") {
+      list = list.filter(t => !!t.dex && t.category !== "crypto");
+    } else if (filter === "Stocks") {
+      list = list.filter(t => t.category === "stocks" || t.category === "pre-ipo");
+    } else if (filter === "Indices") {
+      list = list.filter(t => t.category === "indices" || t.category === "sectors");
+    } else if (filter === "Commodities") {
+      list = list.filter(t => t.category === "commodities");
+    } else if (filter === "FX") {
+      list = list.filter(t => t.category === "fx");
     }
     // Sort
     list.sort((a, b) => {
@@ -202,7 +246,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
       return sortDir === "desc" ? bv - av : av - bv;
     });
     return list;
-  }, [tokens, search, filter, sortCol, sortDir, getTokenCategory]);
+  }, [tokens, search, filter, sortCol, sortDir]);
 
   const handleSort = (col: typeof sortCol) => {
     if (sortCol === col) setSortDir(d => d === "desc" ? "asc" : "desc");
@@ -221,7 +265,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
             onClick={() => setCoinDropdownOpen(!coinDropdownOpen)}
             className="flex items-center gap-1.5 pr-3 mr-3 border-r border-[var(--hl-border)]"
           >
-            <span className="text-[15px] font-bold text-[var(--foreground)]">{coin}-USDC</span>
+            <span className="text-[15px] font-bold text-[var(--foreground)]">{coin.includes(":") ? coin.split(":")[1] : coin}-USDC</span>
             <svg width="10" height="6" viewBox="0 0 10 6" fill="none" className="mt-0.5">
               <path d="M1 1L5 5L9 1" stroke="var(--hl-muted)" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
@@ -249,7 +293,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
 
               {/* Filters */}
               <div className="flex items-center gap-1 px-3 pb-2 overflow-x-auto">
-                {(["All", "Perps", "Spot", "Crypto", "Tradfi", "Trending"] as FilterType[]).map(f => (
+                {(["All", "Perps", "Spot", "Tradfi", "Stocks", "Indices", "Commodities", "FX", "Trending"] as FilterType[]).map(f => (
                   <button
                     key={f}
                     onClick={() => setFilter(f)}
@@ -294,10 +338,10 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
                   >
                     <span className="text-left font-medium text-[var(--foreground)] flex items-center gap-1.5">
                       {t.coin === coin && <span className="text-[var(--hl-green)]">●</span>}
-                      {t.coin}-USDC
-                      {TRADFI_TOKENS.has(t.coin) && (
-                        <span className="text-[9px] px-1 py-0 rounded bg-[var(--hl-surface-hover)] text-[var(--hl-green)]">xyz</span>
-                      )}
+                      {t.coin.includes(":") ? t.coin.split(":")[1] : t.coin}
+                      {t.dex && <span className="text-[9px] text-[var(--hl-muted)] font-normal">{t.dex}</span>}
+                      {t.isSpot && <span className="text-[9px] text-[var(--hl-muted)] font-normal">SPOT</span>}
+                      {!t.dex && !t.isSpot && <span className="text-[9px] text-[var(--hl-muted)] font-normal">-USDC</span>}
                     </span>
                     <span className="text-right tabular-nums text-[var(--foreground)]">
                       {formatPrice(t.price)}
@@ -377,8 +421,8 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
         </div>
       </div>
 
-      {/* Row 2: Timeframes + Drawing tools */}
-      <div className="flex items-center justify-between border-b border-[var(--hl-border)] px-3 py-0.5 shrink-0">
+      {/* Row 2: Timeframes */}
+      <div className="flex items-center border-b border-[var(--hl-border)] px-3 py-0.5 shrink-0">
         <div className="flex items-center gap-0.5">
           {(["5m", "15m", "1h", "4h", "1d", "1w", "1M"] as Interval[]).map(i => (
             <button
@@ -394,43 +438,103 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
             </button>
           ))}
         </div>
-        {/* Drawing tools */}
-        <div className="flex items-center gap-0.5">
+      </div>
+
+      {/* Chart area with left toolbar */}
+      <div className="flex-1 min-h-0 flex">
+        {/* Left-side drawing toolbar (TradingView style) */}
+        <div className="flex flex-col items-center gap-0.5 py-2 px-1 border-r border-[var(--hl-border)] bg-[var(--background)] shrink-0" style={{ width: 32 }}>
+          {/* Trend Line — diagonal line with endpoint circles (TV style) */}
           <button
             onClick={() => { setDrawingTool(drawingTool === "trendline" ? "none" : "trendline"); setPendingDrawing(null); }}
             className={`p-1 rounded transition-colors ${drawingTool === "trendline" ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
             title="Trend Line"
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="14" x2="14" y2="2" /></svg>
+            <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <circle cx="6" cy="22" r="2" fill="currentColor" stroke="none" />
+              <circle cx="22" cy="6" r="2" fill="currentColor" stroke="none" />
+              <line x1="7" y1="21" x2="21" y2="7" />
+            </svg>
           </button>
+
+          {/* Horizontal Line — dashed line spanning full width (TV style) */}
           <button
             onClick={() => { setDrawingTool(drawingTool === "hline" ? "none" : "hline"); setPendingDrawing(null); }}
             className={`p-1 rounded transition-colors ${drawingTool === "hline" ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
             title="Horizontal Line"
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="1" y1="8" x2="15" y2="8" /></svg>
+            <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <line x1="2" y1="14" x2="26" y2="14" strokeDasharray="3 2" />
+              <line x1="4" y1="14" x2="24" y2="14" />
+            </svg>
           </button>
+
+          {/* Ray — line with one endpoint circle and arrow tip (TV style) */}
           <button
             onClick={() => { setDrawingTool(drawingTool === "ray" ? "none" : "ray"); setPendingDrawing(null); }}
             className={`p-1 rounded transition-colors ${drawingTool === "ray" ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
             title="Ray"
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="12" x2="14" y2="4" /><circle cx="14" cy="4" r="1.5" fill="currentColor" /></svg>
+            <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <circle cx="6" cy="20" r="2" fill="currentColor" stroke="none" />
+              <line x1="7" y1="19" x2="26" y2="8" />
+              <polyline points="22,7 26,8 24,12" strokeWidth="1.4" strokeLinejoin="round" fill="none" />
+            </svg>
           </button>
+
+          <div className="w-5 border-t border-[var(--hl-border)] my-1" />
+
+          {/* Magnet / Snap to candle — horseshoe magnet (TV style) */}
+          <button
+            onClick={() => setMagnetMode(prev => !prev)}
+            className={`p-1 rounded transition-colors ${magnetMode ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            title={magnetMode ? "Magnet On — snapping to candle OHLC" : "Magnet Off — click to enable snap"}
+          >
+            <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <path d="M7 5v7a7 7 0 0 0 14 0V5" strokeLinecap="round" />
+              <line x1="4" y1="5" x2="10" y2="5" strokeLinecap="round" />
+              <line x1="18" y1="5" x2="24" y2="5" strokeLinecap="round" />
+              <line x1="4" y1="9" x2="10" y2="9" strokeLinecap="round" />
+              <line x1="18" y1="9" x2="24" y2="9" strokeLinecap="round" />
+            </svg>
+          </button>
+
+          {/* Heatmap toggle — stacked bars (heat levels) */}
+          <button
+            onClick={() => setShowHeatmap(prev => !prev)}
+            className={`p-1 rounded transition-colors ${showHeatmap ? "bg-[var(--hl-surface)] text-orange-400" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            title={showHeatmap ? "Hide Liquidation Heatmap" : "Show Liquidation Heatmap"}
+          >
+            <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <rect x="4" y="5" width="20" height="4" rx="1" opacity="0.35" />
+              <rect x="4" y="12" width="20" height="4" rx="1" opacity="0.6" />
+              <rect x="4" y="19" width="20" height="4" rx="1" opacity="1" />
+            </svg>
+          </button>
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Clear drawings — trash icon (TV style) */}
           {drawings.length > 0 && (
             <button
               onClick={clearDrawings}
-              className="p-1 rounded text-[var(--hl-muted)] hover:text-[var(--hl-red)] transition-colors ml-1"
+              className="p-1 rounded text-[var(--hl-muted)] hover:text-[var(--hl-red)] transition-colors"
               title="Clear all drawings"
             >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="4" y1="4" x2="12" y2="12" /><line x1="12" y1="4" x2="4" y2="12" /></svg>
+              <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <path d="M6 8h16" strokeLinecap="round" />
+                <path d="M8 8v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8" />
+                <path d="M11 6h6" strokeLinecap="round" />
+                <line x1="12" y1="12" x2="12" y2="18" />
+                <line x1="16" y1="12" x2="16" y2="18" />
+              </svg>
             </button>
           )}
         </div>
-      </div>
 
-      {/* Chart area */}
-      <div className="flex-1 min-h-0">
+        {/* Chart */}
+        <div className="flex-1 min-w-0">
         {loading ? (
           <div className="flex items-center justify-center h-full text-[var(--hl-muted)] text-[12px]">
             Loading {coin} data...
@@ -445,11 +549,23 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
             currentPrice={overview?.price}
             whaleAlerts={coinWhaleAlerts}
             topTraderFills={detail?.topTraderFills || []}
+            liquidationBands={showHeatmap ? liquidationBands : undefined}
             drawings={drawings}
             pendingDrawing={pendingDrawing}
             drawingTool={drawingTool}
-            onDrawingClick={(time, price) => {
+            onDrawingClick={(time, rawPrice) => {
               if (drawingTool === "none") return;
+              // Magnet mode: snap price to nearest candle OHLC
+              let price = rawPrice;
+              if (magnetMode && chartData.length > 0) {
+                let bestDist = Infinity;
+                for (const c of chartData) {
+                  for (const p of [c.open, c.high, c.low, c.close]) {
+                    const dist = Math.abs(p - rawPrice);
+                    if (dist < bestDist) { bestDist = dist; price = p; }
+                  }
+                }
+              }
               if (drawingTool === "hline") {
                 drawingCounter.current++;
                 addDrawing({
@@ -476,14 +592,25 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
                 }
               }
             }}
-            onDrawingHover={(time, price) => {
+            onDrawingHover={(time, rawPrice) => {
               if (pendingDrawing && pendingDrawing.p1) {
+                let price = rawPrice;
+                if (magnetMode && chartData.length > 0) {
+                  let bestDist = Infinity;
+                  for (const c of chartData) {
+                    for (const p of [c.open, c.high, c.low, c.close]) {
+                      const dist = Math.abs(p - rawPrice);
+                      if (dist < bestDist) { bestDist = dist; price = p; }
+                    }
+                  }
+                }
                 setPendingDrawing(prev => prev ? { ...prev, p2: { time, price } } : null);
               }
             }}
             onRemoveDrawing={removeDrawing}
           />
         )}
+        </div>
       </div>
     </div>
   );
@@ -503,7 +630,7 @@ interface TopTraderFillData {
   trader: string;
 }
 
-function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], drawings = [], pendingDrawing, drawingTool = "none", onDrawingClick, onDrawingHover, onRemoveDrawing }: {
+function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], liquidationBands, drawings = [], pendingDrawing, drawingTool = "none", onDrawingClick, onDrawingHover, onRemoveDrawing }: {
   candles: CandleData[];
   oiCandles: { time: number; open: number; high: number; low: number; close: number; bullish: boolean }[];
   formatTime: (t: number) => string;
@@ -512,6 +639,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   currentPrice?: number;
   whaleAlerts?: WhaleAlert[];
   topTraderFills?: TopTraderFillData[];
+  liquidationBands?: LiquidationBand[];
   drawings?: DrawingLine[];
   pendingDrawing?: Partial<DrawingLine> | null;
   drawingTool?: DrawingTool;
@@ -884,6 +1012,50 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
               />
             );
           })}
+
+          {/* Liquidation heatmap overlay — colored bands behind candles */}
+          {liquidationBands && liquidationBands.length > 0 && (() => {
+            // Filter to bands that overlap the visible price range
+            const visible = liquidationBands.filter(b =>
+              b.priceHigh >= domainMin && b.priceLow <= domainMax &&
+              (b.longLiqValue > 0 || b.shortLiqValue > 0)
+            );
+            if (!visible.length) return null;
+            const maxVal = Math.max(...visible.map(b => Math.max(b.longLiqValue, b.shortLiqValue)));
+            if (maxVal === 0) return null;
+            return visible.map((band, i) => {
+              const yTop = priceY(Math.min(band.priceHigh, domainMax));
+              const yBot = priceY(Math.max(band.priceLow, domainMin));
+              const h = Math.max(yBot - yTop, 2);
+              const totalVal = band.longLiqValue + band.shortLiqValue;
+              const intensity = totalVal / maxVal;
+              // Long liqs = red/orange, short liqs = cyan/blue
+              // If both, blend toward whichever is larger
+              const longRatio = totalVal > 0 ? band.longLiqValue / totalVal : 0;
+              const r = Math.round(255 * longRatio + 0 * (1 - longRatio));
+              const g = Math.round(80 * longRatio + 180 * (1 - longRatio));
+              const b = Math.round(50 * longRatio + 255 * (1 - longRatio));
+              const opacity = 0.06 + intensity * 0.42;
+              const label = band.longLiqValue > 0 && band.shortLiqValue > 0
+                ? `Long $${(band.longLiqValue / 1e6).toFixed(1)}M + Short $${(band.shortLiqValue / 1e6).toFixed(1)}M`
+                : band.longLiqValue > 0
+                ? `Long liqs $${(band.longLiqValue / 1e6).toFixed(1)}M`
+                : `Short liqs $${(band.shortLiqValue / 1e6).toFixed(1)}M`;
+              return (
+                <rect
+                  key={`liq-${i}`}
+                  x={ML}
+                  y={yTop}
+                  width={chartW}
+                  height={h}
+                  fill={`rgba(${r}, ${g}, ${b}, ${opacity})`}
+                  rx={1}
+                >
+                  <title>{`$${band.priceLow.toFixed(0)}–$${band.priceHigh.toFixed(0)}: ${label} (${band.traderCount} traders)`}</title>
+                </rect>
+              );
+            });
+          })()}
 
           {/* User drawings */}
           {drawings.map(d => {

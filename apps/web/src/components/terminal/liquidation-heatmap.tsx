@@ -72,7 +72,7 @@ export function LiquidationHeatmapPanel({ data, onSelectToken }: LiquidationHeat
       </div>
 
       {/* Heatmap bars */}
-      <div className="overflow-y-auto max-h-[200px] px-1">
+      <div className="overflow-y-auto scroll-on-hover max-h-[200px] px-1">
         {coinData.bands.map((band, i) => {
           const isAbove = band.priceMid > coinData.currentPrice;
           const longPct = (band.longLiqValue / maxVal) * 100;

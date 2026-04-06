@@ -2,6 +2,9 @@
 
 import type { TradingSignal, FundingOpportunity, SharpSquareCallout } from "@/lib/api";
 
+/** Strip dex prefix from coin names (e.g. "xyz:GOLD" → "GOLD") */
+const displayCoin = (c: string) => c.includes(":") ? c.split(":")[1] : c;
+
 interface SignalsPanelProps {
   signals: TradingSignal[];
   fundingOpps: FundingOpportunity[];
@@ -42,7 +45,7 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
                   <span className={`font-bold w-4 ${item.side === "LONG" ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                     {item.side === "LONG" ? "L" : "S"}
                   </span>
-                  <span className="font-medium text-[var(--foreground)]">{item.coin}</span>
+                  <span className="font-medium text-[var(--foreground)]">{displayCoin(item.coin)}</span>
                   <span className="text-[var(--hl-muted)] tabular-nums ml-auto">{item.count} · {item.pct}%</span>
                 </button>
               ))
@@ -68,7 +71,7 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
                   <span className={`font-bold w-4 ${f.direction === "long" ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                     {f.direction === "long" ? "L" : "S"}
                   </span>
-                  <span className="font-medium text-[var(--foreground)] w-16">{f.coin}</span>
+                  <span className="font-medium text-[var(--foreground)] w-16">{displayCoin(f.coin)}</span>
                   <span className={`tabular-nums font-semibold ${Math.abs(f.annualizedPct) > 100 ? "text-[var(--hl-green)]" : "text-[var(--foreground)]"}`}>
                     {Math.abs(f.annualizedPct).toFixed(0)}% APR
                   </span>
@@ -100,8 +103,8 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
                   }`}>
                     {s.severity === "critical" ? "!!" : s.severity === "warning" ? "!" : "~"}
                   </span>
-                  <span className="font-medium text-[var(--foreground)] w-16">{s.coin}</span>
-                  <span className="text-[var(--foreground)] truncate">{s.title}</span>
+                  <span className="font-medium text-[var(--foreground)] w-16">{displayCoin(s.coin)}</span>
+                  <span className="text-[var(--foreground)] truncate">{s.title.replace(/^\w+:/, "")}</span>
                 </button>
               ))
             )}

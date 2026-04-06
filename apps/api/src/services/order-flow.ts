@@ -32,11 +32,14 @@ interface TradeRecord {
 }
 
 const BUFFER_DURATION = 15 * 60_000; // 15 minutes
-const POLL_INTERVAL = 20_000;
+const POLL_INTERVAL = 30_000;
 const TOP_COINS_COUNT = 15;
+const COIN_DELAY = 300;
 
 const coinBuffers = new Map<string, TradeRecord[]>();
-const seenTids = new Set<string>();
+// Use a Map<tid, timestamp> instead of a Set — allows time-based pruning
+// instead of unbounded growth + expensive array conversion
+const seenTids = new Map<string, number>();
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
 // ─── Polling ────────────────────────────────────────────────────────────────
@@ -55,7 +58,9 @@ async function pollOrderFlow(): Promise<void> {
     const coins = await getTopCoins();
     const now = Date.now();
 
-    for (const coin of coins) {
+    for (let ci = 0; ci < coins.length; ci++) {
+      const coin = coins[ci];
+      if (ci > 0) await new Promise(r => setTimeout(r, COIN_DELAY));
       try {
         const rawTrades = await getRecentTrades(coin) as {
           side: string;
@@ -72,7 +77,7 @@ async function pollOrderFlow(): Promise<void> {
         for (const t of rawTrades) {
           const tid = `${coin}-${t.tid}`;
           if (seenTids.has(tid)) continue;
-          seenTids.add(tid);
+          seenTids.set(tid, now);
 
           const px = parseFloat(t.px) || 0;
           const sz = parseFloat(t.sz) || 0;
@@ -94,11 +99,12 @@ async function pollOrderFlow(): Promise<void> {
       }
     }
 
-    // Prune seenTids periodically
-    if (seenTids.size > 50_000) {
-      const arr = [...seenTids];
-      for (let i = 0; i < arr.length - 30_000; i++) {
-        seenTids.delete(arr[i]);
+    // Prune seenTids: remove entries older than BUFFER_DURATION (15 min)
+    // Time-based pruning is O(n) but avoids unbounded growth
+    if (seenTids.size > 10_000) {
+      const cutoff = now - BUFFER_DURATION;
+      for (const [tid, ts] of seenTids) {
+        if (ts < cutoff) seenTids.delete(tid);
       }
     }
   } catch (err) {
@@ -142,9 +148,9 @@ function computeWindow(trades: TradeRecord[], windowMs: number, now: number): Or
 
 export function startOrderFlowTracking(): void {
   if (intervalId) return;
-  console.log("[order-flow] Starting order flow tracking (20s interval, top 15 coins)");
+  console.log("[order-flow] Starting order flow tracking (30s interval, top 15 coins)");
   intervalId = setInterval(pollOrderFlow, POLL_INTERVAL);
-  setTimeout(pollOrderFlow, 3000);
+  setTimeout(pollOrderFlow, 75_000); // stagger vs trade-tape to avoid rate limits
 }
 
 export function getOrderFlow(): OrderFlowCoin[] {

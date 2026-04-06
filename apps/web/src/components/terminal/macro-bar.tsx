@@ -8,14 +8,24 @@ interface MacroBarProps {
   onSelectToken?: (coin: string) => void;
 }
 
-// Mapping from macro symbol → Hyperliquid perp coin name
-// Only include assets that actually have HL perps
+// Mapping from Yahoo Finance macro symbol → Hyperliquid HIP-3 coin
+// HIP-3 coins use dex:name format (e.g., xyz:GOLD)
 const MACRO_TO_HL: Record<string, string> = {
-  "GC=F": "GOLD",       // Gold → kGOLD / GOLD perp
-  "SI=F": "SILVER",     // Silver → SILVER perp
-  "CL=F": "WTIOIL",     // WTI Oil → WTIOIL perp
-  // Note: SPX on HL is a memecoin, NOT the real S&P 500
-  // "^GSPC": "SPX" — intentionally NOT mapped
+  "GC=F": "xyz:GOLD",        // Gold futures → xyz GOLD perp
+  "SI=F": "xyz:SILVER",      // Silver futures → xyz SILVER perp
+  "CL=F": "xyz:CL",          // WTI Crude Oil → xyz CL perp
+  "BZ=F": "flx:OIL",         // Brent Oil → flx OIL perp
+  "HG=F": "xyz:COPPER",      // Copper → xyz COPPER perp
+  "NG=F": "xyz:NATGAS",      // Natural Gas → xyz NATGAS perp
+  "PL=F": "flx:PLATINUM",    // Platinum → flx PLATINUM perp
+  "^GSPC": "xyz:SP500",      // S&P 500 → xyz SP500 perp
+  "^IXIC": "xyz:XYZ100",     // Nasdaq Composite → xyz XYZ100 (closest proxy)
+  "^DJI": "xyz:SP500",       // Dow Jones → SP500 (best proxy)
+  "EURUSD=X": "xyz:EUR",     // EUR/USD → xyz EUR perp
+  "JPY=X": "xyz:JPY",        // USD/JPY → xyz JPY perp
+  "^TNX": "",                 // 10Y yield — no HL equivalent, keep as display only
+  "^TYX": "",                 // 30Y yield — no HL equivalent
+  "^IRX": "",                 // 13W yield — no HL equivalent
 };
 
 function formatPrice(a: MacroAsset): string {

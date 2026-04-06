@@ -48,7 +48,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy, onFad
       <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1 shrink-0">
         Whale Alerts
       </h2>
-      <div className="overflow-y-auto flex-1 space-y-0">
+      <div className="overflow-y-auto scroll-on-hover flex-1 space-y-0">
         {alerts.map((alert) => {
           // For flips, resolve direction from newSize
           const resolvedType = alert.eventType === "flip"
@@ -82,7 +82,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy, onFad
                     onClick={() => onSelectToken(alert.coin)}
                     className="font-medium text-[var(--foreground)] hover:text-[var(--hl-green)] transition-colors"
                   >
-                    {alert.coin}
+                    {alert.coin.includes(":") ? alert.coin.split(":")[1] : alert.coin}
                   </button>
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-[var(--hl-muted)] mt-0.5">

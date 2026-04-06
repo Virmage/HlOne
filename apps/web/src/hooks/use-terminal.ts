@@ -29,14 +29,45 @@ export function useTerminal() {
 
   useEffect(() => {
     fetch();
-    // Refresh whale alerts every 30s
-    const interval = setInterval(async () => {
-      try {
-        const result = await getWhaleAlertsFeed(30);
-        setData(prev => prev ? { ...prev, whaleAlerts: result.alerts, hotTokens: result.hotTokens } : prev);
-      } catch { /* ignore polling errors */ }
-    }, 30_000);
-    return () => clearInterval(interval);
+
+    // Refresh whale alerts every 30s — but pause when tab is hidden
+    // (saves bandwidth + server load when users aren't looking)
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (interval) return;
+      interval = setInterval(async () => {
+        if (document.hidden) return; // skip if tab not visible
+        try {
+          const result = await getWhaleAlertsFeed(30);
+          setData(prev => prev ? { ...prev, whaleAlerts: result.alerts, hotTokens: result.hotTokens } : prev);
+        } catch { /* ignore polling errors */ }
+      }, 30_000);
+    };
+
+    const stopPolling = () => {
+      if (interval) { clearInterval(interval); interval = null; }
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        // Refresh immediately on tab refocus, then resume polling
+        getWhaleAlertsFeed(30)
+          .then(result => setData(prev => prev ? { ...prev, whaleAlerts: result.alerts, hotTokens: result.hotTokens } : prev))
+          .catch(() => {});
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [fetch]);
 
   return { data, loading, error, refetch: fetch };

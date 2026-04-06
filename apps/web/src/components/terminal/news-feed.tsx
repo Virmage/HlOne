@@ -35,7 +35,7 @@ export function NewsFeed({ news, onSelectToken }: NewsFeedProps) {
       <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
         News Feed
       </h2>
-      <div className="overflow-y-auto max-h-[220px] space-y-0">
+      <div className="overflow-y-auto scroll-on-hover max-h-[220px] space-y-0">
         {news.map((post) => {
           const style = SENTIMENT_STYLE[post.sentiment] || SENTIMENT_STYLE.neutral;
           return (

@@ -87,6 +87,36 @@ export async function getRecentTrades(coin: string): Promise<unknown[]> {
   return infoRequest({ type: "recentTrades", coin });
 }
 
+/** Get spot metadata (tokens + universe of trading pairs) */
+export async function getSpotMeta(): Promise<{
+  tokens: { index: number; name: string; tokenId: string }[];
+  universe: { name: string; tokens: [number, number] }[];
+}> {
+  return infoRequest({ type: "spotMeta" });
+}
+
+/** Get spot metadata + live asset contexts */
+export async function getSpotMetaAndAssetCtxs(): Promise<[
+  { tokens: { index: number; name: string }[]; universe: { name: string; tokens: [number, number] }[] },
+  { dayNtlVlm: string; markPx: string; midPx: string; prevDayPx: string }[]
+]> {
+  return infoRequest({ type: "spotMetaAndAssetCtxs" });
+}
+
+// ─── HIP-3 Builder Perps (tradfi, stocks, indices, etc.) ────────────────────
+
+/** All known HIP-3 builder DEXes */
+export const HIP3_DEXES = ["xyz", "flx", "vntl", "hyna", "km", "cash"] as const;
+export type Hip3Dex = (typeof HIP3_DEXES)[number];
+
+/** Get HIP-3 builder perp metadata + live asset contexts for a specific DEX */
+export async function getHip3MetaAndAssetCtxs(dex: Hip3Dex): Promise<[
+  { universe: { name: string; szDecimals: number; maxLeverage: number }[] },
+  AssetCtx[]
+]> {
+  return infoRequest({ type: "metaAndAssetCtxs", dex });
+}
+
 // ─── Trader discovery via Hyperliquid leaderboard ────────────────────────────
 
 const HL_LEADERBOARD = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";

@@ -42,7 +42,7 @@ export function PositionConcentrationPanel({ data, onSelectToken }: PositionConc
           <span className="w-12 text-right">HHI</span>
           <span className="w-14 text-right">Total OI</span>
         </div>
-        <div className="overflow-y-auto max-h-[220px]">
+        <div className="overflow-y-auto scroll-on-hover max-h-[220px]">
           {data.map((d) => {
             const barWidth = (d.top5Pct / maxTop5) * 100;
             const isExpanded = expanded === d.coin;

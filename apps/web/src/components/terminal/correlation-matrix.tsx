@@ -7,15 +7,23 @@ interface CorrelationMatrixProps {
   onSelectToken: (coin: string) => void;
 }
 
-function corrColor(val: number): string {
-  // Diverging color scale: blue (-1) → grey (0) → red (+1)
-  if (val >= 0.7) return "rgba(240,88,88,0.7)";
-  if (val >= 0.5) return "rgba(240,88,88,0.4)";
-  if (val >= 0.3) return "rgba(240,88,88,0.2)";
-  if (val <= -0.3) return "rgba(96,165,250,0.5)";
-  if (val <= -0.1) return "rgba(96,165,250,0.25)";
-  if (val > 0.1) return "rgba(240,88,88,0.1)";
-  return "rgba(255,255,255,0.03)";
+function corrBg(val: number): string {
+  const abs = Math.abs(val);
+  if (val >= 0.8) return "bg-red-500/60";
+  if (val >= 0.6) return "bg-red-500/35";
+  if (val >= 0.4) return "bg-red-500/20";
+  if (val >= 0.2) return "bg-red-500/10";
+  if (val <= -0.4) return "bg-blue-500/50";
+  if (val <= -0.2) return "bg-blue-500/25";
+  if (val <= -0.05) return "bg-blue-500/10";
+  return "bg-white/[0.03]";
+}
+
+function corrTextColor(val: number): string {
+  if (val >= 0.7) return "text-[var(--hl-red)]";
+  if (val <= -0.2) return "text-blue-400";
+  if (val <= 0.2) return "text-[var(--hl-green)]";
+  return "text-[var(--hl-text)]";
 }
 
 export function CorrelationMatrixPanel({ data, onSelectToken }: CorrelationMatrixProps) {
@@ -29,100 +37,141 @@ export function CorrelationMatrixPanel({ data, onSelectToken }: CorrelationMatri
 
   const { coins, matrix, avgCorrelation, outliers } = data;
 
-  const regimeLabel = avgCorrelation > 0.6
-    ? "High correlation — risk-on/off regime, avoid concentration"
+  // Build all pairs sorted by correlation for the list view
+  const allPairs: { coin1: string; coin2: string; corr: number }[] = [];
+  for (let i = 0; i < coins.length; i++) {
+    for (let j = i + 1; j < coins.length; j++) {
+      allPairs.push({ coin1: coins[i], coin2: coins[j], corr: matrix[i][j] });
+    }
+  }
+  allPairs.sort((a, b) => b.corr - a.corr);
+
+  const regimeColor = avgCorrelation > 0.6
+    ? "text-[var(--hl-red)]"
     : avgCorrelation > 0.3
-    ? "Moderate correlation — some diversification benefit"
-    : "Low correlation — good diversification conditions";
+    ? "text-orange-400"
+    : "text-[var(--hl-green)]";
+
+  const regimeLabel = avgCorrelation > 0.6
+    ? "High — assets moving together, concentration risk"
+    : avgCorrelation > 0.3
+    ? "Moderate — some diversification"
+    : "Low — good diversification";
 
   return (
     <div>
       <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
-        Correlation Matrix <span className="text-[10px] normal-case font-normal">(24h, 1h returns)</span>
+        Correlation
       </h2>
 
-      {/* Matrix grid */}
-      <div className="overflow-x-auto px-1">
-        <div className="inline-grid gap-px" style={{
-          gridTemplateColumns: `28px repeat(${coins.length}, 1fr)`,
-          minWidth: `${28 + coins.length * 28}px`,
+      {/* Regime summary bar */}
+      <div className="flex items-center gap-2 px-2 mb-3 py-1.5 rounded bg-[var(--hl-surface)]">
+        <span className="text-[10px] text-[var(--hl-muted)]">Market Avg</span>
+        <span className={`text-[14px] font-bold tabular-nums ${regimeColor}`}>
+          {avgCorrelation.toFixed(2)}
+        </span>
+        <span className="text-[10px] text-[var(--hl-muted)] truncate">{regimeLabel}</span>
+      </div>
+
+      {/* Mini heatmap — color only, no numbers */}
+      <div className="px-1 mb-3">
+        <div className="inline-grid gap-[1px]" style={{
+          gridTemplateColumns: `24px repeat(${coins.length}, 1fr)`,
+          width: "100%",
         }}>
-          {/* Header row */}
+          {/* Header */}
           <div />
           {coins.map(coin => (
-            <button
-              key={`h-${coin}`}
-              onClick={() => onSelectToken(coin)}
-              className="text-[8px] text-[var(--hl-muted)] text-center py-0.5 hover:text-[var(--foreground)] transition-colors truncate"
-              style={{ writingMode: "horizontal-tb" }}
-            >
-              {coin}
-            </button>
+            <div key={`h-${coin}`} className="text-[7px] text-[var(--hl-muted)] text-center truncate">
+              {coin.slice(0, 4)}
+            </div>
           ))}
 
-          {/* Matrix rows */}
+          {/* Rows — color cells only */}
           {coins.map((rowCoin, i) => (
             <>
-              <button
-                key={`r-${rowCoin}`}
-                onClick={() => onSelectToken(rowCoin)}
-                className="text-[9px] text-[var(--hl-muted)] text-right pr-1 py-0.5 hover:text-[var(--foreground)] transition-colors"
-              >
-                {rowCoin}
-              </button>
+              <div key={`r-${rowCoin}`} className="text-[8px] text-[var(--hl-muted)] text-right pr-1 leading-[16px]">
+                {rowCoin.slice(0, 4)}
+              </div>
               {coins.map((colCoin, j) => {
                 const val = matrix[i][j];
-                const isDiagonal = i === j;
+                const isDiag = i === j;
                 return (
                   <div
-                    key={`${rowCoin}-${colCoin}`}
-                    className="flex items-center justify-center py-0.5 text-[8px] tabular-nums cursor-default transition-opacity hover:opacity-80"
-                    style={{
-                      backgroundColor: isDiagonal ? "rgba(255,255,255,0.08)" : corrColor(val),
-                      minHeight: "20px",
-                    }}
+                    key={`${i}-${j}`}
+                    className={`h-4 rounded-[2px] ${isDiag ? "bg-white/[0.06]" : corrBg(val)} cursor-default`}
                     title={`${rowCoin}/${colCoin}: ${val.toFixed(2)}`}
-                  >
-                    <span className={isDiagonal ? "text-[var(--hl-muted)]" : "text-[var(--foreground)]"}>
-                      {isDiagonal ? "—" : val.toFixed(2)}
-                    </span>
-                  </div>
+                  />
                 );
               })}
             </>
           ))}
         </div>
+
+        {/* Color legend */}
+        <div className="flex items-center justify-center gap-2 mt-1.5 text-[8px] text-[var(--hl-muted)]">
+          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-blue-500/40" /> -1</span>
+          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-white/[0.05]" /> 0</span>
+          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-red-500/50" /> +1</span>
+        </div>
       </div>
 
-      {/* Summary */}
-      <div className="mt-2 px-2 text-[10px]">
-        <div className="flex items-center gap-2">
-          <span className="text-[var(--hl-muted)]">Avg:</span>
-          <span className={`tabular-nums font-medium ${
-            avgCorrelation > 0.6 ? "text-[var(--hl-red)]" : avgCorrelation > 0.3 ? "text-orange-400" : "text-[var(--hl-green)]"
-          }`}>
-            {avgCorrelation.toFixed(2)}
-          </span>
-          <span className="text-[var(--hl-muted)] truncate">{regimeLabel}</span>
+      {/* Notable pairs list */}
+      <div className="px-1">
+        <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-1">Most correlated</div>
+        <div className="space-y-0">
+          {allPairs.slice(0, 4).map((p, i) => (
+            <div key={i} className="flex items-center justify-between py-1 text-[11px] border-b border-[var(--hl-border)]">
+              <button
+                className="flex items-center gap-1 hover:text-[var(--foreground)] transition-colors text-[var(--hl-text)]"
+                onClick={() => onSelectToken(p.coin1)}
+              >
+                <span className="font-medium">{p.coin1}</span>
+                <span className="text-[var(--hl-muted)]">/</span>
+                <span className="font-medium">{p.coin2}</span>
+              </button>
+              <div className="flex items-center gap-2">
+                <div className="w-16 h-1.5 rounded-full bg-[var(--hl-border)] overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-[var(--hl-red)]"
+                    style={{ width: `${Math.max(p.corr * 100, 0)}%`, opacity: 0.7 }}
+                  />
+                </div>
+                <span className={`tabular-nums font-medium w-10 text-right ${corrTextColor(p.corr)}`}>
+                  {p.corr.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
 
-        {/* Notable pairs */}
-        {outliers.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px]">
-            {outliers.slice(0, 3).map((o, i) => (
-              <span key={i} className="text-[var(--hl-muted)]">
-                {o.coin1}/{o.coin2}:{" "}
-                <span className={`tabular-nums ${
-                  o.label === "highly_correlated" ? "text-[var(--hl-red)]"
-                  : o.label === "inversely_correlated" ? "text-blue-400"
-                  : "text-[var(--hl-green)]"
-                }`}>
-                  {o.correlation.toFixed(2)}
+        {/* Least correlated */}
+        <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-1 mt-2">Least correlated</div>
+        <div className="space-y-0">
+          {allPairs.slice(-3).reverse().map((p, i) => (
+            <div key={i} className="flex items-center justify-between py-1 text-[11px] border-b border-[var(--hl-border)]">
+              <button
+                className="flex items-center gap-1 hover:text-[var(--foreground)] transition-colors text-[var(--hl-text)]"
+                onClick={() => onSelectToken(p.coin1)}
+              >
+                <span className="font-medium">{p.coin1}</span>
+                <span className="text-[var(--hl-muted)]">/</span>
+                <span className="font-medium">{p.coin2}</span>
+              </button>
+              <div className="flex items-center gap-2">
+                <div className="w-16 h-1.5 rounded-full bg-[var(--hl-border)] overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-[var(--hl-green)]"
+                    style={{ width: `${Math.max((1 - p.corr) * 50, 2)}%`, opacity: 0.7 }}
+                  />
+                </div>
+                <span className={`tabular-nums font-medium w-10 text-right ${corrTextColor(p.corr)}`}>
+                  {p.corr.toFixed(2)}
                 </span>
-              </span>
-            ))}
-          </div>
-        )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

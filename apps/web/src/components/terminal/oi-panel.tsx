@@ -52,7 +52,7 @@ export function OIPanel({ tokens, onSelectToken }: OIPanelProps) {
           <span className="w-14 text-right">Vol/OI</span>
           <span className="w-16 text-right">Funding</span>
         </div>
-        <div className="overflow-y-auto max-h-[220px]">
+        <div className="overflow-y-auto scroll-on-hover max-h-[220px]">
           {sorted.map((t) => {
             const volOiRatio = t.openInterest > 0 ? t.volume24h / t.openInterest : 0;
             const barWidth = (t.openInterest / maxOI) * 100;
@@ -67,7 +67,7 @@ export function OIPanel({ tokens, onSelectToken }: OIPanelProps) {
                   className="absolute inset-y-0 left-0 opacity-10 bg-[var(--hl-green)]"
                   style={{ width: `${barWidth}%` }}
                 />
-                <span className="font-medium text-[var(--foreground)] w-14 relative z-10">{t.coin}</span>
+                <span className="font-medium text-[var(--foreground)] w-14 relative z-10">{t.coin.includes(":") ? t.coin.split(":")[1] : t.coin}</span>
                 <span className="text-[var(--foreground)] tabular-nums flex-1 relative z-10">
                   {formatOI(t.openInterest)}
                 </span>

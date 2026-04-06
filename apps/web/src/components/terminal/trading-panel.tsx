@@ -108,6 +108,7 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
       }
 
       // Place the order
+      const orderStart = Date.now();
       const result = await exchange.placeOrder(walletClient, address as `0x${string}`, {
         asset: coin,
         isBuy: side === "long",
@@ -116,11 +117,33 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
         limitPrice: orderType === "limit" ? parseFloat(limitPrice) : undefined,
         slippageBps: 50, // 0.5% slippage for market
       });
+      const latencyMs = Date.now() - orderStart;
 
       setLastResult(result);
       if (result.success) {
         setSize(""); // Clear size on success
       }
+
+      // Log trade to backend for auditing + fee tracking (fire-and-forget)
+      const currentPrice = overview?.price ?? 0;
+      fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/market/trade-log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userAddress: address,
+          asset: coin,
+          side: side === "long" ? "buy" : "sell",
+          orderType,
+          size: sizeNum,
+          price: currentPrice,
+          success: result.success,
+          orderId: result.orderId,
+          filledSize: result.filledSize,
+          avgPrice: result.avgPrice,
+          error: result.error,
+          latencyMs,
+        }),
+      }).catch(() => {}); // never block on logging
     } catch (err) {
       setLastResult({
         success: false,
@@ -136,10 +159,10 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
       {/* Header */}
       <div className="px-3 py-2 border-b border-[var(--hl-border)]">
         <div className="flex items-center justify-between">
-          <span className="text-[13px] font-semibold text-[var(--foreground)]">Trade {coin}</span>
+          <span className="text-[13px] font-semibold text-[var(--foreground)]">Trade {coin.includes(":") ? coin.split(":")[1] : coin}</span>
           {score && (
-            <span className={`text-[11px] font-medium ${signalColor}`}>
-              HLOne {score.score} · {score.signal.replace("_", " ").toUpperCase()}
+            <span className={`text-[11px] font-medium ${signalColor}`} title="CPYCAT Score — composite of smart money, whale flow, social & price trend">
+              Score {score.score} · {score.signal.replace("_", " ").toUpperCase()}
             </span>
           )}
         </div>
@@ -204,7 +227,7 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
 
         {/* Size */}
         <div>
-          <label className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider">Size ({coin})</label>
+          <label className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider">Size ({coin.includes(":") ? coin.split(":")[1] : coin})</label>
           <input
             type="number"
             value={size}
@@ -330,7 +353,7 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
             disabled={submitting || sizeNum <= 0}
             onClick={handleSubmit}
           >
-            {submitting ? "Signing..." : `${side === "long" ? "Long" : "Short"} ${coin}`}
+            {submitting ? "Signing..." : `${side === "long" ? "Long" : "Short"} ${coin.includes(":") ? coin.split(":")[1] : coin}`}
           </button>
         ) : (
           <button
