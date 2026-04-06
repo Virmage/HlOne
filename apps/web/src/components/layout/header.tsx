@@ -20,7 +20,7 @@ const WalletButton = dynamic(
 );
 
 const navItems = [
-  { href: "/dashboard", label: "Terminal" },
+  { href: "/", label: "Terminal" },
   { href: "/traders", label: "Traders" },
   { href: "/portfolio", label: "Portfolio" },
 ];
