@@ -78,7 +78,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
 
   // Only show real OI candles from the tracker — no simulated data
   const oiCandles = useMemo(() => {
-    if (detail?.oiCandles && detail.oiCandles.length >= 10) {
+    if (detail?.oiCandles && detail.oiCandles.length >= 2) {
       return detail.oiCandles.map(c => ({
         ...c,
         bullish: c.close >= c.open,

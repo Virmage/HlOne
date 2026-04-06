@@ -47,7 +47,7 @@ export function OrderBook({ coin }: OrderBookProps) {
     };
 
     fetchBook();
-    pollRef.current = setInterval(fetchBook, 3000);
+    pollRef.current = setInterval(fetchBook, 10_000); // 10s — avoid HL 429s
 
     return () => {
       cancelled = true;

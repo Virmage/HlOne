@@ -142,6 +142,8 @@ const INTERVAL_MS: Record<string, number> = {
   "1h": 60 * 60_000,
   "4h": 4 * 60 * 60_000,
   "1d": 24 * 60 * 60_000,
+  "1w": 7 * 24 * 60 * 60_000,
+  "1M": 30 * 24 * 60 * 60_000,
 };
 
 export function getOICandlesForInterval(coin: string, interval: string, count = 60): OICandle[] {
