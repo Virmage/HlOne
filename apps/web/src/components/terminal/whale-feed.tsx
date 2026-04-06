@@ -44,7 +44,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy, onFad
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="max-h-[320px] flex flex-col">
       <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1 shrink-0">
         Whale Alerts
       </h2>

@@ -205,7 +205,10 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
                   const f = fill as Record<string, string>;
                   return (
                     <div key={i} className="flex items-center gap-2 text-xs py-1.5 border-b border-[var(--hl-border)]">
-                      <span className="font-mono font-semibold text-[var(--foreground)] min-w-[60px]">{f.coin}</span>
+                      <span className="text-[var(--hl-muted)] tabular-nums min-w-[70px] text-[10px]">
+                        {f.time ? new Date(parseInt(f.time)).toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " + new Date(parseInt(f.time)).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : ""}
+                      </span>
+                      <span className="font-mono font-semibold text-[var(--foreground)] min-w-[45px]">{f.coin}</span>
                       <Badge variant={f.side === "B" ? "default" : "destructive"} className="text-[10px] px-1.5 py-0">
                         {f.side === "B" ? "BUY" : "SELL"}
                       </Badge>
