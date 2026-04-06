@@ -4,12 +4,19 @@ import { useState, useEffect, useCallback } from "react";
 import { useSafeAccount as useAccount } from "@/hooks/use-safe-account";
 import { getUserPositions, type UserPosition, type UserAccount } from "@/lib/api";
 
+type TpSlMode = { coin: string; type: "tp" | "sl" } | null;
+
 export default function PortfolioPage() {
   const { address, isConnected } = useAccount();
   const [positions, setPositions] = useState<UserPosition[]>([]);
   const [account, setAccount] = useState<UserAccount | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [closing, setClosing] = useState<string | null>(null);
+  const [tpSlMode, setTpSlMode] = useState<TpSlMode>(null);
+  const [triggerPrice, setTriggerPrice] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [actionResult, setActionResult] = useState<{ coin: string; msg: string; ok: boolean } | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!address) return;
@@ -32,6 +39,62 @@ export default function PortfolioPage() {
     const interval = setInterval(fetchData, 10_000);
     return () => clearInterval(interval);
   }, [isConnected, address, fetchData]);
+
+  useEffect(() => {
+    if (!actionResult) return;
+    const t = setTimeout(() => setActionResult(null), 5000);
+    return () => clearTimeout(t);
+  }, [actionResult]);
+
+  const handleClose = useCallback(async (pos: UserPosition) => {
+    if (!address) return;
+    setClosing(pos.coin);
+    setActionResult(null);
+    try {
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"),
+        import("@/lib/hl-exchange"),
+        import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) { setClosing(null); return; }
+      const result = await exchange.closePosition(walletClient, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
+      setActionResult({ coin: pos.coin, msg: result.success ? "Position closed" : (result.error || "Failed"), ok: result.success });
+      if (result.success) fetchData();
+    } catch (err) {
+      setActionResult({ coin: pos.coin, msg: (err as Error).message, ok: false });
+    } finally {
+      setClosing(null);
+    }
+  }, [address, fetchData]);
+
+  const handleTpSl = useCallback(async (pos: UserPosition) => {
+    if (!address || !tpSlMode || !triggerPrice) return;
+    setSubmitting(true);
+    setActionResult(null);
+    try {
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"),
+        import("@/lib/hl-exchange"),
+        import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) { setSubmitting(false); return; }
+      const result = await exchange.placeTriggerOrder(walletClient, address as `0x${string}`, {
+        asset: pos.coin,
+        isLong: pos.side === "long",
+        size: Math.abs(pos.size),
+        triggerPrice: parseFloat(triggerPrice),
+        type: tpSlMode.type,
+      });
+      setActionResult({ coin: pos.coin, msg: result.success ? `${tpSlMode.type.toUpperCase()} set at $${triggerPrice}` : (result.error || "Failed"), ok: result.success });
+      if (result.success) { setTpSlMode(null); setTriggerPrice(""); }
+    } catch (err) {
+      setActionResult({ coin: pos.coin, msg: (err as Error).message, ok: false });
+    } finally {
+      setSubmitting(false);
+    }
+  }, [address, tpSlMode, triggerPrice]);
 
   if (!isConnected) {
     return (
@@ -124,7 +187,8 @@ export default function PortfolioPage() {
                   <th className="text-right px-2 py-2">ROE</th>
                   <th className="text-right px-2 py-2">Leverage</th>
                   <th className="text-right px-2 py-2">Margin</th>
-                  <th className="text-right px-4 py-2">Liq. Price</th>
+                  <th className="text-right px-2 py-2">Liq. Price</th>
+                  <th className="text-right px-4 py-2">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -132,6 +196,9 @@ export default function PortfolioPage() {
                   const displayCoin = p.coin.includes(":") ? p.coin.split(":")[1] : p.coin;
                   const pnlColor = p.unrealizedPnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
                   const roeColor = p.returnOnEquity >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
+                  const isClosing = closing === p.coin;
+                  const result = actionResult?.coin === p.coin ? actionResult : null;
+                  const showTpSl = tpSlMode?.coin === p.coin;
                   return (
                     <tr key={p.coin} className="border-b border-[var(--hl-border)] border-opacity-30 hover:bg-[var(--hl-surface)] transition-colors">
                       <td className="px-4 py-2.5 font-medium text-[var(--foreground)]">{displayCoin}</td>
@@ -145,7 +212,7 @@ export default function PortfolioPage() {
                         </span>
                       </td>
                       <td className="px-2 py-2.5 text-right tabular-nums text-[var(--foreground)]">
-                        {p.size.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                        {Math.abs(p.size).toLocaleString(undefined, { maximumFractionDigits: 4 })}
                       </td>
                       <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">
                         ${p.entryPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -165,8 +232,63 @@ export default function PortfolioPage() {
                       <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">
                         ${p.marginUsed.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">
+                      <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">
                         {p.liquidationPx ? `$${p.liquidationPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleClose(p)}
+                            disabled={isClosing}
+                            className="px-2 py-1 text-[10px] font-semibold rounded bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.3)] transition-colors disabled:opacity-50"
+                          >
+                            {isClosing ? "Closing..." : "Close"}
+                          </button>
+                          <button
+                            onClick={() => { setTpSlMode(showTpSl && tpSlMode?.type === "tp" ? null : { coin: p.coin, type: "tp" }); setTriggerPrice(""); }}
+                            className={`px-2 py-1 text-[10px] font-semibold rounded transition-colors ${
+                              showTpSl && tpSlMode?.type === "tp"
+                                ? "bg-[rgba(80,210,193,0.3)] text-[var(--hl-green)]"
+                                : "bg-[rgba(80,210,193,0.1)] text-[var(--hl-green)] hover:bg-[rgba(80,210,193,0.2)]"
+                            }`}
+                          >
+                            TP
+                          </button>
+                          <button
+                            onClick={() => { setTpSlMode(showTpSl && tpSlMode?.type === "sl" ? null : { coin: p.coin, type: "sl" }); setTriggerPrice(""); }}
+                            className={`px-2 py-1 text-[10px] font-semibold rounded transition-colors ${
+                              showTpSl && tpSlMode?.type === "sl"
+                                ? "bg-[rgba(240,88,88,0.3)] text-[var(--hl-red)]"
+                                : "bg-[rgba(240,88,88,0.1)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.2)]"
+                            }`}
+                          >
+                            SL
+                          </button>
+                        </div>
+                        {showTpSl && (
+                          <div className="flex items-center gap-1.5 mt-1.5 justify-end">
+                            <span className="text-[10px] text-[var(--hl-muted)]">{tpSlMode.type === "tp" ? "TP" : "SL"} $</span>
+                            <input
+                              type="number"
+                              value={triggerPrice}
+                              onChange={(e) => setTriggerPrice(e.target.value)}
+                              placeholder={p.entryPx.toFixed(2)}
+                              className="w-24 px-1.5 py-1 text-[11px] bg-[var(--hl-dark)] border border-[var(--hl-border)] rounded text-[var(--foreground)] tabular-nums"
+                            />
+                            <button
+                              onClick={() => handleTpSl(p)}
+                              disabled={submitting || !triggerPrice}
+                              className="px-2 py-1 text-[10px] font-semibold rounded bg-[var(--hl-accent)] text-black hover:opacity-80 transition-opacity disabled:opacity-50"
+                            >
+                              {submitting ? "..." : "Set"}
+                            </button>
+                          </div>
+                        )}
+                        {result && (
+                          <div className={`text-[10px] mt-1 ${result.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                            {result.msg}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -188,7 +310,7 @@ export default function PortfolioPage() {
                         : "—"
                       }
                     </td>
-                    <td colSpan={3}></td>
+                    <td colSpan={4}></td>
                   </tr>
                 </tfoot>
               )}

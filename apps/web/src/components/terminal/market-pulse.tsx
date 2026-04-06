@@ -25,7 +25,7 @@ function formatOI(val: number): string {
 }
 
 export function MarketPulse({ regime, options, onSelectToken }: MarketPulseProps) {
-  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(90, false);
+  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(150, true);
   const regimeStyle = regime ? REGIME_STYLES[regime.regime] || REGIME_STYLES.chop : REGIME_STYLES.chop;
   const optionCoins = Object.keys(options);
 

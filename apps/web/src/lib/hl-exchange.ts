@@ -303,6 +303,129 @@ export async function placeOrder(
   }
 }
 
+// ─── Close position (market) ─────────────────────────────────────────────────
+
+export async function closePosition(
+  walletClient: WalletClient,
+  address: `0x${string}`,
+  asset: string,
+  size: number,       // absolute size to close
+  isLong: boolean,    // current position side
+  slippageBps = 100,  // 1% default slippage for closes
+): Promise<PlaceOrderResult> {
+  // Close = opposite side + reduceOnly
+  return placeOrder(walletClient, address, {
+    asset,
+    isBuy: !isLong,        // flip side to close
+    size: Math.abs(size),
+    orderType: "market",
+    reduceOnly: true,
+    slippageBps,
+  });
+}
+
+// ─── Trigger orders (TP / SL) ───────────────────────────────────────────────
+
+export interface TriggerOrderParams {
+  asset: string;
+  isLong: boolean;       // current position side
+  size: number;          // size to close
+  triggerPrice: number;  // trigger price
+  type: "tp" | "sl";    // take profit or stop loss
+}
+
+export async function placeTriggerOrder(
+  walletClient: WalletClient,
+  address: `0x${string}`,
+  params: TriggerOrderParams,
+): Promise<PlaceOrderResult> {
+  try {
+    const assetIndex = await getAssetIndex(params.asset);
+    const szDecimals = await getSzDecimals(params.asset);
+    const nonce = Date.now();
+
+    const size = roundSize(Math.abs(params.size), szDecimals);
+    if (size <= 0) throw new Error("Size must be positive");
+
+    // TP/SL: close the position when trigger price is hit
+    // For a long position: TP triggers above, SL triggers below
+    // For a short position: TP triggers below, SL triggers above
+    const isTpForLong = params.type === "tp" && params.isLong;
+    const isSlForLong = params.type === "sl" && params.isLong;
+    const isTpForShort = params.type === "tp" && !params.isLong;
+    const isSlForShort = params.type === "sl" && !params.isLong;
+
+    // tpsl flag: true if this is a take-profit (close when price moves favorably)
+    const tpsl = params.type === "tp" ? "tp" : "sl";
+
+    // Trigger condition:
+    // TP long / SL short → trigger when mark price >= triggerPrice
+    // SL long / TP short → trigger when mark price <= triggerPrice
+    const isMarket = true;
+
+    const orderWire = {
+      a: assetIndex,
+      b: !params.isLong,  // close = opposite side
+      p: floatToWire(roundPrice(params.triggerPrice)),
+      s: floatToWire(size),
+      r: true,            // reduceOnly
+      t: {
+        trigger: {
+          triggerPx: floatToWire(roundPrice(params.triggerPrice)),
+          isMarket,
+          tpsl,
+        },
+      },
+    };
+
+    const action: Record<string, unknown> = {
+      type: "order",
+      orders: [orderWire],
+      grouping: "na",
+      builder: {
+        b: BUILDER_ADDRESS,
+        f: BUILDER_FEE,
+      },
+    };
+
+    const signature = await signL1Action(walletClient, address, action, nonce);
+    const result = await submitToExchange(action, nonce, signature) as {
+      status?: string;
+      response?: {
+        type?: string;
+        data?: {
+          statuses?: Array<{
+            resting?: { oid: number };
+            filled?: { oid: number; totalSz: string; avgPx: string };
+            error?: string;
+          }>;
+        };
+      };
+    };
+
+    if (result.status === "ok") {
+      const status = result.response?.data?.statuses?.[0];
+      if (status?.error) {
+        return { success: false, error: status.error };
+      }
+      return {
+        success: true,
+        orderId: (status?.resting?.oid || status?.filled?.oid)?.toString(),
+      };
+    }
+
+    return {
+      success: false,
+      error: typeof result.response === "string" ? result.response : JSON.stringify(result),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Unknown error",
+    };
+  }
+}
+
 // ─── Cancel order ────────────────────────────────────────────────────────────
 
 export async function cancelOrder(
