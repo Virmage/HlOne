@@ -50,7 +50,7 @@ export async function runWhaleCheck(): Promise<void> {
     // Top 100 by account value
     const whales = [...traders]
       .sort((a, b) => b.accountValue - a.accountValue)
-      .slice(0, 50); // Keep small for memory on free tier
+      .slice(0, 100);
 
     const mids = await getCachedMids();
 
@@ -206,8 +206,8 @@ function trackEventFrequency(address: string) {
 }
 
 function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">) {
-  // Skip small position changes — minimum $10K position value to be whale-worthy
-  if (Math.abs(event.positionValueUsd) < 10_000) return;
+  // Skip small position changes — minimum $100K position value to be whale-worthy
+  if (Math.abs(event.positionValueUsd) < 100_000) return;
 
   // Skip known market makers by name
   if (KNOWN_MM_NAMES.has(event.whaleName.toLowerCase())) return;

@@ -17,6 +17,10 @@ import { getAllSocialMetricsCached, getSocialMetricsCached, type SocialMetrics }
 import { getLargeTradesCached } from "../services/trade-tape.js";
 import { getMacroDataCached } from "../services/macro-data.js";
 import { getTopTraderFills } from "../services/top-trader-fills.js";
+import { getLiquidationHeatmap } from "../services/liquidation-heatmap.js";
+import { getCorrelationMatrixCached } from "../services/correlation-matrix.js";
+import { getOrderFlow } from "../services/order-flow.js";
+import { getPositionConcentration } from "../services/position-concentration.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -172,6 +176,12 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     // Macro data (cached, never blocks)
     const macro = getMacroDataCached();
 
+    // New data panels (all cached/computed, never block)
+    const liquidationHeatmap = getLiquidationHeatmap();
+    const correlationMatrix = getCorrelationMatrixCached();
+    const orderFlow = getOrderFlow();
+    const positionConcentration = await getPositionConcentration().catch(() => []);
+
     return {
       tokens: tokenData,
       sharpFlow,
@@ -189,6 +199,10 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       funding,
       largeTrades,
       macro,
+      liquidationHeatmap,
+      correlationMatrix,
+      orderFlow,
+      positionConcentration,
       timestamp: Date.now(),
     };
   });

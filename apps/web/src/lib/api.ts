@@ -402,6 +402,84 @@ export interface MacroAsset {
   prevClose: number;
 }
 
+// ─── Liquidation Heatmap ─────────────────────────────────────────────────────
+
+export interface LiquidationBand {
+  priceLow: number;
+  priceHigh: number;
+  priceMid: number;
+  longLiqValue: number;
+  shortLiqValue: number;
+  traderCount: number;
+  distancePct: number;
+}
+
+export interface LiquidationHeatmap {
+  coin: string;
+  currentPrice: number;
+  bands: LiquidationBand[];
+  totalLongLiqAbove: number;
+  totalShortLiqBelow: number;
+}
+
+// ─── Correlation Matrix ─────────────────────────────────────────────────────
+
+export interface CorrelationMatrix {
+  coins: string[];
+  matrix: number[][];
+  avgCorrelation: number;
+  outliers: {
+    coin1: string;
+    coin2: string;
+    correlation: number;
+    label: "highly_correlated" | "decorrelated" | "inversely_correlated";
+  }[];
+}
+
+// ─── Order Flow ─────────────────────────────────────────────────────────────
+
+export interface OrderFlowWindow {
+  interval: "1m" | "5m" | "15m";
+  buyVolume: number;
+  sellVolume: number;
+  netFlow: number;
+  imbalance: number;
+  buyCount: number;
+  sellCount: number;
+}
+
+export interface OrderFlowCoin {
+  coin: string;
+  currentPrice: number;
+  windows: OrderFlowWindow[];
+  delta5m: number;
+}
+
+// ─── Position Concentration ─────────────────────────────────────────────────
+
+export interface TopHolder {
+  displayName: string;
+  side: "long" | "short";
+  positionValue: number;
+  leverage: number;
+  pctOfOI: number;
+}
+
+export interface PositionConcentration {
+  coin: string;
+  totalOI: number;
+  trackedOI: number;
+  trackedPct: number;
+  top5Value: number;
+  top5Pct: number;
+  top10Value: number;
+  top10Pct: number;
+  herfindahl: number;
+  longPct: number;
+  isCrowded: boolean;
+  topHolders: TopHolder[];
+}
+
 export interface TerminalData {
   tokens: TokenOverview[];
   sharpFlow: SharpFlow[];
@@ -419,6 +497,10 @@ export interface TerminalData {
   funding: FundingLeaderboard;
   largeTrades: LargeTrade[];
   macro: MacroAsset[];
+  liquidationHeatmap: LiquidationHeatmap[];
+  correlationMatrix: CorrelationMatrix | null;
+  orderFlow: OrderFlowCoin[];
+  positionConcentration: PositionConcentration[];
   timestamp: number;
 }
 

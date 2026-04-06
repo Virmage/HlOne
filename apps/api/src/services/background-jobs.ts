@@ -14,6 +14,9 @@ import { getBatchSocialMetrics } from "./lunar-crush.js";
 import { startTradeTapeTracking } from "./trade-tape.js";
 import { getMacroData } from "./macro-data.js";
 import { startTopTraderFillsTracking } from "./top-trader-fills.js";
+import { computeCorrelationMatrix } from "./correlation-matrix.js";
+import { startOrderFlowTracking, warmOrderFlowMids } from "./order-flow.js";
+import { warmLiquidationMids } from "./liquidation-heatmap.js";
 
 let started = false;
 
@@ -25,6 +28,8 @@ export function startBackgroundJobs() {
 
   // Start trade tape polling (every 20s, self-managed interval)
   startTradeTapeTracking();
+  // Start order flow tracking (every 20s, self-managed interval)
+  startOrderFlowTracking();
   // Start top trader fills tracking (30min refresh, starts after smart money warms up)
   startTopTraderFillsTracking();
 
@@ -49,7 +54,10 @@ export function startBackgroundJobs() {
       await getNewsFeed().catch(e => console.error("[bg] CryptoPanic:", (e as Error).message));
       await getBatchSocialMetrics().catch(e => console.error("[bg] LunarCrush:", (e as Error).message));
       await getMacroData().catch(e => console.error("[bg] Macro data:", (e as Error).message));
-      console.log("[bg] Smart money + scores + signals + news + social + macro refreshed");
+      await computeCorrelationMatrix().catch(e => console.error("[bg] Correlation:", (e as Error).message));
+      await warmLiquidationMids().catch(() => {});
+      await warmOrderFlowMids().catch(() => {});
+      console.log("[bg] Smart money + scores + signals + news + social + macro + correlation refreshed");
     } catch (err) {
       console.error("[bg] Smart money refresh failed:", (err as Error).message);
     }
@@ -85,14 +93,17 @@ export function startBackgroundJobs() {
     }
   }, 30_000);
 
-  // News + social warm-up (after 15s to stagger)
+  // News + social + correlation warm-up (after 15s to stagger)
   setTimeout(async () => {
     try {
-      console.log("[bg] Initial warm-up: news + social + macro...");
+      console.log("[bg] Initial warm-up: news + social + macro + correlation...");
       await getNewsFeed().catch(e => console.error("[bg] CryptoPanic warm-up:", (e as Error).message));
       await getBatchSocialMetrics().catch(e => console.error("[bg] LunarCrush warm-up:", (e as Error).message));
       await getMacroData().catch(e => console.error("[bg] Macro warm-up:", (e as Error).message));
-      console.log("[bg] News + social + macro warm-up complete");
+      await computeCorrelationMatrix().catch(e => console.error("[bg] Correlation warm-up:", (e as Error).message));
+      await warmLiquidationMids().catch(() => {});
+      await warmOrderFlowMids().catch(() => {});
+      console.log("[bg] News + social + macro + correlation warm-up complete");
     } catch (err) {
       console.error("[bg] News/social warm-up failed:", (err as Error).message);
     }

@@ -19,6 +19,10 @@ import { FundingLeaderboardPanel } from "@/components/terminal/funding-leaderboa
 import { LargeTradeTape } from "@/components/terminal/large-trade-tape";
 import { MacroBar } from "@/components/terminal/macro-bar";
 import { OIPanel } from "@/components/terminal/oi-panel";
+import { LiquidationHeatmapPanel } from "@/components/terminal/liquidation-heatmap";
+import { CorrelationMatrixPanel } from "@/components/terminal/correlation-matrix";
+import { OrderFlowPanel } from "@/components/terminal/order-flow-panel";
+import { PositionConcentrationPanel } from "@/components/terminal/position-concentration";
 import { TraderDetailPanel } from "@/components/traders/trader-detail-panel";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
@@ -185,6 +189,38 @@ export default function DashboardPage() {
           <TopTradersPanel
             traders={data?.topTraders || []}
             onSelectTrader={setSelectedTrader}
+          />
+        </div>
+
+        {/* Liquidation Heatmap */}
+        <div className="bg-[var(--background)] p-2">
+          <LiquidationHeatmapPanel
+            data={data?.liquidationHeatmap || []}
+            onSelectToken={handleSelectToken}
+          />
+        </div>
+
+        {/* Correlation Matrix */}
+        <div className="bg-[var(--background)] p-2">
+          <CorrelationMatrixPanel
+            data={data?.correlationMatrix || null}
+            onSelectToken={handleSelectToken}
+          />
+        </div>
+
+        {/* Order Flow Imbalance */}
+        <div className="bg-[var(--background)] p-2">
+          <OrderFlowPanel
+            data={data?.orderFlow || []}
+            onSelectToken={handleSelectToken}
+          />
+        </div>
+
+        {/* Position Concentration */}
+        <div className="bg-[var(--background)] p-2">
+          <PositionConcentrationPanel
+            data={data?.positionConcentration || []}
+            onSelectToken={handleSelectToken}
           />
         </div>
       </div>

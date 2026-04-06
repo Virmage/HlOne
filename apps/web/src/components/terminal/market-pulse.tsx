@@ -1,6 +1,7 @@
 "use client";
 
 import type { MarketRegime, OptionsSnapshot } from "@/lib/api";
+import { useTickerAnimation } from "@/hooks/use-ticker-animation";
 
 interface MarketPulseProps {
   regime: MarketRegime | null;
@@ -24,6 +25,7 @@ function formatOI(val: number): string {
 }
 
 export function MarketPulse({ regime, options, onSelectToken }: MarketPulseProps) {
+  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(90, false);
   const regimeStyle = regime ? REGIME_STYLES[regime.regime] || REGIME_STYLES.chop : REGIME_STYLES.chop;
   const optionCoins = Object.keys(options);
 
@@ -34,7 +36,7 @@ export function MarketPulse({ regime, options, onSelectToken }: MarketPulseProps
 
   return (
     <div className="overflow-hidden border-b border-[var(--hl-border)] bg-[var(--hl-surface)]">
-      <div className="flex ticker-track-slow hover:[animation-play-state:paused]">
+      <div ref={trackRef} className="flex" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
           <div key={copy} className="flex items-center shrink-0" aria-hidden={copy === 1}>
             {/* Market Regime — stands out */}

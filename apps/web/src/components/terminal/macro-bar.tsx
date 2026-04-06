@@ -1,6 +1,7 @@
 "use client";
 
 import type { MacroAsset } from "@/lib/api";
+import { useTickerAnimation } from "@/hooks/use-ticker-animation";
 
 interface MacroBarProps {
   macro: MacroAsset[];
@@ -30,11 +31,13 @@ function formatPrice(a: MacroAsset): string {
 }
 
 export function MacroBar({ macro, onSelectToken }: MacroBarProps) {
+  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(90, false);
+
   if (!macro.length) return null;
 
   return (
     <div className="overflow-hidden border-b border-[var(--hl-border)] bg-[var(--hl-surface)]">
-      <div className="flex ticker-track-slow hover:[animation-play-state:paused]">
+      <div ref={trackRef} className="flex" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
           <div key={copy} className="flex shrink-0" aria-hidden={copy === 1}>
             <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium text-[var(--hl-muted)] uppercase tracking-wider whitespace-nowrap border-r border-[var(--hl-border)]">

@@ -12,6 +12,16 @@ interface PriceChartProps {
 }
 
 type Interval = "5m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1M";
+type DrawingTool = "none" | "trendline" | "hline" | "ray";
+
+interface DrawingLine {
+  id: string;
+  type: "trendline" | "hline" | "ray";
+  // Stored in price coordinates (not pixels) so they survive zoom/pan
+  p1: { time: number; price: number };
+  p2?: { time: number; price: number }; // undefined for hline
+  color: string;
+}
 
 const POLL_INTERVAL = 15_000; // 15 seconds
 
@@ -103,6 +113,26 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
     if (p >= 1) return p.toFixed(2);
     return p.toPrecision(4);
   };
+
+  // Drawing tools
+  const [drawingTool, setDrawingTool] = useState<DrawingTool>("none");
+  const [drawings, setDrawings] = useState<DrawingLine[]>([]);
+  const [pendingDrawing, setPendingDrawing] = useState<Partial<DrawingLine> | null>(null);
+  const drawingCounter = useRef(0);
+
+  const addDrawing = useCallback((d: DrawingLine) => {
+    setDrawings(prev => [...prev, d]);
+  }, []);
+
+  const removeDrawing = useCallback((id: string) => {
+    setDrawings(prev => prev.filter(d => d.id !== id));
+  }, []);
+
+  const clearDrawings = useCallback(() => {
+    setDrawings([]);
+    setPendingDrawing(null);
+    setDrawingTool("none");
+  }, []);
 
   const [coinDropdownOpen, setCoinDropdownOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -347,8 +377,8 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
         </div>
       </div>
 
-      {/* Row 2: Timeframes */}
-      <div className="flex items-center border-b border-[var(--hl-border)] px-3 py-0.5 shrink-0">
+      {/* Row 2: Timeframes + Drawing tools */}
+      <div className="flex items-center justify-between border-b border-[var(--hl-border)] px-3 py-0.5 shrink-0">
         <div className="flex items-center gap-0.5">
           {(["5m", "15m", "1h", "4h", "1d", "1w", "1M"] as Interval[]).map(i => (
             <button
@@ -363,6 +393,39 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
               {i}
             </button>
           ))}
+        </div>
+        {/* Drawing tools */}
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => { setDrawingTool(drawingTool === "trendline" ? "none" : "trendline"); setPendingDrawing(null); }}
+            className={`p-1 rounded transition-colors ${drawingTool === "trendline" ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            title="Trend Line"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="14" x2="14" y2="2" /></svg>
+          </button>
+          <button
+            onClick={() => { setDrawingTool(drawingTool === "hline" ? "none" : "hline"); setPendingDrawing(null); }}
+            className={`p-1 rounded transition-colors ${drawingTool === "hline" ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            title="Horizontal Line"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="1" y1="8" x2="15" y2="8" /></svg>
+          </button>
+          <button
+            onClick={() => { setDrawingTool(drawingTool === "ray" ? "none" : "ray"); setPendingDrawing(null); }}
+            className={`p-1 rounded transition-colors ${drawingTool === "ray" ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            title="Ray"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="12" x2="14" y2="4" /><circle cx="14" cy="4" r="1.5" fill="currentColor" /></svg>
+          </button>
+          {drawings.length > 0 && (
+            <button
+              onClick={clearDrawings}
+              className="p-1 rounded text-[var(--hl-muted)] hover:text-[var(--hl-red)] transition-colors ml-1"
+              title="Clear all drawings"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="4" y1="4" x2="12" y2="12" /><line x1="12" y1="4" x2="4" y2="12" /></svg>
+            </button>
+          )}
         </div>
       </div>
 
@@ -382,6 +445,43 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [] }: Pr
             currentPrice={overview?.price}
             whaleAlerts={coinWhaleAlerts}
             topTraderFills={detail?.topTraderFills || []}
+            drawings={drawings}
+            pendingDrawing={pendingDrawing}
+            drawingTool={drawingTool}
+            onDrawingClick={(time, price) => {
+              if (drawingTool === "none") return;
+              if (drawingTool === "hline") {
+                drawingCounter.current++;
+                addDrawing({
+                  id: `d_${drawingCounter.current}`,
+                  type: "hline",
+                  p1: { time, price },
+                  color: "var(--hl-green)",
+                });
+                setDrawingTool("none");
+              } else if (drawingTool === "trendline" || drawingTool === "ray") {
+                if (!pendingDrawing) {
+                  setPendingDrawing({ type: drawingTool, p1: { time, price }, color: "var(--hl-green)" });
+                } else {
+                  drawingCounter.current++;
+                  addDrawing({
+                    id: `d_${drawingCounter.current}`,
+                    type: drawingTool,
+                    p1: pendingDrawing.p1!,
+                    p2: { time, price },
+                    color: "var(--hl-green)",
+                  });
+                  setPendingDrawing(null);
+                  setDrawingTool("none");
+                }
+              }
+            }}
+            onDrawingHover={(time, price) => {
+              if (pendingDrawing && pendingDrawing.p1) {
+                setPendingDrawing(prev => prev ? { ...prev, p2: { time, price } } : null);
+              }
+            }}
+            onRemoveDrawing={removeDrawing}
           />
         )}
       </div>
@@ -403,7 +503,7 @@ interface TopTraderFillData {
   trader: string;
 }
 
-function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [] }: {
+function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], drawings = [], pendingDrawing, drawingTool = "none", onDrawingClick, onDrawingHover, onRemoveDrawing }: {
   candles: CandleData[];
   oiCandles: { time: number; open: number; high: number; low: number; close: number; bullish: boolean }[];
   formatTime: (t: number) => string;
@@ -412,6 +512,12 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   currentPrice?: number;
   whaleAlerts?: WhaleAlert[];
   topTraderFills?: TopTraderFillData[];
+  drawings?: DrawingLine[];
+  pendingDrawing?: Partial<DrawingLine> | null;
+  drawingTool?: DrawingTool;
+  onDrawingClick?: (time: number, price: number) => void;
+  onDrawingHover?: (time: number, price: number) => void;
+  onRemoveDrawing?: (id: string) => void;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [visibleCount, setVisibleCount] = useState(60);
@@ -478,11 +584,27 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     return () => el.removeEventListener("wheel", handler);
   }, [maxVisible, totalCandles]);
 
+  // Convert mouse position to time/price coordinates for drawings
+  const mouseToCoords = useCallback((e: React.MouseEvent): { time: number; price: number } | null => {
+    if (!svgRef.current || !candles.length) return null;
+    const rect = svgRef.current.getBoundingClientRect();
+    const svgX = ((e.clientX - rect.left) / rect.width) * containerSize.w;
+    const svgY = ((e.clientY - rect.top) / rect.height) * containerSize.h;
+    // Use current domain — will be set after data slice
+    return { time: svgX, price: svgY }; // raw SVG coords, converted later
+  }, [containerSize, candles.length]);
+
   // Pan with mouse drag on chart area, Y-zoom on price axis
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const svgX = ((e.clientX - rect.left) / rect.width) * containerSize.w;
+
+    // In drawing mode, don't start dragging — let onClick handle it
+    if (drawingTool !== "none" && svgX <= containerSize.w - 70) {
+      e.preventDefault();
+      return;
+    }
 
     if (svgX > containerSize.w - 70) { // MR=70 — clicking on price axis
       yDragRef.current = { startY: e.clientY, startZoom: priceZoom };
@@ -490,7 +612,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
       dragRef.current = { startX: e.clientX, startOffset: offset };
     }
     e.preventDefault();
-  }, [offset, priceZoom]);
+  }, [offset, priceZoom, drawingTool, containerSize]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!svgRef.current) return;
@@ -593,6 +715,30 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const bodyW = Math.max(candleW * 0.65, 2);
 
   const priceY = (p: number) => MT + (1 - (p - domainMin) / (domainMax - domainMin)) * priceH;
+  const yToPrice = (y: number) => domainMax - ((y - MT) / priceH) * (domainMax - domainMin);
+  const timeToX = (t: number) => {
+    if (!data.length) return ML;
+    const dur = data.length > 1 ? data[1].time - data[0].time : 3600_000;
+    return ML + ((t - data[0].time) / dur) * candleW + candleW / 2;
+  };
+  const xToTime = (x: number) => {
+    if (!data.length) return 0;
+    const dur = data.length > 1 ? data[1].time - data[0].time : 3600_000;
+    return data[0].time + ((x - ML - candleW / 2) / candleW) * dur;
+  };
+
+  // Handle drawing click on SVG
+  const handleDrawingClick = useCallback((e: React.MouseEvent) => {
+    if (drawingTool === "none" || !onDrawingClick || !svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const svgX = ((e.clientX - rect.left) / rect.width) * W;
+    const svgY = ((e.clientY - rect.top) / rect.height) * H;
+    if (svgX > W - MR || svgY > MT + priceH) return; // only on price area
+    const price = yToPrice(svgY);
+    const time = xToTime(svgX);
+    onDrawingClick(time, price);
+  }, [drawingTool, onDrawingClick, W, H, MR, MT, priceH, yToPrice, xToTime]);
+
   const volY = (v: number) => MT + priceH + volH - (maxVol > 0 ? (v / maxVol) * (volH - 4) : 0);
   const oiY = (val: number) => {
     const oiTop = MT + priceH + volH;
@@ -655,7 +801,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
         )}
       </div>
 
-      <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden" style={{ cursor: dragRef.current ? "grabbing" : yDragRef.current ? "ns-resize" : "crosshair" }}>
+      <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden" style={{ cursor: drawingTool !== "none" ? "crosshair" : dragRef.current ? "grabbing" : yDragRef.current ? "ns-resize" : "crosshair" }}>
         <svg
           ref={svgRef}
           width="100%"
@@ -663,17 +809,31 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="none"
           onMouseDown={handleMouseDown}
+          onClick={(e) => {
+            if (drawingTool !== "none") handleDrawingClick(e);
+          }}
           onMouseMove={(e) => {
             handleMouseMove(e);
+            // Drawing hover preview
+            if (drawingTool !== "none" && onDrawingHover && svgRef.current) {
+              const rect = svgRef.current.getBoundingClientRect();
+              const svgX = ((e.clientX - rect.left) / rect.width) * W;
+              const svgY = ((e.clientY - rect.top) / rect.height) * H;
+              if (svgX <= W - MR && svgY <= MT + priceH) {
+                onDrawingHover(xToTime(svgX), yToPrice(svgY));
+              }
+            }
             // Hover detection — only when not dragging
             if (!dragRef.current && !yDragRef.current && svgRef.current) {
               const rect = svgRef.current.getBoundingClientRect();
               const svgX = ((e.clientX - rect.left) / rect.width) * W;
-              // Change cursor when over price axis
-              if (svgX > W - MR) {
-                (e.currentTarget.parentElement as HTMLElement).style.cursor = "ns-resize";
-              } else {
-                (e.currentTarget.parentElement as HTMLElement).style.cursor = "crosshair";
+              if (drawingTool === "none") {
+                // Change cursor when over price axis
+                if (svgX > W - MR) {
+                  (e.currentTarget.parentElement as HTMLElement).style.cursor = "ns-resize";
+                } else {
+                  (e.currentTarget.parentElement as HTMLElement).style.cursor = "crosshair";
+                }
               }
               const idx = Math.floor((svgX - ML) / candleW);
               if (idx >= 0 && idx < data.length) setHover(idx);
@@ -682,7 +842,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
           }}
           onMouseUp={handleMouseUp}
           onMouseLeave={() => { setHover(null); handleMouseUp(); }}
-          onDoubleClick={() => setPriceZoom(1)} // Double-click resets Y zoom
+          onDoubleClick={() => { if (drawingTool === "none") setPriceZoom(1); }}
           style={{ display: "block" }}
         >
           {/* Grid lines */}
@@ -724,6 +884,62 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
               />
             );
           })}
+
+          {/* User drawings */}
+          {drawings.map(d => {
+            if (d.type === "hline") {
+              const y = priceY(d.p1.price);
+              if (y < MT || y > MT + priceH) return null;
+              return (
+                <g key={d.id}>
+                  <line x1={ML} y1={y} x2={W - MR} y2={y}
+                    stroke={d.color} strokeWidth={1} strokeDasharray="6 3" />
+                  <text x={W - MR + 4} y={y + 3} fill={d.color} fontSize={9} fontFamily="monospace">
+                    {formatPrice(d.p1.price)}
+                  </text>
+                  {/* Delete button */}
+                  <circle cx={ML + 8} cy={y} r={5} fill="var(--hl-surface)" stroke={d.color} strokeWidth={0.8}
+                    style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onRemoveDrawing?.(d.id); }} />
+                  <text x={ML + 5} y={y + 3} fill={d.color} fontSize={8} style={{ cursor: "pointer", pointerEvents: "none" }}>×</text>
+                </g>
+              );
+            }
+            if ((d.type === "trendline" || d.type === "ray") && d.p2) {
+              const x1 = timeToX(d.p1.time);
+              const y1 = priceY(d.p1.price);
+              const x2 = timeToX(d.p2.time);
+              const y2 = priceY(d.p2.price);
+              // For ray, extend to chart edge
+              let ex2 = x2, ey2 = y2;
+              if (d.type === "ray" && x2 !== x1) {
+                const slope = (y2 - y1) / (x2 - x1);
+                ex2 = x2 > x1 ? W - MR : ML;
+                ey2 = y1 + slope * (ex2 - x1);
+              }
+              return (
+                <g key={d.id}>
+                  <line x1={x1} y1={y1} x2={ex2} y2={ey2}
+                    stroke={d.color} strokeWidth={1.2} />
+                  <circle cx={x1} cy={y1} r={3} fill={d.color} opacity={0.7} />
+                  <circle cx={x2} cy={y2} r={3} fill={d.color} opacity={0.7} />
+                  {/* Delete button at midpoint */}
+                  <circle cx={(x1+x2)/2} cy={(y1+y2)/2} r={5} fill="var(--hl-surface)" stroke={d.color} strokeWidth={0.8}
+                    style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onRemoveDrawing?.(d.id); }} />
+                  <text x={(x1+x2)/2 - 3} y={(y1+y2)/2 + 3} fill={d.color} fontSize={8} style={{ cursor: "pointer", pointerEvents: "none" }}>×</text>
+                </g>
+              );
+            }
+            return null;
+          })}
+
+          {/* Pending drawing preview */}
+          {pendingDrawing?.p1 && pendingDrawing?.p2 && (
+            <line
+              x1={timeToX(pendingDrawing.p1.time)} y1={priceY(pendingDrawing.p1.price)}
+              x2={timeToX(pendingDrawing.p2.time)} y2={priceY(pendingDrawing.p2.price)}
+              stroke="var(--hl-green)" strokeWidth={1} strokeDasharray="4 3" opacity={0.6}
+            />
+          )}
 
           {/* Separator lines */}
           <line x1={ML} y1={MT + priceH} x2={W - MR} y2={MT + priceH} stroke="var(--hl-border)" strokeWidth={0.5} />

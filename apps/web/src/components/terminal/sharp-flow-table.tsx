@@ -18,8 +18,8 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
   }
 
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-2 px-1">
+    <div className="h-full flex flex-col">
+      <div className="flex items-center gap-2 mb-2 px-1 shrink-0">
         <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider">
           Sharp Flow
         </h2>
@@ -30,7 +30,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
           ⓘ
         </span>
       </div>
-      <div className="overflow-x-auto overflow-y-auto max-h-[320px]">
+      <div className="overflow-x-auto overflow-y-auto flex-1">
         <table className="w-full text-[12px] min-w-[420px]">
           <thead>
             <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)]">

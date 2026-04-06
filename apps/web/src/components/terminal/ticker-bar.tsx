@@ -1,6 +1,7 @@
 "use client";
 
 import type { TokenOverview, OptionsSnapshot } from "@/lib/api";
+import { useTickerAnimation } from "@/hooks/use-ticker-animation";
 
 interface TickerBarProps {
   tokens: TokenOverview[];
@@ -15,6 +16,8 @@ function formatFlow(value: number): string {
 }
 
 export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProps) {
+  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(60, true);
+
   if (!tokens.length) return null;
 
   // Total 24h volume across all tokens = USDC flow proxy
@@ -22,12 +25,12 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
   // Net OI = sum of all open interest (positive = capital deployed)
   const totalOI = tokens.reduce((sum, t) => sum + t.openInterest, 0);
 
-  // Duplicate items for seamless loop — use refs to prevent animation jolt on re-render
+  // Duplicate items for seamless loop
   const items = tokens.slice(0, 25);
 
   return (
     <div className="overflow-hidden border-b border-[var(--hl-border)] bg-[var(--hl-surface)]">
-      <div className="flex hover:[animation-play-state:paused]" style={{ animation: "ticker-scroll-reverse 60s linear infinite", willChange: "transform", backfaceVisibility: "hidden" }}>
+      <div ref={trackRef} className="flex" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
           <div key={copy} className="flex shrink-0" aria-hidden={copy === 1}>
             {/* USDC flows indicator */}
