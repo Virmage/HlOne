@@ -1,25 +1,34 @@
 "use client";
 
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect } from "react";
 
 /**
- * JS-driven ticker animation using requestAnimationFrame.
- * Uses a callback ref so animation starts when the element mounts,
- * even if the component initially returns null (data not loaded yet).
- * Immune to React re-render jolts.
+ * Pixel-based infinite ticker using requestAnimationFrame.
+ * Measures actual content width for seamless looping.
+ * Content must be duplicated (rendered twice) in the DOM.
  */
 export function useTickerAnimation(
   durationSeconds: number = 60,
   reverse: boolean = false
 ) {
-  const progressRef = useRef(0);
+  const offsetRef = useRef(0);       // current pixel offset
   const rafRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const pausedRef = useRef(false);
   const elRef = useRef<HTMLDivElement | null>(null);
+  const contentWidthRef = useRef(0);  // width of one copy of content
+
+  const measure = useCallback(() => {
+    const el = elRef.current;
+    if (!el) return;
+    // The track has two identical children — measure the first one
+    const firstChild = el.children[0] as HTMLElement | undefined;
+    if (firstChild) {
+      contentWidthRef.current = firstChild.scrollWidth;
+    }
+  }, []);
 
   const trackRef = useCallback((el: HTMLDivElement | null) => {
-    // Cleanup previous animation if element changes
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = 0;
@@ -28,28 +37,51 @@ export function useTickerAnimation(
     elRef.current = el;
     if (!el) return;
 
-    // Reset timing (but keep progress so remounts in same render cycle don't jolt)
     lastTimeRef.current = 0;
 
-    const step = (timestamp: number) => {
-      if (lastTimeRef.current === 0) lastTimeRef.current = timestamp;
+    // Measure after a frame so content has rendered
+    requestAnimationFrame(() => {
+      measure();
 
-      if (!pausedRef.current) {
-        const delta = timestamp - lastTimeRef.current;
-        const durationMs = durationSeconds * 1000;
-        progressRef.current = (progressRef.current + delta / durationMs) % 1;
+      const step = (timestamp: number) => {
+        if (lastTimeRef.current === 0) lastTimeRef.current = timestamp;
 
-        const t = progressRef.current;
-        const translate = reverse ? (-50 + t * 50) : (-t * 50);
-        el.style.transform = `translate3d(${translate}%, 0, 0)`;
-      }
+        if (!pausedRef.current && contentWidthRef.current > 0) {
+          const delta = timestamp - lastTimeRef.current;
+          // pixels per ms = contentWidth / durationMs
+          const speed = contentWidthRef.current / (durationSeconds * 1000);
+          const movement = delta * speed;
 
-      lastTimeRef.current = timestamp;
+          if (reverse) {
+            offsetRef.current -= movement;
+            if (offsetRef.current <= -contentWidthRef.current) {
+              offsetRef.current += contentWidthRef.current;
+            }
+          } else {
+            offsetRef.current -= movement;
+            // When we've scrolled one full content width, wrap back
+            if (offsetRef.current <= -contentWidthRef.current) {
+              offsetRef.current += contentWidthRef.current;
+            }
+          }
+
+          el.style.transform = `translate3d(${offsetRef.current}px, 0, 0)`;
+        }
+
+        lastTimeRef.current = timestamp;
+        rafRef.current = requestAnimationFrame(step);
+      };
+
       rafRef.current = requestAnimationFrame(step);
-    };
+    });
+  }, [durationSeconds, reverse, measure]);
 
-    rafRef.current = requestAnimationFrame(step);
-  }, [durationSeconds, reverse]);
+  // Re-measure when window resizes (content might reflow)
+  useEffect(() => {
+    const handleResize = () => measure();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [measure]);
 
   const onMouseEnter = useCallback(() => {
     pausedRef.current = true;
@@ -57,7 +89,7 @@ export function useTickerAnimation(
 
   const onMouseLeave = useCallback(() => {
     pausedRef.current = false;
-    lastTimeRef.current = 0;
+    lastTimeRef.current = 0; // skip the delta gap while paused
   }, []);
 
   return { trackRef, onMouseEnter, onMouseLeave };

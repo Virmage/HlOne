@@ -34,13 +34,21 @@ export function startBackgroundJobs() {
   // Start top trader fills tracking (30min refresh, starts after smart money warms up)
   startTopTraderFillsTracking();
 
-  // Every 60s: whale position check + price refresh + OI snapshot
+  // Every 15s: OI snapshot (fast accumulation for chart overlay)
+  setInterval(async () => {
+    try {
+      await snapshotOI();
+    } catch (err) {
+      console.error("[bg] OI snapshot failed:", (err as Error).message);
+    }
+  }, 15_000);
+
+  // Every 60s: whale position check + price refresh
   setInterval(async () => {
     try {
       await getCachedMids(); // warm the price cache
       await getCachedAssetCtxs(); // warm asset contexts
       await runWhaleCheck();
-      await snapshotOI();
     } catch (err) {
       console.error("[bg] Whale check failed:", (err as Error).message);
     }

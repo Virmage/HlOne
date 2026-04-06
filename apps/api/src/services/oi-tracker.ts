@@ -24,8 +24,8 @@ export interface OICandle {
 
 // ─── Storage ────────────────────────────────────────────────────────────────
 
-// Per-coin snapshots, capped at 10080 entries (~7 days at 1min intervals)
-const MAX_SNAPSHOTS = 10080;
+// Per-coin snapshots, capped at 40320 entries (~7 days at 15s intervals)
+const MAX_SNAPSHOTS = 40320;
 const snapshots = new Map<string, OISnapshot[]>();
 
 // Track which coins to monitor (top 30 by volume)

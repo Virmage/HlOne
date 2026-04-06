@@ -832,7 +832,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const W = containerSize.w, H = containerSize.h;
   const ML = 0, MR = 70, MT = 8, MB = 20;
   const volH = hasVolume ? 60 : 0;
-  const oiH = oiPresent.length > 0 ? 80 : 0;
+  // Need at least 5 matched OI candles to show the panel (avoids sparse display after restart)
+  const showOI = oiPresent.length >= 5;
+  const oiH = showOI ? 80 : 0;
   const priceH = H - MT - MB - volH - oiH;
   const chartW = W - ML - MR;
 
@@ -1117,7 +1119,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
           {/* Separator lines */}
           <line x1={ML} y1={MT + priceH} x2={W - MR} y2={MT + priceH} stroke="var(--hl-border)" strokeWidth={0.5} />
-          {oiPresent.length > 0 && (
+          {showOI && (
             <line x1={ML} y1={MT + priceH + volH} x2={W - MR} y2={MT + priceH + volH} stroke="var(--hl-border)" strokeWidth={0.5} />
           )}
 
@@ -1125,8 +1127,8 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
           {hasVolume && <text x={4} y={MT + priceH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Volume</text>}
 
           {/* OI label + axis */}
-          {oiPresent.length > 0 && <text x={4} y={MT + priceH + volH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Open Interest</text>}
-          {oiPresent.length > 0 && [0, 0.5, 1].map((pct, i) => {
+          {showOI && <text x={4} y={MT + priceH + volH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Open Interest</text>}
+          {showOI && [0, 0.5, 1].map((pct, i) => {
             const val = oiMin + (oiMax - oiMin) * pct;
             const y = oiY(val);
             return (
@@ -1164,7 +1166,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
           })}
 
           {/* OI Candlesticks */}
-          {visibleOI.map((c, i) => {
+          {showOI && visibleOI.map((c, i) => {
             if (!c || i >= data.length) return null;
             const x = ML + i * candleW;
             const bx = x + (candleW - bodyW) / 2;
