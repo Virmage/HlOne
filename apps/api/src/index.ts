@@ -20,6 +20,7 @@ const DATABASE_URL =
 const PORT = parseInt(process.env.PORT || "3001");
 
 async function main() {
+  console.log(`[startup] Starting API server (PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || "development"})...`);
   const app = Fastify({ logger: true });
 
   await app.register(cors, {
@@ -69,11 +70,15 @@ async function main() {
     }
   });
 
+  console.log(`[startup] Routes registered, binding to port ${PORT}...`);
   await app.listen({ port: PORT, host: "0.0.0.0" });
-  console.log(`API server running on port ${PORT}`);
+  console.log(`[startup] API server running on port ${PORT}`);
 
   // Start background jobs after server is listening
   startBackgroundJobs();
 }
 
-main().catch(console.error);
+main().catch(err => {
+  console.error("[startup] FATAL: Server failed to start:", err);
+  process.exit(1);
+});
