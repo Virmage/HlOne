@@ -23,8 +23,8 @@ export interface LargeTrade {
 // ─── Storage ────────────────────────────────────────────────────────────────
 
 const MAX_TRADES = 200;
-const MIN_SIZE_MAJOR = 200_000;  // $200K+ for BTC, ETH, SOL
-const MIN_SIZE_ALT = 75_000;     // $75K+ for everything else
+const MIN_SIZE_MAJOR = 100_000;  // $100K+ for BTC, ETH, SOL
+const MIN_SIZE_ALT = 25_000;     // $25K+ for everything else
 const MAJOR_COINS = new Set(["BTC", "ETH", "SOL"]);
 const POLL_INTERVAL = 20_000; // 20 seconds
 const TOP_COINS_COUNT = 15;
@@ -155,7 +155,7 @@ async function pollTrades(): Promise<void> {
 
 export function startTradeTapeTracking(): void {
   if (intervalId) return;
-  console.log("[trade-tape] Starting large trade tracking (20s interval, top 15 coins, $200K+ majors / $75K+ alts)");
+  console.log("[trade-tape] Starting large trade tracking (20s interval, top 15 coins, $100K+ majors / $25K+ alts)");
   intervalId = setInterval(pollTrades, POLL_INTERVAL);
   // Initial poll after a short delay
   setTimeout(pollTrades, 5000);
