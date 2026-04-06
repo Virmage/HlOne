@@ -63,7 +63,7 @@ export default function PortfolioPage() {
       <div>
         <h1 className="text-2xl font-bold text-[var(--foreground)]">Portfolio</h1>
         <p className="text-sm text-[var(--hl-muted)] mt-1">
-          {address.slice(0, 6)}...{address.slice(-4)} on Hyperliquid
+          {address?.slice(0, 6)}...{address?.slice(-4)} on Hyperliquid
         </p>
       </div>
 
