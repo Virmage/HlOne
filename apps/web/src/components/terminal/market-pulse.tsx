@@ -50,12 +50,12 @@ export function MarketPulse({ regime, options, onSelectToken }: MarketPulseProps
                 </span>
               )}
               {regime?.action && (
-                <span className="text-[var(--hl-text)] text-[10px] max-w-[280px] truncate" title={regime.action}>
+                <span className="text-[var(--hl-text)] text-[10px] whitespace-nowrap">
                   {regime.action}
                 </span>
               )}
               {regime?.description && (
-                <span className="text-[var(--hl-muted)] text-[10px] max-w-[300px] truncate" title={regime.description}>
+                <span className="text-[var(--hl-muted)] text-[10px] whitespace-nowrap">
                   — {regime.description}
                 </span>
               )}

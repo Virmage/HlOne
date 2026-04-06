@@ -229,8 +229,8 @@ function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">) {
     events.length = MAX_EVENTS;
   }
 
-  // Persist to DB (fire-and-forget)
-  if (db) {
+  // Persist to DB (fire-and-forget) — skip if DB circuit breaker tripped
+  if (db && dbFailCount < DB_FAIL_THRESHOLD) {
     db.insert(whaleEvents).values({
       whaleAddress: event.whaleAddress,
       whaleName: event.whaleName,
@@ -243,7 +243,10 @@ function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">) {
       price: String(event.price),
       detectedAt: new Date(now),
     }).catch((err) => {
-      console.error("[whale-tracker] DB insert failed:", (err as Error).message);
+      dbFailCount++;
+      if (dbFailCount === DB_FAIL_THRESHOLD) {
+        console.error("[whale-tracker] DB insert failed 5 times, switching to in-memory only");
+      }
     });
   }
 }
@@ -312,12 +315,16 @@ const MAX_PER_CANDLE: Record<string, number> = {
  * Get historical whale events for chart markers.
  * Filters by size threshold based on timeframe to prevent clutter.
  */
+// Circuit breaker: stop querying DB after repeated failures
+let dbFailCount = 0;
+const DB_FAIL_THRESHOLD = 5; // disable DB after 5 consecutive failures
+
 export async function getHistoricalWhaleEvents(
   coin: string,
   interval: string,
   since: number, // timestamp ms — start of visible candle range
 ): Promise<WhaleEvent[]> {
-  if (!db) {
+  if (!db || dbFailCount >= DB_FAIL_THRESHOLD) {
     // Fallback to in-memory events
     return events.filter(e => e.coin === coin && e.detectedAt >= since);
   }
@@ -370,9 +377,15 @@ export async function getHistoricalWhaleEvents(
       filtered.push(...evts.slice(0, maxPerCandle));
     }
 
+    dbFailCount = 0; // reset on success
     return filtered;
   } catch (err) {
-    console.error("[whale-tracker] DB query failed:", (err as Error).message);
+    dbFailCount++;
+    if (dbFailCount === DB_FAIL_THRESHOLD) {
+      console.error("[whale-tracker] DB failed 5 times, switching to in-memory only");
+    } else {
+      console.error("[whale-tracker] DB query failed:", (err as Error).message);
+    }
     return events.filter(e => e.coin === coin && e.detectedAt >= since);
   }
 }
