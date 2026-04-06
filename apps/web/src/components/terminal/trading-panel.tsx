@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { TokenOverview, CpycatScore } from "@/lib/api";
 import type { PlaceOrderResult } from "@/lib/hl-exchange";
 import { BUILDER_FEE_PERCENT, BUILDER_FEE_DISPLAY } from "@/lib/hl-exchange";
@@ -32,7 +32,14 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
 
   const { address, isConnected } = useSafeAccount();
 
+  // Clamp leverage when switching to a token with lower max
+  useEffect(() => {
+    const max = overview?.maxLeverage ?? 50;
+    if (leverage > max) setLeverageVal(max);
+  }, [coin, overview?.maxLeverage]);
+
   const price = overview?.price ?? 0;
+  const maxLev = overview?.maxLeverage ?? 50;
   const sizeNum = parseFloat(size) || 0;
   const notional = sizeNum * price;
   const margin = leverage > 0 ? notional / leverage : 0;
@@ -251,16 +258,16 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
           <input
             type="range"
             min={1}
-            max={50}
-            value={leverage}
+            max={maxLev}
+            value={Math.min(leverage, maxLev)}
             onChange={e => handleLeverageChange(Number(e.target.value))}
             className="w-full mt-1 accent-[var(--hl-green)]"
           />
           <div className="flex justify-between text-[9px] text-[var(--hl-muted)]">
             <span>1x</span>
-            <span>10x</span>
-            <span>25x</span>
-            <span>50x</span>
+            {maxLev >= 10 && <span>{Math.round(maxLev / 4)}x</span>}
+            {maxLev >= 4 && <span>{Math.round(maxLev / 2)}x</span>}
+            <span>{maxLev}x</span>
           </div>
         </div>
 

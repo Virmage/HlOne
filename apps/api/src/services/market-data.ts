@@ -261,6 +261,7 @@ export interface TokenOverview {
   markPx: number;
   oraclePx: number;
   premium: number; // mark vs oracle difference %
+  maxLeverage: number; // per-asset max leverage from HL meta
   isSpot?: boolean; // true for spot tokens
   dex?: string; // HIP-3 builder dex (xyz, flx, etc.) — undefined for core perps
   category?: string; // stocks, indices, commodities, fx, pre-ipo, sectors
@@ -268,15 +269,22 @@ export interface TokenOverview {
 
 export async function getTokenOverviews(): Promise<TokenOverview[]> {
   // Fetch core perps + spot first, then HIP-3 (to avoid 429 rate limits)
-  const [mids, ctxs, spotTokens] = await Promise.all([
+  const [mids, ctxs, meta, spotTokens] = await Promise.all([
     getCachedMids(),
     getCachedAssetCtxs(),
+    getCachedMeta(),
     getCachedSpotTokens().catch(() => []),
   ]);
   // HIP-3: use cached data only (background job populates cache).
   // Never block request path with sequential DEX fetches.
   const hip3Tokens = hip3Cache?.data || [];
   const results: TokenOverview[] = [];
+
+  // Build maxLeverage lookup from meta
+  const leverageMap = new Map<string, number>();
+  for (const u of meta.universe) {
+    leverageMap.set(u.name, u.maxLeverage);
+  }
 
   // Perps
   for (const [coin, ctx] of ctxs) {
@@ -297,6 +305,7 @@ export async function getTokenOverviews(): Promise<TokenOverview[]> {
       markPx,
       oraclePx,
       premium: oraclePx > 0 ? ((markPx - oraclePx) / oraclePx) * 100 : 0,
+      maxLeverage: leverageMap.get(coin) || 50,
     });
   }
 
@@ -316,6 +325,7 @@ export async function getTokenOverviews(): Promise<TokenOverview[]> {
       markPx: st.price,
       oraclePx: st.price,
       premium: 0,
+      maxLeverage: 1, // spot tokens have no leverage
       isSpot: true,
     });
   }
@@ -336,6 +346,7 @@ export async function getTokenOverviews(): Promise<TokenOverview[]> {
       markPx: ht.markPx,
       oraclePx: ht.oraclePx,
       premium: ht.oraclePx > 0 ? ((ht.markPx - ht.oraclePx) / ht.oraclePx) * 100 : 0,
+      maxLeverage: ht.maxLeverage,
       dex: ht.dex,
       category: ht.category,
     });

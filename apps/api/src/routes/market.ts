@@ -8,7 +8,7 @@ import { getSmartMoneyCached } from "../services/smart-money.js";
 import { getWhaleAlerts, getHotTokens, getWhaleAlertsForCoin, getHistoricalWhaleEvents } from "../services/whale-tracker.js";
 import { getTokenScoresCached } from "../services/scoring.js";
 import { getTraderDisplayName } from "../services/name-generator.js";
-import { discoverActiveTraders, getCandleSnapshot, getFundingHistory, getL2Book, getRecentTrades } from "../services/hyperliquid.js";
+import { discoverActiveTraders, getCandleSnapshot, getFundingHistory, getL2Book, getRecentTrades, getClearinghouseState, getOpenOrders } from "../services/hyperliquid.js";
 import { getOptionsData, getAllOptionsData, type OptionsSnapshot } from "../services/options-data.js";
 import { getSignals, getSignalsCached } from "../services/signals.js";
 import { getOICandlesForInterval } from "../services/oi-tracker.js";
@@ -526,6 +526,89 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       timestamp: Date.now(),
     };
   });
+
+  /**
+   * GET /api/market/positions/:address
+   * User's open Hyperliquid positions + account overview.
+   */
+  app.get<{ Params: { address: string } }>(
+    "/positions/:address",
+    async (req) => {
+      const { address } = req.params;
+      const [state, orders] = await Promise.all([
+        getClearinghouseState(address).catch(() => null),
+        getOpenOrders(address).catch(() => []),
+      ]);
+
+      if (!state) {
+        return { positions: [], account: null, openOrders: [], timestamp: Date.now() };
+      }
+
+      const s = state as {
+        assetPositions: {
+          position: {
+            coin: string;
+            szi: string;
+            entryPx: string;
+            positionValue: string;
+            unrealizedPnl: string;
+            leverage: { type: string; value: number };
+            liquidationPx: string | null;
+            marginUsed: string;
+            returnOnEquity: string;
+          };
+        }[];
+        crossMarginSummary: {
+          accountValue: string;
+          totalMarginUsed: string;
+          totalNtlPos: string;
+          totalRawUsd: string;
+          withdrawable: string;
+        };
+        marginSummary: {
+          accountValue: string;
+          totalMarginUsed: string;
+          totalNtlPos: string;
+          totalRawUsd: string;
+        };
+      };
+
+      const positions = s.assetPositions
+        .filter(ap => parseFloat(ap.position.szi) !== 0)
+        .map(ap => {
+          const p = ap.position;
+          const size = parseFloat(p.szi);
+          return {
+            coin: p.coin,
+            side: size > 0 ? "long" as const : "short" as const,
+            size: Math.abs(size),
+            entryPx: parseFloat(p.entryPx),
+            positionValue: parseFloat(p.positionValue),
+            unrealizedPnl: parseFloat(p.unrealizedPnl),
+            leverage: p.leverage?.value ?? 0,
+            liquidationPx: p.liquidationPx ? parseFloat(p.liquidationPx) : null,
+            marginUsed: parseFloat(p.marginUsed),
+            returnOnEquity: parseFloat(p.returnOnEquity || "0"),
+          };
+        })
+        .sort((a, b) => Math.abs(b.positionValue) - Math.abs(a.positionValue));
+
+      const cs = s.crossMarginSummary || s.marginSummary;
+      const account = cs ? {
+        accountValue: parseFloat(cs.accountValue),
+        totalMarginUsed: parseFloat(cs.totalMarginUsed),
+        totalNotional: parseFloat(cs.totalNtlPos),
+        withdrawable: parseFloat((cs as typeof s.crossMarginSummary).withdrawable || "0"),
+      } : null;
+
+      return {
+        positions,
+        account,
+        openOrders: (orders as { coin: string; side: string; sz: string; limitPx: string; orderType: string }[]).slice(0, 50),
+        timestamp: Date.now(),
+      };
+    },
+  );
 
   /**
    * GET /api/market/system-health

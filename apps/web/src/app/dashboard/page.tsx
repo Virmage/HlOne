@@ -23,6 +23,7 @@ import { LiquidationHeatmapPanel } from "@/components/terminal/liquidation-heatm
 import { CorrelationMatrixPanel } from "@/components/terminal/correlation-matrix";
 import { OrderFlowPanel } from "@/components/terminal/order-flow-panel";
 import { PositionConcentrationPanel } from "@/components/terminal/position-concentration";
+import { PositionsPanel } from "@/components/terminal/positions-panel";
 import { TraderDetailPanel } from "@/components/traders/trader-detail-panel";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
@@ -121,6 +122,11 @@ export default function DashboardPage() {
             score={chartOverview?.score ?? null}
           />
         </div>
+      </div>
+
+      {/* Positions — shows when wallet connected */}
+      <div className="border-b border-[var(--hl-border)] px-2 py-2">
+        <PositionsPanel onSelectToken={handleSelectToken} />
       </div>
 
       {/* Sharps vs Squares + Funding Arb + Signals — 3 columns */}

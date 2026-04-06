@@ -226,6 +226,7 @@ export interface TokenOverview {
   markPx: number;
   oraclePx: number;
   premium: number;
+  maxLeverage: number;
   score: CpycatScore | null;
   isSpot?: boolean;
   dex?: string;       // HIP-3 builder dex (xyz, flx, etc.)
@@ -571,6 +572,39 @@ export async function getWhaleAlertsFeed(limit = 50, coin?: string) {
   return apiFetch<{ alerts: WhaleAlert[]; hotTokens: { coin: string; eventCount: number }[] }>(
     `/api/market/whale-alerts?${params}`
   );
+}
+
+// ─── User Positions ─────────────────────────────────────────────────────────
+
+export interface UserPosition {
+  coin: string;
+  side: "long" | "short";
+  size: number;
+  entryPx: number;
+  positionValue: number;
+  unrealizedPnl: number;
+  leverage: number;
+  liquidationPx: number | null;
+  marginUsed: number;
+  returnOnEquity: number;
+}
+
+export interface UserAccount {
+  accountValue: number;
+  totalMarginUsed: number;
+  totalNotional: number;
+  withdrawable: number;
+}
+
+export interface UserPositionsData {
+  positions: UserPosition[];
+  account: UserAccount | null;
+  openOrders: { coin: string; side: string; sz: string; limitPx: string; orderType: string }[];
+  timestamp: number;
+}
+
+export async function getUserPositions(address: string) {
+  return apiFetch<UserPositionsData>(`/api/market/positions/${address}`);
 }
 
 // ─── Users ───────────────────────────────────────────────────────────────────
