@@ -785,21 +785,22 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const data = candles.slice(sliceStart, sliceEnd);
   const hasOI = oiCandles.length > 0;
 
-  // Matching OI candles for visible range — align by index when same length,
-  // otherwise match by timestamp
-  let visibleOI: typeof oiCandles = [];
-  if (hasOI) {
-    if (oiCandles.length === totalCandles) {
-      // Same length: direct slice
-      visibleOI = oiCandles.slice(sliceStart, sliceEnd);
-    } else {
-      // Different length: align from the right (most recent)
-      const oiOffset = totalCandles - oiCandles.length;
-      visibleOI = oiCandles.slice(
-        Math.max(0, sliceStart - oiOffset),
-        Math.max(0, sliceEnd - oiOffset)
-      );
+  // Match OI candles to price candles by timestamp.
+  // Build an array the same length as `data` with OI candle or null per slot.
+  let visibleOI: (typeof oiCandles[number] | null)[] = [];
+  if (hasOI && data.length > 0) {
+    const dur = data.length > 1 ? data[1].time - data[0].time : 3600_000;
+    // Index OI candles by bucket key for O(1) lookup
+    const oiByTime = new Map<number, typeof oiCandles[number]>();
+    for (const oc of oiCandles) {
+      // Snap OI time to the same bucket grid as price candles
+      const key = Math.floor(oc.time / dur) * dur;
+      oiByTime.set(key, oc);
     }
+    visibleOI = data.map(d => {
+      const key = Math.floor(d.time / dur) * dur;
+      return oiByTime.get(key) ?? null;
+    });
   }
 
   // Price domain — apply Y-axis zoom around midpoint
@@ -817,10 +818,11 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const hasVolume = volCandlesWithData > data.length * 0.3;
 
   // OI domain
+  const oiPresent = visibleOI.filter((c): c is NonNullable<typeof c> => c !== null);
   let oiMin = 0, oiMax = 0;
-  if (visibleOI.length > 0) {
-    oiMin = Math.min(...visibleOI.map(c => c.low));
-    oiMax = Math.max(...visibleOI.map(c => c.high));
+  if (oiPresent.length > 0) {
+    oiMin = Math.min(...oiPresent.map(c => c.low));
+    oiMax = Math.max(...oiPresent.map(c => c.high));
     const oiPad = (oiMax - oiMin) * 0.1 || 1;
     oiMin -= oiPad;
     oiMax += oiPad;
@@ -830,12 +832,12 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const W = containerSize.w, H = containerSize.h;
   const ML = 0, MR = 70, MT = 8, MB = 20;
   const volH = hasVolume ? 60 : 0;
-  const oiH = visibleOI.length > 0 ? 80 : 0;
+  const oiH = oiPresent.length > 0 ? 80 : 0;
   const priceH = H - MT - MB - volH - oiH;
   const chartW = W - ML - MR;
 
   const hovered = hover !== null && hover < data.length ? data[hover] : null;
-  const hoveredOI = hover !== null && hover < visibleOI.length ? visibleOI[hover] : null;
+  const hoveredOI = hover !== null && hover < visibleOI.length ? visibleOI[hover] ?? null : null;
 
   // Size candles based on total visible slots (data + right padding)
   const totalSlots = data.length + rightPadding;
@@ -1115,7 +1117,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
           {/* Separator lines */}
           <line x1={ML} y1={MT + priceH} x2={W - MR} y2={MT + priceH} stroke="var(--hl-border)" strokeWidth={0.5} />
-          {visibleOI.length > 0 && (
+          {oiPresent.length > 0 && (
             <line x1={ML} y1={MT + priceH + volH} x2={W - MR} y2={MT + priceH + volH} stroke="var(--hl-border)" strokeWidth={0.5} />
           )}
 
@@ -1123,8 +1125,8 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
           {hasVolume && <text x={4} y={MT + priceH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Volume</text>}
 
           {/* OI label + axis */}
-          {visibleOI.length > 0 && <text x={4} y={MT + priceH + volH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Open Interest</text>}
-          {visibleOI.length > 0 && [0, 0.5, 1].map((pct, i) => {
+          {oiPresent.length > 0 && <text x={4} y={MT + priceH + volH + 12} fill="var(--hl-text)" fontSize={10} fontFamily="monospace">Open Interest</text>}
+          {oiPresent.length > 0 && [0, 0.5, 1].map((pct, i) => {
             const val = oiMin + (oiMax - oiMin) * pct;
             const y = oiY(val);
             return (
@@ -1163,7 +1165,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
           {/* OI Candlesticks */}
           {visibleOI.map((c, i) => {
-            if (i >= data.length) return null;
+            if (!c || i >= data.length) return null;
             const x = ML + i * candleW;
             const bx = x + (candleW - bodyW) / 2;
             const wx = x + candleW / 2;
