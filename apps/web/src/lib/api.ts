@@ -217,6 +217,7 @@ export async function checkBuilderApproval(userAddress: string) {
 
 export interface TokenOverview {
   coin: string;
+  displayName?: string; // resolved name for spot tokens (e.g. "HYPE" instead of "@109")
   price: number;
   prevDayPx: number;
   change24h: number;

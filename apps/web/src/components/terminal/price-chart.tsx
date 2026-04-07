@@ -338,7 +338,10 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
                   >
                     <span className="text-left font-medium text-[var(--foreground)] flex items-center gap-1.5">
                       {t.coin === coin && <span className="text-[var(--hl-green)]">●</span>}
-                      {t.coin.includes(":") ? t.coin.split(":")[1] : t.coin}
+                      {t.displayName || (t.coin.includes(":") ? t.coin.split(":")[1] : t.coin)}
+                      {t.maxLeverage > 1 && (
+                        <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)]">{t.maxLeverage}x</span>
+                      )}
                       {t.dex && <span className="text-[9px] text-[var(--hl-muted)] font-normal">{t.dex}</span>}
                       {t.isSpot && <span className="text-[9px] text-[var(--hl-muted)] font-normal">SPOT</span>}
                       {!t.dex && !t.isSpot && <span className="text-[9px] text-[var(--hl-muted)] font-normal">-USDC</span>}
@@ -354,14 +357,14 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
                         return `${t.change24h >= 0 ? "+" : "-"}${absStr} / ${t.change24h >= 0 ? "+" : ""}${t.change24h.toFixed(2)}%`;
                       })()}</span>
                     </span>
-                    <span className={`text-right tabular-nums hidden sm:block ${t.fundingRate >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
-                      {(t.fundingRate * 100).toFixed(4)}%
+                    <span className={`text-right tabular-nums hidden sm:block ${t.isSpot ? "text-[var(--hl-muted)]" : t.fundingRate >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                      {t.isSpot ? "--" : `${(t.fundingRate * 100).toFixed(4)}%`}
                     </span>
                     <span className="text-right tabular-nums text-[var(--foreground)] hidden sm:block">
                       ${t.volume24h.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </span>
-                    <span className="text-right tabular-nums text-[var(--foreground)] hidden sm:block">
-                      ${t.openInterest.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    <span className="text-right tabular-nums hidden sm:block text-[var(--foreground)]">
+                      {t.isSpot ? <span className="text-[var(--hl-muted)]">--</span> : `$${t.openInterest.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
                     </span>
                   </button>
                 ))}

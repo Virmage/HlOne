@@ -67,7 +67,7 @@ export function OIPanel({ tokens, onSelectToken }: OIPanelProps) {
                   className="absolute inset-y-0 left-0 opacity-10 bg-[var(--hl-green)]"
                   style={{ width: `${barWidth}%` }}
                 />
-                <span className="font-medium text-[var(--foreground)] w-14 relative z-10">{t.coin.includes(":") ? t.coin.split(":")[1] : t.coin}</span>
+                <span className="font-medium text-[var(--foreground)] w-14 relative z-10">{t.displayName || (t.coin.includes(":") ? t.coin.split(":")[1] : t.coin)}</span>
                 <span className="text-[var(--foreground)] tabular-nums flex-1 relative z-10">
                   {formatOI(t.openInterest)}
                 </span>

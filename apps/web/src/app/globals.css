@@ -58,13 +58,15 @@ body {
   background: var(--hl-muted);
 }
 
-/* Panels only scroll when hovered — prevents scroll hijacking on page scroll */
+/* Panels only scroll when hovered — prevents scroll hijacking on page scroll.
+   Always auto to reserve scrollbar gutter and prevent reflow on data updates. */
 .scroll-on-hover {
-  overflow-y: hidden !important;
-  overscroll-behavior: contain;
-}
-.scroll-on-hover:hover {
   overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.scroll-on-hover:not(:hover)::-webkit-scrollbar-thumb {
+  background: transparent !important;
 }
 
 @keyframes fadeIn {

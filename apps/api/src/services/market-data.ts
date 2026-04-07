@@ -252,6 +252,7 @@ export async function getCachedHip3Tokens(): Promise<Hip3Token[]> {
 
 export interface TokenOverview {
   coin: string;
+  displayName?: string; // resolved name for spot tokens (e.g. "HYPE" instead of "@109")
   price: number;
   prevDayPx: number;
   change24h: number; // percentage
@@ -316,6 +317,7 @@ export async function getTokenOverviews(): Promise<TokenOverview[]> {
     const change24h = st.prevDayPx > 0 ? ((st.price - st.prevDayPx) / st.prevDayPx) * 100 : 0;
     results.push({
       coin: st.pair, // use pair name (@88, PURR/USDC) for API calls
+      displayName: st.name, // resolved name (e.g. "HYPE" instead of "@109")
       price: st.price,
       prevDayPx: st.prevDayPx,
       change24h,
