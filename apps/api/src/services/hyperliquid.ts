@@ -78,8 +78,27 @@ export async function getFundingHistory(coin: string, startTime: number, endTime
 }
 
 /** Get OHLCV candle data (max 5000 candles) */
+// Server-side candle cache — avoids hitting HL API on every interval switch
+const candleCache = new Map<string, { data: Candle[]; time: number }>();
+const CANDLE_TTL: Record<string, number> = {
+  "5m": 10_000,   // 10s for fast intervals
+  "15m": 15_000,
+  "1h": 30_000,   // 30s for hourly
+  "4h": 60_000,   // 1min for 4h
+  "1d": 120_000,  // 2min for daily+
+  "1w": 300_000,
+  "1M": 300_000,
+};
+
 export async function getCandleSnapshot(coin: string, interval: string, startTime: number, endTime?: number): Promise<Candle[]> {
-  return infoRequest({ type: "candleSnapshot", req: { coin, interval, startTime, ...(endTime ? { endTime } : {}) } });
+  const key = `${coin}:${interval}`;
+  const cached = candleCache.get(key);
+  const ttl = CANDLE_TTL[interval] || 30_000;
+  if (cached && Date.now() - cached.time < ttl) return cached.data;
+
+  const data = await infoRequest({ type: "candleSnapshot", req: { coin, interval, startTime, ...(endTime ? { endTime } : {}) } });
+  candleCache.set(key, { data, time: Date.now() });
+  return data;
 }
 
 /** Get recent trades for a coin */

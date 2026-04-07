@@ -47,15 +47,22 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
   const prevCoinRef = useRef(coin);
   useEffect(() => {
     let cancelled = false;
-    // Only show loading spinner on coin change, not interval change
     const coinChanged = prevCoinRef.current !== coin;
     prevCoinRef.current = coin;
+    // Only show full loading spinner on first load or coin change
+    // Interval changes keep the old chart visible (no flash)
     if (coinChanged || !detail) setLoading(true);
 
     getTokenDetail(coin, interval)
       .then(d => { if (!cancelled) setDetail(d); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
+
+    // Pre-fetch adjacent intervals so switching feels instant
+    const allIntervals: Interval[] = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
+    const idx = allIntervals.indexOf(interval);
+    const adjacent = [allIntervals[idx - 1], allIntervals[idx + 1]].filter(Boolean);
+    adjacent.forEach(iv => { if (iv) getTokenDetail(coin, iv); }); // warm cache
 
     // Poll for live updates (skip if tab hidden)
     pollRef.current = globalThis.setInterval(() => {
