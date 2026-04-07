@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { shortenAddress } from "@/lib/utils";
 import { startCopy, getBuilderFee, checkBuilderApproval, type BuilderFeeInfo } from "@/lib/api";
-import { useAccount, useConnectorClient } from "wagmi";
+import { useAccount } from "wagmi";
 
 interface CopyDialogProps {
   open: boolean;
@@ -39,7 +39,6 @@ export function CopyDialog({
   const [feeApproved, setFeeApproved] = useState<boolean | null>(null);
   const [approvingFee, setApprovingFee] = useState(false);
   const { connector } = useAccount();
-  const { data: connectorClient } = useConnectorClient();
 
   useEffect(() => {
     if (open && walletAddress) {
@@ -49,7 +48,7 @@ export function CopyDialog({
   }, [open, walletAddress]);
 
   const handleApproveFee = async () => {
-    if (!walletAddress || !builderFee || !connectorClient) return;
+    if (!walletAddress || !builderFee) return;
     setApprovingFee(true);
     try {
       const nonce = Date.now();
@@ -61,9 +60,10 @@ export function CopyDialog({
         nonce,
       };
 
-      // Build the EIP-712 typed data payload for eth_signTypedData_v4
-      // We call the provider directly to bypass viem's chainId validation
-      const typedData = {
+      // EIP-712 typed data — Hyperliquid requires chainId 1337 but wallet
+      // is on Arbitrum (42161). We MUST use window.ethereum directly because
+      // viem/wagmi both validate chainId and reject the mismatch.
+      const typedData = JSON.stringify({
         domain: {
           name: "Exchange",
           version: "1",
@@ -91,16 +91,16 @@ export function CopyDialog({
           builder: builderFee.builder,
           nonce: nonce.toString(),
         },
-      };
+      });
 
-      // Get the raw provider and call eth_signTypedData_v4 directly
-      // This bypasses viem's chain validation that causes the error
-      const provider = await connector?.getProvider();
-      if (!provider) throw new Error("No wallet provider found");
+      // Go directly to window.ethereum — this is the raw EIP-1193 provider
+      // that MetaMask/Rabby/etc expose. No viem, no wagmi, no chain validation.
+      const eth = (window as unknown as { ethereum?: { request: (args: { method: string; params: unknown[] }) => Promise<string> } }).ethereum;
+      if (!eth) throw new Error("No wallet found. Please install MetaMask or another wallet.");
 
-      const signature = await (provider as { request: (args: { method: string; params: unknown[] }) => Promise<string> }).request({
+      const signature = await eth.request({
         method: "eth_signTypedData_v4",
-        params: [walletAddress, JSON.stringify(typedData)],
+        params: [walletAddress, typedData],
       });
 
       // Submit to Hyperliquid exchange
