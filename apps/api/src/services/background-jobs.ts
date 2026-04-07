@@ -8,7 +8,7 @@ import { getSmartMoneyData } from "./smart-money.js";
 import { getTokenScores } from "./scoring.js";
 import { getCachedMids, getCachedAssetCtxs } from "./market-data.js";
 import { getSignals } from "./signals.js";
-import { snapshotOI } from "./oi-tracker.js";
+import { snapshotOI, loadOIFromDb, cleanupOldOISnapshots } from "./oi-tracker.js";
 import { getNewsFeed } from "./crypto-panic.js";
 import { getBatchSocialMetrics } from "./lunar-crush.js";
 import { startTradeTapeTracking } from "./trade-tape.js";
@@ -72,12 +72,19 @@ export function startBackgroundJobs() {
     }
   }, 5 * 60_000);
 
+  // Daily OI cleanup (remove snapshots older than 7 days)
+  setInterval(async () => {
+    try { await cleanupOldOISnapshots(); } catch {}
+  }, 24 * 60 * 60_000);
+
   // Initial warm-up (staggered to avoid slamming HL API)
   setTimeout(async () => {
     try {
       console.log("[bg] Initial warm-up: prices + asset contexts + OI...");
       await getCachedMids();
       await getCachedAssetCtxs();
+      // Load persisted OI history from DB before first snapshot
+      await loadOIFromDb();
       await snapshotOI();
     } catch (err) {
       console.error("[bg] Price warm-up failed:", (err as Error).message);

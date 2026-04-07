@@ -15,6 +15,7 @@ import { userRoutes } from "./routes/users.js";
 import { marketRoutes } from "./routes/market.js";
 import { startBackgroundJobs } from "./services/background-jobs.js";
 import { initWhaleTrackerDb } from "./services/whale-tracker.js";
+import { initOITrackerDb } from "./services/oi-tracker.js";
 
 const DATABASE_URL =
   process.env.DATABASE_URL || "postgresql://localhost:5432/hl_copy";
@@ -60,8 +61,9 @@ async function main() {
   const db = createDb(DATABASE_URL);
   app.decorate("db", db);
 
-  // Initialize whale tracker with DB for persistence
+  // Initialize DB-backed services
   initWhaleTrackerDb(db);
+  initOITrackerDb(db);
 
   // Register routes
   await app.register(traderRoutes, { prefix: "/api/traders" });

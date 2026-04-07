@@ -37,7 +37,7 @@ interface Fill {
 interface FundingEntry {
   coin: string;
   usdc: string;
-  sampleTime: string;
+  time: number;
   fundingRate: string;
 }
 
@@ -96,8 +96,20 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "userFunding", user: address, startTime: Date.now() - 7 * 86400_000, endTime: Date.now() }),
       });
-      const data = await res.json();
-      setFunding(Array.isArray(data) ? data.slice(0, 100) : []);
+      const raw = await res.json();
+      // HL returns { time, hash, delta: { type, coin, usdc, fundingRate, szi } }
+      const entries: FundingEntry[] = Array.isArray(raw)
+        ? raw
+            .filter((r: { delta?: { type?: string } }) => r.delta?.type === "funding")
+            .map((r: { time: number; delta: { coin: string; usdc: string; fundingRate: string } }) => ({
+              coin: r.delta.coin,
+              usdc: r.delta.usdc,
+              time: r.time,
+              fundingRate: r.delta.fundingRate,
+            }))
+            .slice(0, 200)
+        : [];
+      setFunding(entries);
     } catch { setFunding([]); }
   }, [address]);
 
@@ -442,8 +454,8 @@ function FundingHistoryTab({ funding }: { funding: FundingEntry[] }) {
           {funding.map((f, i) => {
             const payment = parseFloat(f.usdc);
             return (
-              <tr key={`${f.coin}-${i}`} className="border-b border-[var(--hl-border)] border-opacity-30">
-                <td className="py-1 text-[var(--hl-muted)] tabular-nums text-[10px]">{new Date(f.sampleTime).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
+              <tr key={`${f.coin}-${f.time}-${i}`} className="border-b border-[var(--hl-border)] border-opacity-30">
+                <td className="py-1 text-[var(--hl-muted)] tabular-nums text-[10px]">{new Date(f.time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
                 <td className="py-1 font-medium text-[var(--foreground)]">{f.coin}</td>
                 <td className={`py-1 text-right tabular-nums ${payment >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                   {payment >= 0 ? "+" : ""}${payment.toFixed(4)}

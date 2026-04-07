@@ -1,10 +1,12 @@
 /**
  * Open Interest history tracker.
  * Hyperliquid API only provides current OI — no historical candles.
- * This service snapshots OI every minute and builds OI candles in-memory.
+ * This service snapshots OI every minute, persists to DB, and builds OI candles.
  */
 
 import { getCachedAssetCtxs, getCachedMids } from "./market-data.js";
+import { oiSnapshots } from "@hl-copy/db";
+import { desc, eq, and, gte, lte } from "drizzle-orm";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -24,12 +26,54 @@ export interface OICandle {
 
 // ─── Storage ────────────────────────────────────────────────────────────────
 
-// Per-coin snapshots, capped at 40320 entries (~7 days at 15s intervals)
-const MAX_SNAPSHOTS = 40320;
+// In-memory cache (fast access for candle building), loaded from DB on startup
+const MAX_SNAPSHOTS = 40320; // ~7 days at 15s intervals
 const snapshots = new Map<string, OISnapshot[]>();
 
 // Track which coins to monitor (top 30 by volume)
 let trackedCoins: string[] = [];
+
+// DB reference — set via initOITrackerDb()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let db: any = null;
+
+export function initOITrackerDb(dbInstance: unknown): void {
+  db = dbInstance;
+}
+
+// ─── Load from DB on startup ────────────────────────────────────────────────
+
+export async function loadOIFromDb(): Promise<void> {
+  if (!db) return;
+  try {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000);
+    const rows = await db
+      .select({
+        coin: oiSnapshots.coin,
+        openInterest: oiSnapshots.openInterest,
+        price: oiSnapshots.price,
+        snapshotAt: oiSnapshots.snapshotAt,
+      })
+      .from(oiSnapshots)
+      .where(gte(oiSnapshots.snapshotAt, sevenDaysAgo))
+      .orderBy(oiSnapshots.snapshotAt);
+
+    let loaded = 0;
+    for (const row of rows) {
+      const coin = row.coin;
+      if (!snapshots.has(coin)) snapshots.set(coin, []);
+      snapshots.get(coin)!.push({
+        time: new Date(row.snapshotAt).getTime(),
+        oi: parseFloat(row.openInterest),
+        price: parseFloat(row.price),
+      });
+      loaded++;
+    }
+    console.log(`[oi-tracker] Loaded ${loaded} snapshots from DB across ${snapshots.size} coins`);
+  } catch (err) {
+    console.error("[oi-tracker] Failed to load from DB:", (err as Error).message);
+  }
+}
 
 // ─── Snapshot Collection ────────────────────────────────────────────────────
 
@@ -49,6 +93,7 @@ export async function snapshotOI(): Promise<void> {
     trackedCoins = coinsByVol;
 
     const now = Date.now();
+    const dbRows: { coin: string; openInterest: string; price: string; snapshotAt: Date }[] = [];
 
     for (const coin of trackedCoins) {
       const ctx = ctxs.get(coin);
@@ -64,13 +109,43 @@ export async function snapshotOI(): Promise<void> {
       const arr = snapshots.get(coin)!;
       arr.push({ time: now, oi: oiUsd, price });
 
-      // Trim old entries
+      // Trim old entries in memory
       if (arr.length > MAX_SNAPSHOTS) {
         arr.splice(0, arr.length - MAX_SNAPSHOTS);
       }
+
+      // Queue for DB insert
+      dbRows.push({
+        coin,
+        openInterest: oiUsd.toFixed(2),
+        price: price.toFixed(6),
+        snapshotAt: new Date(now),
+      });
+    }
+
+    // Batch insert to DB (fire-and-forget, don't block the snapshot cycle)
+    if (db && dbRows.length > 0) {
+      db.insert(oiSnapshots).values(dbRows).catch((err: Error) => {
+        console.error("[oi-tracker] DB insert failed:", err.message);
+      });
     }
   } catch (err) {
     console.error("[oi-tracker] Snapshot failed:", (err as Error).message);
+  }
+}
+
+// ─── DB Cleanup (run daily) ─────────────────────────────────────────────────
+
+export async function cleanupOldOISnapshots(): Promise<void> {
+  if (!db) return;
+  try {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000);
+    const result = await db
+      .delete(oiSnapshots)
+      .where(lte(oiSnapshots.snapshotAt, sevenDaysAgo));
+    console.log("[oi-tracker] Cleaned up old OI snapshots");
+  } catch (err) {
+    console.error("[oi-tracker] Cleanup failed:", (err as Error).message);
   }
 }
 

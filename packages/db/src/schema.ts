@@ -299,3 +299,19 @@ export const portfolioSnapshots = pgTable(
     ),
   ]
 );
+
+// ─── Open Interest Snapshots (persisted OI history for chart overlay) ────────
+
+export const oiSnapshots = pgTable(
+  "oi_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    coin: text("coin").notNull(),
+    openInterest: numeric("open_interest", { precision: 20, scale: 2 }).notNull(),
+    price: numeric("price", { precision: 20, scale: 6 }).notNull(),
+    snapshotAt: timestamp("snapshot_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_oi_snapshots_coin_time").on(table.coin, table.snapshotAt),
+  ]
+);

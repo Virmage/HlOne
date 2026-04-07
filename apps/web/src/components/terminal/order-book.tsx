@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 interface BookLevel {
   px: string;
@@ -19,41 +19,106 @@ interface OrderBookProps {
   coin: string;
 }
 
-const API_URL = typeof window !== "undefined" && process.env.NODE_ENV === "production"
-  ? ""
-  : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001");
+const HL_INFO = "https://api.hyperliquid.xyz/info";
 
 export function OrderBook({ coin }: OrderBookProps) {
   const [tab, setTab] = useState<"book" | "trades">("book");
   const [bids, setBids] = useState<BookLevel[]>([]);
   const [asks, setAsks] = useState<BookLevel[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Fetch trades via REST (less critical, 5s interval)
+  const fetchTrades = useCallback(async () => {
+    try {
+      const res = await fetch(HL_INFO, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "recentTrades", coin, }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setTrades(data.slice(0, 30) as Trade[]);
+      }
+    } catch { /* ignore */ }
+  }, [coin]);
+
+  // WebSocket for real-time book updates
   useEffect(() => {
     let cancelled = false;
 
-    const fetchBook = async () => {
+    // Initial REST fetch for book (instant load before WS connects)
+    (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/market/book/${coin}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) {
-          setBids(data.bids || []);
-          setAsks(data.asks || []);
-          setTrades(data.trades || []);
+        const res = await fetch(HL_INFO, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "l2Book", coin }),
+        });
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          const levels = data.levels || [[], []];
+          setBids(levels[0] || []);
+          setAsks(levels[1] || []);
         }
       } catch { /* ignore */ }
+    })();
+
+    // Connect WebSocket for live updates
+    const connect = () => {
+      if (cancelled) return;
+      try {
+        const ws = new WebSocket("wss://api.hyperliquid.xyz/ws");
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          ws.send(JSON.stringify({
+            method: "subscribe",
+            subscription: { type: "l2Book", coin },
+          }));
+        };
+
+        ws.onmessage = (event) => {
+          if (cancelled) return;
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.channel === "l2Book" && msg.data?.coin === coin) {
+              const levels = msg.data.levels || [[], []];
+              setBids(levels[0] || []);
+              setAsks(levels[1] || []);
+            }
+          } catch { /* ignore */ }
+        };
+
+        ws.onclose = () => {
+          if (!cancelled) setTimeout(connect, 2000); // reconnect
+        };
+
+        ws.onerror = () => {
+          ws.close();
+        };
+      } catch {
+        if (!cancelled) setTimeout(connect, 2000);
+      }
     };
 
-    fetchBook();
-    pollRef.current = setInterval(fetchBook, 10_000); // 10s — avoid HL 429s
+    connect();
+
+    // Poll trades every 5s
+    fetchTrades();
+    pollRef.current = setInterval(fetchTrades, 5_000);
 
     return () => {
       cancelled = true;
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [coin]);
+  }, [coin, fetchTrades]);
 
   const formatPx = (px: string) => {
     const n = parseFloat(px);
@@ -69,9 +134,19 @@ export function OrderBook({ coin }: OrderBookProps) {
     return n.toPrecision(3);
   };
 
-  // Max size for bar width calculation
-  const maxBidSz = Math.max(...bids.map(b => parseFloat(b.sz)), 0.001);
-  const maxAskSz = Math.max(...asks.map(a => parseFloat(a.sz)), 0.001);
+  // Cumulative totals
+  const bidCum = bids.reduce<number[]>((acc, b) => {
+    acc.push((acc.length > 0 ? acc[acc.length - 1] : 0) + parseFloat(b.sz));
+    return acc;
+  }, []);
+  const askCum = asks.reduce<number[]>((acc, a) => {
+    acc.push((acc.length > 0 ? acc[acc.length - 1] : 0) + parseFloat(a.sz));
+    return acc;
+  }, []);
+
+  const LEVELS = 16;
+  const maxBidSz = Math.max(...bids.slice(0, LEVELS).map(b => parseFloat(b.sz)), 0.001);
+  const maxAskSz = Math.max(...asks.slice(0, LEVELS).map(a => parseFloat(a.sz)), 0.001);
   const maxSz = Math.max(maxBidSz, maxAskSz);
 
   return (
@@ -107,7 +182,7 @@ export function OrderBook({ coin }: OrderBookProps) {
 
           {/* Asks (reversed — lowest ask at bottom) */}
           <div className="flex-1 overflow-y-auto flex flex-col-reverse">
-            {asks.slice(0, 12).map((a, i) => {
+            {asks.slice(0, LEVELS).map((a, i) => {
               const sz = parseFloat(a.sz);
               const pct = (sz / maxSz) * 100;
               return (
@@ -118,7 +193,7 @@ export function OrderBook({ coin }: OrderBookProps) {
                   />
                   <span className="flex-1 text-[var(--hl-red)] relative z-10">{formatPx(a.px)}</span>
                   <span className="w-14 text-right text-[var(--foreground)] relative z-10">{formatSz(a.sz)}</span>
-                  <span className="w-14 text-right text-[var(--hl-muted)] relative z-10">{a.n}</span>
+                  <span className="w-14 text-right text-[var(--hl-muted)] relative z-10">{formatSz(String(askCum[i] ?? 0))}</span>
                 </div>
               );
             })}
@@ -138,7 +213,7 @@ export function OrderBook({ coin }: OrderBookProps) {
 
           {/* Bids */}
           <div className="flex-1 overflow-y-auto">
-            {bids.slice(0, 12).map((b, i) => {
+            {bids.slice(0, LEVELS).map((b, i) => {
               const sz = parseFloat(b.sz);
               const pct = (sz / maxSz) * 100;
               return (
@@ -149,7 +224,7 @@ export function OrderBook({ coin }: OrderBookProps) {
                   />
                   <span className="flex-1 text-[var(--hl-green)] relative z-10">{formatPx(b.px)}</span>
                   <span className="w-14 text-right text-[var(--foreground)] relative z-10">{formatSz(b.sz)}</span>
-                  <span className="w-14 text-right text-[var(--hl-muted)] relative z-10">{b.n}</span>
+                  <span className="w-14 text-right text-[var(--hl-muted)] relative z-10">{formatSz(String(bidCum[i] ?? 0))}</span>
                 </div>
               );
             })}

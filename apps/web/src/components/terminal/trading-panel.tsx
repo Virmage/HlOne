@@ -211,12 +211,9 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
         >
           {leverage}x
         </button>
-        <button
-          className="py-1.5 text-[11px] font-medium rounded-r border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--foreground)] hover:bg-[var(--hl-surface-hover)] transition-colors"
-          title="Classic margin mode"
-        >
+        <div className="py-1.5 text-[11px] font-medium rounded-r border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--hl-muted)] text-center cursor-default">
           Classic
-        </button>
+        </div>
       </div>
 
       {/* Order type tabs — underline style */}
