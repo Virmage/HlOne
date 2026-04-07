@@ -326,6 +326,48 @@ export interface OptionsSnapshot {
   topStrikes: { strike: number; callOI: number; putOI: number }[];
 }
 
+export interface HypeOptionRow {
+  instrument: string;
+  expiry: string;
+  expiryTimestamp: number;
+  strike: number;
+  type: "C" | "P";
+  markPrice: number;
+  bidPrice: number;
+  askPrice: number;
+  bidAmount: number;
+  askAmount: number;
+  iv: number;
+  delta: number;
+  gamma: number;
+  theta: number;
+  vega: number;
+  openInterest: number;
+  volume24h: number;
+}
+
+export interface HypeOptionsChain {
+  chain: HypeOptionRow[];
+  spotPrice: number;
+  expiries: { label: string; timestamp: number }[];
+  summary: {
+    maxPain: number;
+    maxPainExpiry: string;
+    maxPainDistance: number;
+    putCallRatio: number;
+    totalCallOI: number;
+    totalPutOI: number;
+    iv: number;
+    ivRank: number;
+    skew25d: number;
+    gex: number;
+    gexLevel: "dampening" | "amplifying" | "neutral";
+    totalVolume24h: number;
+  } | null;
+  source: "derive";
+  timestamp: number;
+}
+
 export interface TradingSignal {
   type: string;
   coin: string;
@@ -565,6 +607,10 @@ export async function getTerminalData() {
 
 export async function getTokenDetail(coin: string, interval = "1h") {
   return apiFetch<TokenDetail>(`/api/market/token/${encodeURIComponent(coin)}?interval=${interval}`);
+}
+
+export async function getHypeOptionsChain() {
+  return apiFetch<HypeOptionsChain>("/api/market/options/hype");
 }
 
 export async function getWhaleAlertsFeed(limit = 50, coin?: string) {

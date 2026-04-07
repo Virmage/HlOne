@@ -10,6 +10,7 @@ import { getTokenScoresCached } from "../services/scoring.js";
 import { getTraderDisplayName } from "../services/name-generator.js";
 import { discoverActiveTraders, getCandleSnapshot, getFundingHistory, getL2Book, getRecentTrades, getClearinghouseState, getOpenOrders } from "../services/hyperliquid.js";
 import { getOptionsData, getAllOptionsData, type OptionsSnapshot } from "../services/options-data.js";
+import { getHypeOptionsData, getHypeOptionsChain } from "../services/derive-options.js";
 import { getSignals, getSignalsCached } from "../services/signals.js";
 import { getOICandlesForInterval } from "../services/oi-tracker.js";
 import { getNewsFeedCached, getCoinNews, type NewsPost } from "../services/crypto-panic.js";
@@ -199,11 +200,33 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       }
     } catch { /* ignore */ }
 
-    // Options data for BTC/ETH (from Deribit)
+    // Options data: BTC/ETH/SOL/XRP/AVAX/TRX from Deribit + HYPE from Derive
     let optionsData: Record<string, OptionsSnapshot> = {};
     try {
-      const opts = await getAllOptionsData();
-      for (const [k, v] of opts) optionsData[k] = v;
+      const [deribitOpts, hypeOpts] = await Promise.all([
+        getAllOptionsData().catch(() => new Map<string, OptionsSnapshot>()),
+        getHypeOptionsData().catch(() => null),
+      ]);
+      for (const [k, v] of deribitOpts) optionsData[k] = v;
+      // Merge HYPE from Derive into same format
+      if (hypeOpts) {
+        optionsData["HYPE"] = {
+          currency: "HYPE",
+          maxPain: hypeOpts.maxPain,
+          maxPainExpiry: hypeOpts.maxPainExpiry,
+          maxPainDistance: hypeOpts.maxPainDistance,
+          putCallRatio: hypeOpts.putCallRatio,
+          totalCallOI: hypeOpts.totalCallOI,
+          totalPutOI: hypeOpts.totalPutOI,
+          dvol: hypeOpts.dvol,
+          ivRank: hypeOpts.ivRank,
+          skew25d: hypeOpts.skew25d,
+          gex: hypeOpts.gex,
+          gexLevel: hypeOpts.gexLevel,
+          topStrikes: hypeOpts.topStrikes,
+          fetchedAt: hypeOpts.fetchedAt,
+        };
+      }
     } catch { /* ignore */ }
 
     // Signals: unusual volume, funding arb, position crowding, market regime
@@ -300,7 +323,8 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         bookAnalysis,
         funding,
         whaleAlerts,
-        options,
+        deribitOptions,
+        hypeOptions,
         overviews,
       ] = await Promise.all([
         getCandleSnapshot(coin, interval, candleSince, now).catch(() => []),
@@ -308,9 +332,28 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         getFundingHistory(coin, now - 3 * 24 * 60 * 60 * 1000).catch(() => []),
         getHistoricalWhaleEvents(coin, interval, candleSince),
         getOptionsData(coin).catch(() => null),
+        coin === "HYPE" ? getHypeOptionsData().catch(() => null) : Promise.resolve(null),
         // Use cached overviews only (don't trigger fresh HIP-3 fetch)
         getTokenOverviews().catch(() => []),
       ]);
+
+      // Use Derive data for HYPE, Deribit for everything else
+      const options = coin === "HYPE" && hypeOptions ? {
+        currency: "HYPE",
+        maxPain: hypeOptions.maxPain,
+        maxPainExpiry: hypeOptions.maxPainExpiry,
+        maxPainDistance: hypeOptions.maxPainDistance,
+        putCallRatio: hypeOptions.putCallRatio,
+        totalCallOI: hypeOptions.totalCallOI,
+        totalPutOI: hypeOptions.totalPutOI,
+        dvol: hypeOptions.dvol,
+        ivRank: hypeOptions.ivRank,
+        skew25d: hypeOptions.skew25d,
+        gex: hypeOptions.gex,
+        gexLevel: hypeOptions.gexLevel,
+        topStrikes: hypeOptions.topStrikes,
+        fetchedAt: hypeOptions.fetchedAt,
+      } as OptionsSnapshot : deribitOptions;
 
       const overview = overviews.find(o => o.coin === coin) || null;
 
@@ -621,6 +664,39 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       };
     },
   );
+
+  /**
+   * GET /api/market/options/hype
+   * HYPE options chain from Derive — full chain with pricing, Greeks, OI.
+   */
+  app.get("/options/hype", async () => {
+    const [chain, snapshot] = await Promise.all([
+      getHypeOptionsChain().catch(() => null),
+      getHypeOptionsData().catch(() => null),
+    ]);
+
+    return {
+      chain: chain?.chain || [],
+      spotPrice: chain?.spotPrice || 0,
+      expiries: chain?.expiries || [],
+      summary: snapshot ? {
+        maxPain: snapshot.maxPain,
+        maxPainExpiry: snapshot.maxPainExpiry,
+        maxPainDistance: snapshot.maxPainDistance,
+        putCallRatio: snapshot.putCallRatio,
+        totalCallOI: snapshot.totalCallOI,
+        totalPutOI: snapshot.totalPutOI,
+        iv: snapshot.dvol,
+        ivRank: snapshot.ivRank,
+        skew25d: snapshot.skew25d,
+        gex: snapshot.gex,
+        gexLevel: snapshot.gexLevel,
+        totalVolume24h: snapshot.totalVolume24h,
+      } : null,
+      source: "derive",
+      timestamp: Date.now(),
+    };
+  });
 
   /**
    * GET /api/market/system-health
