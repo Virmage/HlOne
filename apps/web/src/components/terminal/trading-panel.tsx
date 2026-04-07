@@ -23,23 +23,26 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
   const [limitPrice, setLimitPrice] = useState("");
   const [leverage, setLeverageVal] = useState(5);
   const [marginMode, setMarginMode] = useState<MarginMode>("cross");
+  const [reduceOnly, setReduceOnly] = useState(false);
+  const [showTpSl, setShowTpSl] = useState(false);
   const [tpPercent, setTpPercent] = useState("");
   const [slPercent, setSlPercent] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [lastResult, setLastResult] = useState<PlaceOrderResult | null>(null);
   const [leverageSet, setLeverageSet] = useState(false);
   const [builderApproved, setBuilderApproved] = useState(false);
-  const [showLevPopup, setShowLevPopup] = useState(false);
+  const [showLevModal, setShowLevModal] = useState(false);
   const [levInput, setLevInput] = useState("");
-  const [sizePercent, setSizePercent] = useState(0); // 0-100% of available margin
+  const [sizePercent, setSizePercent] = useState(0);
 
   const { address, isConnected } = useSafeAccount();
   const [accountValue, setAccountValue] = useState(0);
+  const [currentPosition, setCurrentPosition] = useState(0);
 
-  // Fetch account value from Hyperliquid when wallet connected
+  // Fetch account value + current position from Hyperliquid
   useEffect(() => {
-    if (!address) { setAccountValue(0); return; }
-    const fetchAV = async () => {
+    if (!address) { setAccountValue(0); setCurrentPosition(0); return; }
+    const fetchState = async () => {
       try {
         const res = await fetch("https://api.hyperliquid.xyz/info", {
           method: "POST",
@@ -49,12 +52,17 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
         const data = await res.json();
         const av = parseFloat(data?.marginSummary?.accountValue ?? "0");
         setAccountValue(av);
-      } catch { setAccountValue(0); }
+        // Find current position for this coin
+        const pos = data?.assetPositions?.find((p: { position: { coin: string } }) =>
+          p.position.coin === displayCoin
+        );
+        setCurrentPosition(pos ? parseFloat(pos.position.szi ?? "0") : 0);
+      } catch { setAccountValue(0); setCurrentPosition(0); }
     };
-    fetchAV();
-    const interval = window.setInterval(fetchAV, 30_000); // refresh every 30s
+    fetchState();
+    const interval = window.setInterval(fetchState, 15_000);
     return () => clearInterval(interval);
-  }, [address]);
+  }, [address, coin]);
 
   // Clamp leverage when switching to a token with lower max
   useEffect(() => {
@@ -77,33 +85,27 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
       : "text-[var(--hl-muted)]"
     : "";
 
-  // Handle size slider — convert percentage to size in asset units
+  // Handle size slider
   const handleSizeSlider = useCallback((pct: number) => {
     setSizePercent(pct);
-    if (pct <= 0 || price <= 0) {
-      setSize("");
-      return;
-    }
+    if (pct <= 0 || price <= 0) { setSize(""); return; }
     if (accountValue <= 0) return;
     const maxNotional = accountValue * leverage * (pct / 100);
     const assetSize = maxNotional / price;
-    // Round to reasonable precision
     const decimals = price >= 1000 ? 4 : price >= 1 ? 2 : 6;
     setSize(assetSize.toFixed(decimals));
   }, [price, leverage, accountValue]);
 
-  // Handle leverage change
   const handleLeverageChange = useCallback((newLev: number) => {
     setLeverageVal(newLev);
     setLeverageSet(false);
   }, []);
 
-  // Leverage popup confirm
   const confirmLeverage = useCallback(() => {
     const val = parseInt(levInput);
     if (val >= 1 && val <= maxLev) {
       handleLeverageChange(val);
-      setShowLevPopup(false);
+      setShowLevModal(false);
       setLevInput("");
     }
   }, [levInput, maxLev, handleLeverageChange]);
@@ -130,40 +132,26 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
       }
       console.log("[trade] Wallet client OK, address:", address);
 
-      // Check + request builder fee approval (one-time per wallet)
       if (!builderApproved) {
         console.log("[trade] Checking builder fee approval...");
         const alreadyApproved = await exchange.checkBuilderApproval(address as string);
         if (alreadyApproved) {
-          console.log("[trade] Builder fee already approved");
           setBuilderApproved(true);
         } else {
-          console.log("[trade] Requesting builder fee approval signature...");
-          const approvalResult = await exchange.approveBuilderFee(
-            walletClient,
-            address as `0x${string}`,
-          );
+          console.log("[trade] Requesting builder fee approval...");
+          const approvalResult = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
           if (!approvalResult.success) {
-            console.error("[trade] Builder fee approval failed:", approvalResult.error);
             setLastResult({ success: false, error: `Fee approval: ${approvalResult.error}` });
             setSubmitting(false);
             return;
           }
-          console.log("[trade] Builder fee approved");
           setBuilderApproved(true);
         }
       }
 
-      // Set leverage first if not yet confirmed
       if (!leverageSet) {
         console.log(`[trade] Setting leverage to ${leverage}x (${marginMode})...`);
-        const levResult = await exchange.setLeverage(
-          walletClient,
-          address as `0x${string}`,
-          coin,
-          leverage,
-          marginMode === "cross",
-        );
+        const levResult = await exchange.setLeverage(walletClient, address as `0x${string}`, coin, leverage, marginMode === "cross");
         if (!levResult.success) {
           setLastResult({ success: false, error: `Leverage: ${levResult.error}` });
           setSubmitting(false);
@@ -172,7 +160,6 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
         setLeverageSet(true);
       }
 
-      // Place the order
       console.log("[trade] Placing order...");
       const orderStart = Date.now();
       const result = await exchange.placeOrder(walletClient, address as `0x${string}`, {
@@ -181,18 +168,15 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
         size: sizeNum,
         orderType,
         limitPrice: orderType === "limit" ? parseFloat(limitPrice) : undefined,
+        reduceOnly,
         slippageBps: 50,
       });
       const latencyMs = Date.now() - orderStart;
 
       console.log("[trade] Order result:", result);
       setLastResult(result);
-      if (result.success) {
-        setSize("");
-        setSizePercent(0);
-      }
+      if (result.success) { setSize(""); setSizePercent(0); }
 
-      // Log trade to backend (fire-and-forget)
       const currentPrice = overview?.price ?? 0;
       fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/market/trade-log`, {
         method: "POST",
@@ -205,154 +189,46 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
         }),
       }).catch(() => {});
     } catch (err) {
-      setLastResult({
-        success: false,
-        error: err instanceof Error ? err.message : "Transaction failed",
-      });
+      setLastResult({ success: false, error: err instanceof Error ? err.message : "Transaction failed" });
     } finally {
       setSubmitting(false);
     }
-  }, [address, coin, side, sizeNum, orderType, limitPrice, leverage, marginMode, leverageSet, builderApproved]);
+  }, [address, coin, side, sizeNum, orderType, limitPrice, leverage, marginMode, leverageSet, builderApproved, reduceOnly]);
 
   return (
     <div className="flex flex-col h-full border-l border-[var(--hl-border)] bg-[var(--background)]">
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-[var(--hl-border)]">
-        <div className="flex items-center justify-between">
-          <span className="text-[13px] font-semibold text-[var(--foreground)]">Trade {displayCoin}</span>
-          {score && (
-            <span className={`text-[11px] font-medium ${signalColor}`} title="CPYCAT Score">
-              Score {score.score} · {score.signal.replace("_", " ").toUpperCase()}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Buy/Sell toggle */}
-      <div className="grid grid-cols-2 gap-px bg-[var(--hl-border)] mx-3 mt-2 rounded overflow-hidden">
+      {/* Top row: Isolated / Leverage / Classic — HL style */}
+      <div className="grid grid-cols-3 gap-px mx-3 mt-3">
         <button
-          onClick={() => setSide("long")}
-          className={`py-1.5 text-[12px] font-semibold transition-colors ${
-            side === "long"
-              ? "bg-[var(--hl-green)] text-[var(--background)]"
-              : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
-          }`}
+          onClick={() => { setMarginMode(m => m === "isolated" ? "cross" : "isolated"); setLeverageSet(false); }}
+          className="py-1.5 text-[11px] font-medium rounded-l border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--foreground)] hover:bg-[var(--hl-surface-hover)] transition-colors"
         >
-          Long
+          {marginMode === "cross" ? "Cross" : "Isolated"}
         </button>
         <button
-          onClick={() => setSide("short")}
-          className={`py-1.5 text-[12px] font-semibold transition-colors ${
-            side === "short"
-              ? "bg-[var(--hl-red)] text-white"
-              : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
-          }`}
+          onClick={() => { setShowLevModal(true); setLevInput(leverage.toString()); }}
+          className="py-1.5 text-[11px] font-medium border-y border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--foreground)] hover:bg-[var(--hl-surface-hover)] transition-colors tabular-nums"
         >
-          Short
+          {leverage}x
+        </button>
+        <button
+          className="py-1.5 text-[11px] font-medium rounded-r border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--foreground)] hover:bg-[var(--hl-surface-hover)] transition-colors"
+          title="Classic margin mode"
+        >
+          Classic
         </button>
       </div>
 
-      {/* Cross/Isolated + Leverage — HL style */}
-      <div className="flex items-center gap-1.5 px-3 mt-2">
-        {/* Cross / Isolated toggle */}
-        <div className="flex rounded overflow-hidden border border-[var(--hl-border)]">
-          <button
-            onClick={() => { setMarginMode("cross"); setLeverageSet(false); }}
-            className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
-              marginMode === "cross"
-                ? "bg-[var(--hl-surface)] text-[var(--foreground)]"
-                : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
-            }`}
-          >
-            Cross
-          </button>
-          <button
-            onClick={() => { setMarginMode("isolated"); setLeverageSet(false); }}
-            className={`px-2 py-0.5 text-[10px] font-medium border-l border-[var(--hl-border)] transition-colors ${
-              marginMode === "isolated"
-                ? "bg-[var(--hl-surface)] text-[var(--foreground)]"
-                : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
-            }`}
-          >
-            Isolated
-          </button>
-        </div>
-
-        {/* Leverage button */}
-        <div className="relative">
-          <button
-            onClick={() => { setShowLevPopup(!showLevPopup); setLevInput(leverage.toString()); }}
-            className="px-2 py-0.5 text-[10px] font-medium rounded border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--foreground)] hover:bg-[var(--hl-surface-hover)] transition-colors tabular-nums"
-          >
-            {leverage}x
-          </button>
-
-          {/* Leverage popup */}
-          {showLevPopup && (
-            <div className="absolute top-full left-0 mt-1 z-50 bg-[var(--background)] border border-[var(--hl-border)] rounded-md shadow-lg p-3 w-[180px]">
-              <div className="text-[10px] text-[var(--hl-muted)] mb-2">Leverage (1-{maxLev}x)</div>
-              <div className="flex gap-1.5 mb-2">
-                <input
-                  type="number"
-                  min={1}
-                  max={maxLev}
-                  value={levInput}
-                  onChange={e => setLevInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && confirmLeverage()}
-                  className="flex-1 px-2 py-1 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[11px] text-[var(--foreground)] tabular-nums outline-none focus:border-[var(--hl-green)]"
-                  autoFocus
-                />
-                <button
-                  onClick={confirmLeverage}
-                  className="px-2 py-1 bg-[var(--hl-green)] text-[var(--background)] rounded text-[10px] font-medium"
-                >
-                  Set
-                </button>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={maxLev}
-                value={parseInt(levInput) || leverage}
-                onChange={e => setLevInput(e.target.value)}
-                className="w-full accent-[var(--hl-green)]"
-              />
-              <div className="flex justify-between text-[9px] text-[var(--hl-muted)] mt-0.5">
-                <span>1x</span>
-                <span>{Math.round(maxLev / 2)}x</span>
-                <span>{maxLev}x</span>
-              </div>
-              {/* Quick presets */}
-              <div className="flex gap-1 mt-2">
-                {[1, 3, 5, 10, 20].filter(v => v <= maxLev).map(v => (
-                  <button
-                    key={v}
-                    onClick={() => { handleLeverageChange(v); setShowLevPopup(false); }}
-                    className={`flex-1 py-0.5 text-[9px] rounded border transition-colors ${
-                      leverage === v
-                        ? "border-[var(--hl-green)] text-[var(--hl-green)]"
-                        : "border-[var(--hl-border)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
-                    }`}
-                  >
-                    {v}x
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Order type */}
-      <div className="flex gap-2 px-3 mt-2">
+      {/* Order type tabs — underline style */}
+      <div className="flex items-center border-b border-[var(--hl-border)] mx-3 mt-3">
         {(["market", "limit"] as OrderType[]).map(t => (
           <button
             key={t}
             onClick={() => setOrderType(t)}
-            className={`px-3 py-1 text-[11px] font-medium rounded transition-colors ${
+            className={`px-3 pb-1.5 text-[12px] font-medium transition-colors border-b-2 -mb-px ${
               t === orderType
-                ? "bg-[var(--hl-surface)] text-[var(--foreground)]"
-                : "text-[var(--hl-muted)] hover:text-[var(--hl-text)]"
+                ? "border-[var(--foreground)] text-[var(--foreground)]"
+                : "border-transparent text-[var(--hl-muted)] hover:text-[var(--hl-text)]"
             }`}
           >
             {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -360,134 +236,219 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
         ))}
       </div>
 
+      {/* Buy/Long | Sell/Short toggle */}
+      <div className="grid grid-cols-2 gap-px bg-[var(--hl-border)] mx-3 mt-3 rounded overflow-hidden">
+        <button
+          onClick={() => setSide("long")}
+          className={`py-2 text-[12px] font-semibold transition-colors ${
+            side === "long"
+              ? "bg-[var(--hl-green)] text-[var(--background)]"
+              : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
+          }`}
+        >
+          Buy / Long
+        </button>
+        <button
+          onClick={() => setSide("short")}
+          className={`py-2 text-[12px] font-semibold transition-colors ${
+            side === "short"
+              ? "bg-[var(--hl-red)] text-white"
+              : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
+          }`}
+        >
+          Sell / Short
+        </button>
+      </div>
+
+      {/* Available + Current Position */}
+      <div className="px-3 mt-3 space-y-1">
+        <div className="flex justify-between text-[11px]">
+          <span className="text-[var(--hl-muted)]">Available to Trade</span>
+          <span className="text-[var(--foreground)] tabular-nums">
+            {isConnected ? `${accountValue.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC` : "0.00 USDC"}
+          </span>
+        </div>
+        <div className="flex justify-between text-[11px]">
+          <span className="text-[var(--hl-muted)]">Current Position</span>
+          <span className={`tabular-nums ${currentPosition > 0 ? "text-[var(--hl-green)]" : currentPosition < 0 ? "text-[var(--hl-red)]" : "text-[var(--foreground)]"}`}>
+            {currentPosition !== 0 ? currentPosition.toFixed(4) : "0.00"} {displayCoin}
+          </span>
+        </div>
+      </div>
+
       {/* Form */}
-      <div className="px-3 mt-2 space-y-2 flex-1">
+      <div className="px-3 mt-3 space-y-2.5 flex-1">
         {/* Limit price */}
         {orderType === "limit" && (
-          <div>
-            <label className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider">Price</label>
+          <div className="flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1.5">
+            <span className="text-[10px] text-[var(--hl-muted)] mr-2 shrink-0">Price</span>
             <input
               type="number"
               value={limitPrice}
               onChange={e => setLimitPrice(e.target.value)}
               placeholder={price.toString()}
-              className="w-full mt-0.5 px-2 py-1.5 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[12px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] focus:border-[var(--hl-green)] outline-none"
+              className="flex-1 bg-transparent text-right text-[12px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none"
             />
+            <span className="text-[10px] text-[var(--hl-muted)] ml-2">USD</span>
           </div>
         )}
 
-        {/* Size input */}
-        <div>
-          <label className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider">Size ({displayCoin})</label>
+        {/* Size input — HL style with coin label */}
+        <div className="flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1.5">
+          <span className="text-[10px] text-[var(--hl-muted)] mr-2 shrink-0">Size</span>
           <input
             type="number"
             value={size}
             onChange={e => { setSize(e.target.value); setSizePercent(0); }}
             placeholder="0.00"
-            className="w-full mt-0.5 px-2 py-1.5 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[12px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] focus:border-[var(--hl-green)] outline-none"
+            className="flex-1 bg-transparent text-right text-[12px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none"
           />
+          <span className="text-[10px] text-[var(--hl-muted)] ml-2 shrink-0">{displayCoin}</span>
         </div>
 
-        {/* Account value display */}
-        {isConnected && accountValue > 0 && (
-          <div className="flex justify-between text-[10px]">
-            <span className="text-[var(--hl-muted)]">Available</span>
-            <span className="text-[var(--foreground)] tabular-nums">${accountValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-          </div>
-        )}
-
-        {/* Size slider — percentage of available margin */}
-        <div>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={5}
-            value={sizePercent}
-            onChange={e => handleSizeSlider(Number(e.target.value))}
-            className="w-full accent-[var(--hl-green)]"
-          />
-          <div className="flex justify-between mt-0.5">
+        {/* Size slider with dot stops — HL style */}
+        <div className="flex items-center gap-2">
+          <div className="flex-1 relative h-5 flex items-center">
+            {/* Track background */}
+            <div className="absolute inset-x-0 h-[2px] bg-[var(--hl-border)] rounded" style={{ top: "50%", transform: "translateY(-50%)" }} />
+            {/* Filled portion */}
+            <div className="absolute h-[2px] bg-[var(--hl-green)] rounded" style={{ top: "50%", transform: "translateY(-50%)", left: 0, width: `${sizePercent}%` }} />
+            {/* Dot stops */}
             {[0, 25, 50, 75, 100].map(pct => (
               <button
                 key={pct}
                 onClick={() => handleSizeSlider(pct)}
-                className={`text-[9px] px-1 py-0.5 rounded transition-colors ${
-                  sizePercent === pct
-                    ? "text-[var(--hl-green)] font-medium"
-                    : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
-                }`}
-              >
-                {pct}%
-              </button>
+                className="absolute w-2 h-2 rounded-full transition-colors -translate-x-1/2"
+                style={{ left: `${pct}%`, backgroundColor: sizePercent >= pct ? "var(--hl-green)" : "var(--hl-border)" }}
+              />
             ))}
+            {/* Draggable thumb */}
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={sizePercent}
+              onChange={e => handleSizeSlider(Number(e.target.value))}
+              className="absolute inset-0 w-full opacity-0 cursor-pointer"
+            />
+            {/* Visual thumb */}
+            <div
+              className="absolute w-3.5 h-3.5 rounded-full border-2 border-[var(--hl-green)] bg-[var(--background)] -translate-x-1/2 pointer-events-none"
+              style={{ left: `${sizePercent}%` }}
+            />
+          </div>
+          {/* Percentage input */}
+          <div className="flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-1.5 py-0.5 w-[52px]">
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={sizePercent || ""}
+              onChange={e => handleSizeSlider(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+              placeholder="0"
+              className="w-full bg-transparent text-right text-[11px] text-[var(--foreground)] tabular-nums outline-none"
+            />
+            <span className="text-[10px] text-[var(--hl-muted)] ml-0.5">%</span>
           </div>
         </div>
 
-        {/* Notional display */}
+        {/* Notional + margin display */}
         {sizeNum > 0 && (
-          <p className="text-[10px] text-[var(--hl-muted)]">
-            ≈ ${notional.toLocaleString(undefined, { maximumFractionDigits: 2 })} notional · ${margin.toFixed(2)} margin
-          </p>
+          <div className="text-[10px] text-[var(--hl-muted)] space-y-0.5">
+            <div className="flex justify-between">
+              <span>Notional</span>
+              <span className="text-[var(--foreground)] tabular-nums">${notional.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Margin</span>
+              <span className="text-[var(--foreground)] tabular-nums">${margin.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Fees (0.035% + {BUILDER_FEE_DISPLAY})</span>
+              <span className="text-[var(--foreground)] tabular-nums">${(notional * (0.00035 + BUILDER_FEE_PERCENT)).toFixed(2)}</span>
+            </div>
+          </div>
         )}
 
-        {/* TP/SL */}
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[10px] text-[var(--hl-green)] uppercase tracking-wider">TP %</label>
-            <input
-              type="number"
-              value={tpPercent}
-              onChange={e => setTpPercent(e.target.value)}
-              placeholder="—"
-              className="w-full mt-0.5 px-2 py-1 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[11px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none"
-            />
+        {/* Reduce Only */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <div
+            className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+              reduceOnly ? "bg-[var(--hl-green)] border-[var(--hl-green)]" : "border-[var(--hl-border)] bg-transparent"
+            }`}
+            onClick={() => setReduceOnly(!reduceOnly)}
+          >
+            {reduceOnly && (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M2 5L4 7L8 3" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
           </div>
-          <div>
-            <label className="text-[10px] text-[var(--hl-red)] uppercase tracking-wider">SL %</label>
-            <input
-              type="number"
-              value={slPercent}
-              onChange={e => setSlPercent(e.target.value)}
-              placeholder="—"
-              className="w-full mt-0.5 px-2 py-1 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[11px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none"
-            />
-          </div>
+          <span className="text-[11px] text-[var(--foreground)]" onClick={() => setReduceOnly(!reduceOnly)}>Reduce Only</span>
+        </label>
+
+        {/* Take Profit / Stop Loss checkbox */}
+        <div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <div
+              className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+                showTpSl ? "bg-[var(--hl-green)] border-[var(--hl-green)]" : "border-[var(--hl-border)] bg-transparent"
+              }`}
+              onClick={() => setShowTpSl(!showTpSl)}
+            >
+              {showTpSl && (
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M2 5L4 7L8 3" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </div>
+            <span className="text-[11px] text-[var(--foreground)]" onClick={() => setShowTpSl(!showTpSl)}>Take Profit / Stop Loss</span>
+          </label>
+
+          {showTpSl && (
+            <div className="grid grid-cols-2 gap-2 mt-2 pl-6">
+              <div className="flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1">
+                <span className="text-[9px] text-[var(--hl-green)] mr-1 shrink-0">TP</span>
+                <input
+                  type="number"
+                  value={tpPercent}
+                  onChange={e => setTpPercent(e.target.value)}
+                  placeholder="—"
+                  className="flex-1 bg-transparent text-right text-[11px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none"
+                />
+                <span className="text-[9px] text-[var(--hl-muted)] ml-1">%</span>
+              </div>
+              <div className="flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1">
+                <span className="text-[9px] text-[var(--hl-red)] mr-1 shrink-0">SL</span>
+                <input
+                  type="number"
+                  value={slPercent}
+                  onChange={e => setSlPercent(e.target.value)}
+                  placeholder="—"
+                  className="flex-1 bg-transparent text-right text-[11px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none"
+                />
+                <span className="text-[9px] text-[var(--hl-muted)] ml-1">%</span>
+              </div>
+              {(tpPercent || slPercent) && price > 0 && (
+                <div className="col-span-2 text-[9px] text-[var(--hl-muted)] space-y-0.5">
+                  {tpPercent && (
+                    <div className="flex justify-between">
+                      <span className="text-[var(--hl-green)]">TP price</span>
+                      <span className="text-[var(--hl-green)]">${(price * (1 + (side === "long" ? 1 : -1) * parseFloat(tpPercent) / 100)).toFixed(2)}</span>
+                    </div>
+                  )}
+                  {slPercent && (
+                    <div className="flex justify-between">
+                      <span className="text-[var(--hl-red)]">SL price</span>
+                      <span className="text-[var(--hl-red)]">${(price * (1 + (side === "long" ? -1 : 1) * parseFloat(slPercent) / 100)).toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
-
-        {/* Margin summary */}
-        {sizeNum > 0 && (
-          <div className="bg-[var(--hl-surface)] rounded p-2 text-[10px] space-y-0.5">
-            <div className="flex justify-between">
-              <span className="text-[var(--hl-muted)]">Margin required</span>
-              <span className="text-[var(--foreground)]">${margin.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-[var(--hl-muted)]">HL taker fee (0.035%)</span>
-              <span className="text-[var(--foreground)]">${(notional * 0.00035).toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-[var(--hl-muted)]">HLOne fee ({BUILDER_FEE_DISPLAY})</span>
-              <span className="text-[var(--foreground)]">${(notional * BUILDER_FEE_PERCENT).toFixed(2)}</span>
-            </div>
-            {tpPercent && (
-              <div className="flex justify-between">
-                <span className="text-[var(--hl-green)]">TP price</span>
-                <span className="text-[var(--hl-green)]">
-                  ${(price * (1 + (side === "long" ? 1 : -1) * parseFloat(tpPercent) / 100)).toFixed(2)}
-                </span>
-              </div>
-            )}
-            {slPercent && (
-              <div className="flex justify-between">
-                <span className="text-[var(--hl-red)]">SL price</span>
-                <span className="text-[var(--hl-red)]">
-                  ${(price * (1 + (side === "long" ? -1 : 1) * parseFloat(slPercent) / 100)).toFixed(2)}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Order result feedback */}
         {lastResult && (
@@ -497,10 +458,7 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
               : "bg-[rgba(240,88,88,0.1)] text-[var(--hl-red)]"
           }`}>
             {lastResult.success ? (
-              <>
-                Order filled{lastResult.avgPrice ? ` @ $${parseFloat(lastResult.avgPrice).toLocaleString()}` : ""}
-                {lastResult.filledSize ? ` · ${lastResult.filledSize} ${coin}` : ""}
-              </>
+              <>Filled{lastResult.avgPrice ? ` @ $${parseFloat(lastResult.avgPrice).toLocaleString()}` : ""}{lastResult.filledSize ? ` · ${lastResult.filledSize} ${displayCoin}` : ""}</>
             ) : (
               <>{lastResult.error}</>
             )}
@@ -509,10 +467,10 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
       </div>
 
       {/* Submit button */}
-      <div className="px-3 py-2 border-t border-[var(--hl-border)]">
+      <div className="px-3 py-3 mt-auto">
         {isConnected ? (
           <button
-            className={`w-full py-2 rounded font-semibold text-[13px] transition-colors ${
+            className={`w-full py-2.5 rounded font-semibold text-[13px] transition-colors ${
               sizeNum <= 0
                 ? "bg-[var(--hl-surface)] text-[var(--hl-muted)] cursor-not-allowed"
                 : side === "long"
@@ -525,28 +483,92 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
             {submitting
               ? "Signing..."
               : sizeNum <= 0
-                ? "Enter size to trade"
-                : `${side === "long" ? "Long" : "Short"} ${displayCoin}`}
+                ? `${side === "long" ? "Buy / Long" : "Sell / Short"}`
+                : `${side === "long" ? "Buy / Long" : "Sell / Short"} ${displayCoin}`}
           </button>
         ) : (
           <button
-            className="w-full py-2 rounded font-semibold text-[13px] bg-[var(--hl-surface)] text-[var(--hl-muted)] cursor-not-allowed"
-            disabled
+            className="w-full py-2.5 rounded font-semibold text-[13px] bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110 transition-colors"
+            onClick={() => {
+              // Trigger wallet connect via RainbowKit
+              document.querySelector<HTMLButtonElement>('[data-testid="rk-connect-button"]')?.click();
+            }}
           >
-            Connect wallet to trade
+            Connect Wallet
           </button>
         )}
-        <p className="text-[9px] text-[var(--hl-muted)] text-center mt-1">
-          {isConnected
-            ? `${marginMode === "cross" ? "Cross" : "Isolated"} · ${leverage}x · 0.035% + ${BUILDER_FEE_DISPLAY}`
-            : `Connect wallet · 0.035% + ${BUILDER_FEE_DISPLAY} fee`
-          }
-        </p>
       </div>
 
-      {/* Click outside to close leverage popup */}
-      {showLevPopup && (
-        <div className="fixed inset-0 z-40" onClick={() => setShowLevPopup(false)} />
+      {/* ── Leverage Modal (centered, HL style) ── */}
+      {showLevModal && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/60" onClick={() => setShowLevModal(false)} />
+          <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[320px] bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl p-5">
+            {/* Close */}
+            <button
+              onClick={() => setShowLevModal(false)}
+              className="absolute top-3 right-3 text-[var(--hl-muted)] hover:text-[var(--foreground)] transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M4 4L12 12M12 4L4 12" />
+              </svg>
+            </button>
+
+            <h3 className="text-[15px] font-semibold text-[var(--foreground)] text-center">Adjust Leverage</h3>
+            <p className="text-[11px] text-[var(--hl-muted)] text-center mt-1">
+              Control the leverage used for {displayCoin} positions. The maximum leverage is {maxLev}x.
+            </p>
+
+            {/* Slider */}
+            <div className="mt-5">
+              <input
+                type="range"
+                min={1}
+                max={maxLev}
+                value={parseInt(levInput) || leverage}
+                onChange={e => setLevInput(e.target.value)}
+                className="w-full accent-[var(--hl-green)]"
+              />
+              <div className="flex justify-between text-[9px] text-[var(--hl-muted)] mt-0.5">
+                <span>1x</span>
+                <span>{Math.round(maxLev / 4)}x</span>
+                <span>{Math.round(maxLev / 2)}x</span>
+                <span>{Math.round(maxLev * 3 / 4)}x</span>
+                <span>{maxLev}x</span>
+              </div>
+            </div>
+
+            {/* Input */}
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <input
+                type="number"
+                min={1}
+                max={maxLev}
+                value={levInput}
+                onChange={e => setLevInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && confirmLeverage()}
+                className="w-[60px] px-2 py-1.5 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[13px] text-center text-[var(--foreground)] tabular-nums outline-none focus:border-[var(--hl-green)]"
+                autoFocus
+              />
+              <span className="text-[13px] text-[var(--hl-muted)]">x</span>
+            </div>
+
+            {/* Confirm button */}
+            <button
+              onClick={confirmLeverage}
+              className="w-full mt-4 py-2.5 rounded font-semibold text-[13px] bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110 transition-colors"
+            >
+              Confirm
+            </button>
+
+            {/* Warning */}
+            <div className="mt-3 px-3 py-2 rounded bg-[rgba(240,88,88,0.08)] border border-[rgba(240,88,88,0.2)]">
+              <p className="text-[10px] text-[var(--hl-red)] text-center">
+                Note that setting a higher leverage increases the risk of liquidation.
+              </p>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
