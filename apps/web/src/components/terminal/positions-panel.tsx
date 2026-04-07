@@ -228,7 +228,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
         {account && (
           <div className="ml-auto flex gap-3 text-[10px] pr-1 shrink-0">
             <span className="text-[var(--hl-muted)]">
-              Acct: <span className="text-[var(--foreground)] tabular-nums">${account.accountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+              Acct: <span className="text-[var(--hl-accent)] tabular-nums font-medium">${account.accountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
             </span>
             <span className={totalPnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}>
               uPnL: {totalPnl >= 0 ? "+" : ""}${totalPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
