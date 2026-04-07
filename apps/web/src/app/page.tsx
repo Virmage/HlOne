@@ -21,7 +21,7 @@ import { MacroBar } from "@/components/terminal/macro-bar";
 import { OIPanel } from "@/components/terminal/oi-panel";
 import { LiquidationHeatmapPanel } from "@/components/terminal/liquidation-heatmap";
 import { CorrelationMatrixPanel } from "@/components/terminal/correlation-matrix";
-import { OrderFlowPanel } from "@/components/terminal/order-flow-panel";
+import { LendingRatesPanel } from "@/components/terminal/lending-rates-panel";
 import { PositionConcentrationPanel } from "@/components/terminal/position-concentration";
 import { PositionsPanel } from "@/components/terminal/positions-panel";
 import { TraderDetailPanel } from "@/components/traders/trader-detail-panel";
@@ -114,6 +114,7 @@ export default function HomePage() {
               coin={chartCoin.includes(":") ? chartCoin.split(":")[1] : chartCoin}
               onSelectOption={setSelectedOption}
               selectedOption={selectedOption}
+              onChangeCoin={(c) => { setChartCoin(c); setSelectedOption(null); }}
             />
           </div>
         ) : (
@@ -251,12 +252,9 @@ export default function HomePage() {
           />
         </div>
 
-        {/* Order Flow Imbalance */}
+        {/* Lending & Borrowing Rates */}
         <div className="bg-[var(--background)] p-2">
-          <OrderFlowPanel
-            data={data?.orderFlow || []}
-            onSelectToken={handleSelectToken}
-          />
+          <LendingRatesPanel />
         </div>
 
         {/* Position Concentration */}

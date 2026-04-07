@@ -59,11 +59,15 @@ body {
 }
 
 /* Panels only scroll when hovered — prevents scroll hijacking on page scroll.
-   Always auto to reserve scrollbar gutter and prevent reflow on data updates. */
+   When not hovered, overflow is hidden so mouse wheel passes through to page.
+   On hover, overflow switches to auto enabling inner scroll. */
 .scroll-on-hover {
-  overflow-y: auto !important;
+  overflow-y: hidden !important;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+.scroll-on-hover:hover {
+  overflow-y: auto !important;
 }
 .scroll-on-hover:not(:hover)::-webkit-scrollbar-thumb {
   background: transparent !important;

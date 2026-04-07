@@ -30,6 +30,7 @@ interface InlineOptionsChainProps {
   coin: string;
   onSelectOption: (opt: SelectedOption) => void;
   selectedOption: SelectedOption | null;
+  onChangeCoin?: (coin: string) => void;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -180,7 +181,9 @@ async function fetchDirectFromDerive(coin: string): Promise<DeriveOptionsChain> 
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export function InlineOptionsChain({ coin, onSelectOption, selectedOption }: InlineOptionsChainProps) {
+const DERIVE_COINS = ["BTC", "ETH", "SOL", "HYPE"];
+
+export function InlineOptionsChain({ coin, onSelectOption, selectedOption, onChangeCoin }: InlineOptionsChainProps) {
   const [data, setData] = useState<DeriveOptionsChain | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -225,10 +228,16 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption }: Inl
     return () => clearInterval(interval);
   }, [coin, fetchData]);
 
-  // Scroll to ATM on load
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to ATM on load — scroll the table container only, not the page
   useEffect(() => {
-    if (atmRef.current) {
-      atmRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (atmRef.current && tableContainerRef.current) {
+      const container = tableContainerRef.current;
+      const row = atmRef.current;
+      const rowTop = row.offsetTop;
+      const containerHeight = container.clientHeight;
+      container.scrollTop = rowTop - containerHeight / 2;
     }
   }, [selectedExpiry, data]);
 
@@ -304,9 +313,24 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption }: Inl
 
   return (
     <div className="flex flex-col h-full bg-[var(--background)]">
-      {/* Top bar: coin + expiry tabs */}
+      {/* Top bar: coin switcher + expiry tabs */}
       <div className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--hl-border)] bg-[var(--hl-surface)] overflow-x-auto shrink-0">
-        <span className="text-[11px] font-bold text-[var(--foreground)] mr-2 shrink-0">{coin}</span>
+        {/* Coin switcher */}
+        <div className="flex items-center gap-0.5 mr-2 shrink-0">
+          {DERIVE_COINS.map((c) => (
+            <button
+              key={c}
+              onClick={() => onChangeCoin?.(c)}
+              className={`text-[10px] px-1.5 py-0.5 rounded font-semibold transition-colors ${
+                c === coin
+                  ? "bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                  : "text-[var(--hl-muted)] hover:text-[var(--foreground)] hover:bg-[var(--hl-surface-hover)]"
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
         {data.expiries.map((exp) => {
           const isSelected = selectedExpiry === exp.label;
           const days = Math.ceil((exp.timestamp - Date.now()) / 86400000);
@@ -343,7 +367,7 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption }: Inl
       </div>
 
       {/* Options chain table */}
-      <div className="flex-1 overflow-auto">
+      <div ref={tableContainerRef} className="flex-1 overflow-auto">
         {chainByStrike.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-[var(--hl-muted)] text-[11px]">
             No options for this expiry
@@ -398,47 +422,41 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption }: Inl
                     )}
                     <tr
                       ref={isATM ? atmRef : undefined}
-                      className={`border-b border-[var(--hl-border)]/20 transition-colors ${
+                      className={`border-b border-[var(--hl-border)]/20 transition-colors hover:bg-[var(--hl-surface-hover)] ${
                         isSelectedStrike ? "bg-[rgba(168,85,247,0.1)]" : ""
                       } ${isATM ? "bg-[rgba(168,85,247,0.04)]" : ""}`}
                     >
-                      {/* ─── Call side ─── */}
-                      <td className={`px-1.5 py-[3px] text-right tabular-nums text-[var(--hl-muted)] ${isITMCall ? "bg-[rgba(80,210,193,0.04)]" : ""}`}>
-                        {call?.bidAmount ? call.bidAmount.toFixed(1) : "\u2014"}
-                      </td>
-                      <td className={`px-1.5 py-[3px] text-right tabular-nums text-[var(--hl-muted)] ${isITMCall ? "bg-[rgba(80,210,193,0.04)]" : ""}`}>
-                        {call?.iv ? `${call.iv.toFixed(1)}%` : "\u2014"}
-                      </td>
-                      <td
-                        className={`px-1.5 py-[3px] text-right tabular-nums cursor-pointer transition-colors ${
-                          isITMCall ? "bg-[rgba(80,210,193,0.04)]" : ""
-                        } ${call?.bidPrice ? "text-[var(--hl-green)] hover:bg-[rgba(80,210,193,0.15)] font-medium" : "text-[var(--hl-muted)]"}`}
-                        onClick={() => call?.bidPrice && handleCellClick(call, "sell")}
-                        title={call?.bidPrice ? `Sell Call @ $${call.bidPrice.toFixed(2)}` : undefined}
-                      >
-                        {call?.bidPrice ? `$${call.bidPrice.toFixed(2)}` : "\u2014"}
-                      </td>
-                      <td className={`px-1.5 py-[3px] text-right tabular-nums text-[var(--foreground)] ${isITMCall ? "bg-[rgba(80,210,193,0.04)]" : ""}`}>
-                        {call?.markPrice ? `$${call.markPrice.toFixed(2)}` : "\u2014"}
-                      </td>
-                      <td
-                        className={`px-1.5 py-[3px] text-right tabular-nums cursor-pointer transition-colors ${
-                          isITMCall ? "bg-[rgba(80,210,193,0.04)]" : ""
-                        } ${call?.askPrice ? "text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.15)] font-medium" : "text-[var(--hl-muted)]"}`}
-                        onClick={() => call?.askPrice && handleCellClick(call, "buy")}
-                        title={call?.askPrice ? `Buy Call @ $${call.askPrice.toFixed(2)}` : undefined}
-                      >
-                        {call?.askPrice ? `$${call.askPrice.toFixed(2)}` : "\u2014"}
-                      </td>
-                      <td className={`px-1.5 py-[3px] text-right tabular-nums text-[var(--hl-muted)] ${isITMCall ? "bg-[rgba(80,210,193,0.04)]" : ""}`}>
-                        {call?.iv ? `${call.iv.toFixed(1)}%` : "\u2014"}
-                      </td>
-                      <td className={`px-1.5 py-[3px] text-right tabular-nums text-[var(--hl-muted)] ${isITMCall ? "bg-[rgba(80,210,193,0.04)]" : ""}`}>
-                        {call?.delta ? call.delta.toFixed(2) : "\u2014"}
-                      </td>
-                      <td className={`px-1.5 py-[3px] text-right tabular-nums ${call ? ivColor(call.iv) : "text-[var(--hl-muted)]"} ${isITMCall ? "bg-[rgba(80,210,193,0.04)]" : ""}`}>
-                        {call?.iv ? `${call.iv.toFixed(1)}%` : "\u2014"}
-                      </td>
+                      {/* ─── Call side (entire side clickable → Buy Call) ─── */}
+                      {(() => {
+                        const callBg = isITMCall ? "bg-[rgba(80,210,193,0.04)]" : "";
+                        const callClick = () => call && handleCellClick(call, "buy");
+                        return (<>
+                          <td className={`px-1.5 py-[3px] text-right tabular-nums text-[var(--hl-muted)] cursor-pointer ${callBg}`} onClick={callClick}>
+                            {call?.bidAmount ? call.bidAmount.toFixed(1) : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] text-right tabular-nums text-[var(--hl-muted)] cursor-pointer ${callBg}`} onClick={callClick}>
+                            {call?.iv ? `${call.iv.toFixed(1)}%` : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] text-right tabular-nums cursor-pointer ${callBg} ${call?.bidPrice ? "text-[var(--hl-green)] font-medium" : "text-[var(--hl-muted)]"}`} onClick={callClick}>
+                            {call?.bidPrice ? `$${call.bidPrice.toFixed(2)}` : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] text-right tabular-nums text-[var(--foreground)] cursor-pointer ${callBg}`} onClick={callClick}>
+                            {call?.markPrice ? `$${call.markPrice.toFixed(2)}` : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] text-right tabular-nums cursor-pointer ${callBg} ${call?.askPrice ? "text-[var(--hl-red)] font-medium" : "text-[var(--hl-muted)]"}`} onClick={callClick}>
+                            {call?.askPrice ? `$${call.askPrice.toFixed(2)}` : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] text-right tabular-nums text-[var(--hl-muted)] cursor-pointer ${callBg}`} onClick={callClick}>
+                            {call?.iv ? `${call.iv.toFixed(1)}%` : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] text-right tabular-nums text-[var(--hl-muted)] cursor-pointer ${callBg}`} onClick={callClick}>
+                            {call?.delta ? call.delta.toFixed(2) : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] text-right tabular-nums cursor-pointer ${call ? ivColor(call.iv) : "text-[var(--hl-muted)]"} ${callBg}`} onClick={callClick}>
+                            {call?.iv ? `${call.iv.toFixed(1)}%` : "\u2014"}
+                          </td>
+                        </>);
+                      })()}
 
                       {/* ─── Strike ─── */}
                       <td className={`px-3 py-[3px] text-center font-bold tabular-nums bg-[var(--background)] border-x border-[var(--hl-border)]/30 ${
@@ -447,40 +465,34 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption }: Inl
                         ${strike.toLocaleString()}
                       </td>
 
-                      {/* ─── Put side ─── */}
-                      <td className={`px-1.5 py-[3px] tabular-nums ${put ? ivColor(put.iv) : "text-[var(--hl-muted)]"} ${isITMPut ? "bg-[rgba(240,88,88,0.04)]" : ""}`}>
-                        {put?.iv ? `${put.iv.toFixed(1)}%` : "\u2014"}
-                      </td>
-                      <td className={`px-1.5 py-[3px] tabular-nums text-[var(--hl-muted)] ${isITMPut ? "bg-[rgba(240,88,88,0.04)]" : ""}`}>
-                        {put?.delta ? put.delta.toFixed(2) : "\u2014"}
-                      </td>
-                      <td
-                        className={`px-1.5 py-[3px] tabular-nums cursor-pointer transition-colors ${
-                          isITMPut ? "bg-[rgba(240,88,88,0.04)]" : ""
-                        } ${put?.bidPrice ? "text-[var(--hl-green)] hover:bg-[rgba(80,210,193,0.15)] font-medium" : "text-[var(--hl-muted)]"}`}
-                        onClick={() => put?.bidPrice && handleCellClick(put, "sell")}
-                        title={put?.bidPrice ? `Sell Put @ $${put.bidPrice.toFixed(2)}` : undefined}
-                      >
-                        {put?.bidPrice ? `$${put.bidPrice.toFixed(2)}` : "\u2014"}
-                      </td>
-                      <td className={`px-1.5 py-[3px] tabular-nums text-[var(--foreground)] ${isITMPut ? "bg-[rgba(240,88,88,0.04)]" : ""}`}>
-                        {put?.markPrice ? `$${put.markPrice.toFixed(2)}` : "\u2014"}
-                      </td>
-                      <td
-                        className={`px-1.5 py-[3px] tabular-nums cursor-pointer transition-colors ${
-                          isITMPut ? "bg-[rgba(240,88,88,0.04)]" : ""
-                        } ${put?.askPrice ? "text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.15)] font-medium" : "text-[var(--hl-muted)]"}`}
-                        onClick={() => put?.askPrice && handleCellClick(put, "buy")}
-                        title={put?.askPrice ? `Buy Put @ $${put.askPrice.toFixed(2)}` : undefined}
-                      >
-                        {put?.askPrice ? `$${put.askPrice.toFixed(2)}` : "\u2014"}
-                      </td>
-                      <td className={`px-1.5 py-[3px] tabular-nums text-[var(--hl-muted)] ${isITMPut ? "bg-[rgba(240,88,88,0.04)]" : ""}`}>
-                        {put?.iv ? `${put.iv.toFixed(1)}%` : "\u2014"}
-                      </td>
-                      <td className={`px-1.5 py-[3px] tabular-nums text-[var(--hl-muted)] ${isITMPut ? "bg-[rgba(240,88,88,0.04)]" : ""}`}>
-                        {put?.bidAmount ? put.bidAmount.toFixed(1) : "\u2014"}
-                      </td>
+                      {/* ─── Put side (entire side clickable → Buy Put) ─── */}
+                      {(() => {
+                        const putBg = isITMPut ? "bg-[rgba(240,88,88,0.04)]" : "";
+                        const putClick = () => put && handleCellClick(put, "buy");
+                        return (<>
+                          <td className={`px-1.5 py-[3px] tabular-nums cursor-pointer ${put ? ivColor(put.iv) : "text-[var(--hl-muted)]"} ${putBg}`} onClick={putClick}>
+                            {put?.iv ? `${put.iv.toFixed(1)}%` : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] tabular-nums text-[var(--hl-muted)] cursor-pointer ${putBg}`} onClick={putClick}>
+                            {put?.delta ? put.delta.toFixed(2) : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] tabular-nums cursor-pointer ${putBg} ${put?.bidPrice ? "text-[var(--hl-green)] font-medium" : "text-[var(--hl-muted)]"}`} onClick={putClick}>
+                            {put?.bidPrice ? `$${put.bidPrice.toFixed(2)}` : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] tabular-nums text-[var(--foreground)] cursor-pointer ${putBg}`} onClick={putClick}>
+                            {put?.markPrice ? `$${put.markPrice.toFixed(2)}` : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] tabular-nums cursor-pointer ${putBg} ${put?.askPrice ? "text-[var(--hl-red)] font-medium" : "text-[var(--hl-muted)]"}`} onClick={putClick}>
+                            {put?.askPrice ? `$${put.askPrice.toFixed(2)}` : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] tabular-nums text-[var(--hl-muted)] cursor-pointer ${putBg}`} onClick={putClick}>
+                            {put?.iv ? `${put.iv.toFixed(1)}%` : "\u2014"}
+                          </td>
+                          <td className={`px-1.5 py-[3px] tabular-nums text-[var(--hl-muted)] cursor-pointer ${putBg}`} onClick={putClick}>
+                            {put?.bidAmount ? put.bidAmount.toFixed(1) : "\u2014"}
+                          </td>
+                        </>);
+                      })()}
                     </tr>
                   </React.Fragment>
                 );

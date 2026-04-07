@@ -686,7 +686,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
 
       {opt && (
         <>
-          {/* Buy to Open / Sell to Open */}
+          {/* Buy / Sell toggle */}
           <div className="grid grid-cols-2 gap-px bg-[var(--hl-border)] rounded overflow-hidden mb-3">
             <button
               onClick={() => {
@@ -699,7 +699,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
                   : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
               }`}
             >
-              Buy to Open
+              Buy {typeLabel}
             </button>
             <button
               onClick={() => {
@@ -712,7 +712,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
                   : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
               }`}
             >
-              Sell to Open
+              Sell {typeLabel}
             </button>
           </div>
 
@@ -793,7 +793,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
                   : "bg-[var(--hl-red)] text-white hover:brightness-110"
               }`}
             >
-              {optionSide === "buy" ? "Buy" : "Sell"} on Derive
+              {optionSide === "buy" ? `Buy ${typeLabel}` : `Sell ${typeLabel}`} on Derive
             </a>
           ) : (
             <a
