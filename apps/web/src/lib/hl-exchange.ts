@@ -17,7 +17,7 @@ const HL_API = "https://api.hyperliquid.xyz";
 // ─── Builder fee config ─────────────────────────────────────────────────────
 // 2 bps (0.02%) — industry standard for trading terminals (Dreamcash, Tread.fi)
 // Fee unit: tenths of a basis point → 20 = 2 bps = 0.02%
-export const BUILDER_ADDRESS = "0xB4a59142607C744CCF6C4828f01A6ab79c1f2520";
+export const BUILDER_ADDRESS = "0xbB0f753321e2B5FD29Bd1d14b532f5B54959ae63";
 export const BUILDER_FEE = 20; // 2 bps in tenths-of-bps
 export const BUILDER_FEE_PERCENT = 0.0002; // 0.02% as decimal
 export const BUILDER_FEE_DISPLAY = "0.02%"; // for UI
