@@ -139,7 +139,8 @@ export async function getCachedSpotTokens() {
       const price = parseFloat(ctx.midPx || "0");
       const prevDayPx = parseFloat(ctx.prevDayPx || "0");
       const volume = parseFloat(ctx.dayNtlVlm || "0");
-      if (price > 0 && volume > 0) {
+      // Min $1K daily volume to filter out dead/junk spot tokens
+      if (price > 0 && volume >= 1000) {
         results.push({ name: displayName, pair: pairName, price, prevDayPx, volume24h: volume });
       }
     }
