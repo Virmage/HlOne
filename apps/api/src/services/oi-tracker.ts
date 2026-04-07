@@ -27,7 +27,7 @@ export interface OICandle {
 // ─── Storage ────────────────────────────────────────────────────────────────
 
 // In-memory cache (fast access for candle building), loaded from DB on startup
-const MAX_SNAPSHOTS = 40320; // ~7 days at 15s intervals
+const MAX_SNAPSHOTS = 172800; // ~30 days at 15s intervals
 const snapshots = new Map<string, OISnapshot[]>();
 
 // Track which coins to monitor (top 30 by volume)
@@ -44,9 +44,12 @@ export function initOITrackerDb(dbInstance: unknown): void {
 // ─── Load from DB on startup ────────────────────────────────────────────────
 
 export async function loadOIFromDb(): Promise<void> {
-  if (!db) return;
+  if (!db) {
+    console.warn("[oi-tracker] No DB connection — OI history won't persist across restarts");
+    return;
+  }
   try {
-    const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000);
     const rows = await db
       .select({
         coin: oiSnapshots.coin,
@@ -55,7 +58,7 @@ export async function loadOIFromDb(): Promise<void> {
         snapshotAt: oiSnapshots.snapshotAt,
       })
       .from(oiSnapshots)
-      .where(gte(oiSnapshots.snapshotAt, sevenDaysAgo))
+      .where(gte(oiSnapshots.snapshotAt, thirtyDaysAgo))
       .orderBy(oiSnapshots.snapshotAt);
 
     let loaded = 0;
@@ -139,11 +142,11 @@ export async function snapshotOI(): Promise<void> {
 export async function cleanupOldOISnapshots(): Promise<void> {
   if (!db) return;
   try {
-    const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000);
     const result = await db
       .delete(oiSnapshots)
-      .where(lte(oiSnapshots.snapshotAt, sevenDaysAgo));
-    console.log("[oi-tracker] Cleaned up old OI snapshots");
+      .where(lte(oiSnapshots.snapshotAt, thirtyDaysAgo));
+    console.log("[oi-tracker] Cleaned up OI snapshots older than 30 days");
   } catch (err) {
     console.error("[oi-tracker] Cleanup failed:", (err as Error).message);
   }

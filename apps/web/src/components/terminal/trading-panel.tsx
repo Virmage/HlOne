@@ -293,7 +293,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
           onClick={() => setSide("long")}
           className={`py-2 text-[12px] font-semibold transition-colors ${
             side === "long"
-              ? "bg-[var(--hl-accent)] text-[var(--background)]"
+              ? "bg-[var(--hl-green)] text-[var(--background)]"
               : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
           }`}
         >
@@ -303,7 +303,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
           onClick={() => setSide("short")}
           className={`py-2 text-[12px] font-semibold transition-colors ${
             side === "short"
-              ? "bg-[var(--hl-accent)] text-[var(--background)]"
+              ? "bg-[var(--hl-red)] text-white"
               : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
           }`}
         >
