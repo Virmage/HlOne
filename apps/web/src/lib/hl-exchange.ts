@@ -564,18 +564,17 @@ export async function approveBuilderFee(
   try {
     const nonce = Date.now();
 
+    // Mainnet uses Arbitrum chainId 42161 (0xa4b1)
+    // Testnet would use 421614 (0x66eee)
     const action = {
       type: "approveBuilderFee",
       hyperliquidChain: "Mainnet",
-      signatureChainId: "0x66eee",
+      signatureChainId: "0xa4b1",
       maxFeeRate: "0.02%",
       builder: BUILDER_ADDRESS,
       nonce,
     };
 
-    // approveBuilderFee uses HyperliquidSignTransaction domain (chainId 421614)
-    // NOT the phantom agent path used by orders. We use raw eth_signTypedData_v4
-    // to avoid viem's chainId validation.
     const typedData = {
       types: {
         EIP712Domain: [
@@ -595,7 +594,7 @@ export async function approveBuilderFee(
       domain: {
         name: "HyperliquidSignTransaction",
         version: "1",
-        chainId: 421614,
+        chainId: 42161, // Arbitrum mainnet — must match wallet's active chain
         verifyingContract: "0x0000000000000000000000000000000000000000",
       },
       message: {
