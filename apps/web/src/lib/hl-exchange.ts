@@ -132,25 +132,29 @@ export interface PlaceOrderResult {
 // Solution: get the raw EIP-1193 provider from the wagmi connector, which gives
 // us direct access to MetaMask/Rabby without any viem middleware.
 
-async function getRawProvider(): Promise<{ request: (args: { method: string; params: unknown[] }) => Promise<unknown> }> {
+type EIP1193Provider = { request: (args: { method: string; params: unknown[] }) => Promise<unknown> };
+
+async function getRawProvider(): Promise<EIP1193Provider> {
+  console.log("[signing] Getting raw provider...");
   const account = getAccount(config);
+  console.log("[signing] Account status:", account.status, "connector:", account.connector?.name ?? "none");
+
   if (account.connector) {
     try {
       const provider = await account.connector.getProvider();
+      console.log("[signing] Provider type:", typeof provider, "has request:", typeof (provider as Record<string, unknown>)?.request);
       if (provider && typeof (provider as Record<string, unknown>).request === "function") {
-        console.log("[signing] Got raw provider from connector:", account.connector.name);
-        return provider as { request: (args: { method: string; params: unknown[] }) => Promise<unknown> };
+        return provider as EIP1193Provider;
       }
     } catch (err) {
-      console.warn("[signing] connector.getProvider() failed:", (err as Error).message);
+      console.warn("[signing] connector.getProvider() failed:", err);
     }
   }
 
   // Fallback: window.ethereum
-  const w = typeof window !== "undefined" ? (window as unknown as { ethereum?: { request: (args: { method: string; params: unknown[] }) => Promise<unknown> } }) : {};
-  if (w.ethereum) {
+  if (typeof window !== "undefined" && (window as unknown as { ethereum?: EIP1193Provider }).ethereum) {
     console.log("[signing] Using window.ethereum fallback");
-    return w.ethereum;
+    return (window as unknown as { ethereum: EIP1193Provider }).ethereum;
   }
 
   throw new Error("No wallet provider found — is your wallet connected?");
@@ -602,7 +606,9 @@ export async function approveBuilderFee(
       },
     };
 
+    console.log("[approveBuilderFee] Requesting signature...");
     const signature = await rawSignTypedData(walletClient, address, typedData);
+    console.log("[approveBuilderFee] Got signature:", signature.slice(0, 10) + "...");
 
     // Split signature into r, s, v
     const sig = signature;
@@ -610,20 +616,35 @@ export async function approveBuilderFee(
     const s = `0x${sig.slice(66, 130)}`;
     const v = parseInt(sig.slice(130, 132), 16);
 
+    const body = {
+      action,
+      nonce,
+      signature: { r, s, v },
+      vaultAddress: null,
+    };
+    console.log("[approveBuilderFee] Submitting to exchange:", JSON.stringify(body).slice(0, 200));
+
     const res = await fetch(`${HL_API}/exchange`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action,
-        nonce,
-        signature: { r, s, v },
-        vaultAddress: null,
-      }),
+      body: JSON.stringify(body),
     });
 
     const result = await res.json();
-    return { success: (result as { status?: string }).status === "ok" };
+    console.log("[approveBuilderFee] API response:", JSON.stringify(result));
+    if ((result as { status?: string }).status === "ok") {
+      return { success: true };
+    }
+    // API returned an error — extract the message
+    const apiErr = (result as { response?: string }).response
+      || (result as { error?: string }).error
+      || JSON.stringify(result);
+    return { success: false, error: `API: ${apiErr}` };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+    const msg = err instanceof Error ? err.message
+      : typeof err === "string" ? err
+      : JSON.stringify(err);
+    console.error("[approveBuilderFee] Error:", err);
+    return { success: false, error: msg || "Unknown signing error — check console" };
   }
 }
