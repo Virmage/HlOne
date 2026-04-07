@@ -66,9 +66,13 @@ interface DeriveTicker {
     high: string;
     low: string;
     volume: string;
-    num_trades: number;
+    num_trades: number | string;
     percent_change: string;
-  };
+    // Batch endpoint additional fields
+    contract_volume?: string;
+    price_change?: string;
+    open_interest?: string;
+  } | Record<string, string> | null;
 }
 
 // ─── Exported Types ─────────────────────────────────────────────────────────
@@ -162,11 +166,74 @@ async function getTickersForExpiry(currency: string, expiryDate: string): Promis
       instrument_type: "option",
       currency,
       expiry_date: expiryDate,
-    }) as { tickers: Record<string, DeriveTicker> };
-    return result.tickers || {};
+    }) as { tickers: Record<string, unknown> };
+    const raw = result.tickers || {};
+
+    // Batch get_tickers returns abbreviated field names — normalize them
+    const normalized: Record<string, DeriveTicker> = {};
+    for (const [name, rawTicker] of Object.entries(raw)) {
+      const t = rawTicker as Record<string, unknown>;
+      const op = t.option_pricing as Record<string, string> | null;
+      const stats = t.stats as Record<string, string> | null;
+
+      // Parse instrument name for option_details: NAME = COIN-EXPIRY-STRIKE-TYPE
+      const parts = name.split("-");
+      const expiryTs = parts[1] ? parseExpiryTimestamp(parts[1]) : 0;
+      const strike = parts[2] || "0";
+      const optType = (parts[3] || "C") as "C" | "P";
+
+      normalized[name] = {
+        instrument_name: name,
+        instrument_type: "option",
+        mark_price: String(t.M || "0"),
+        index_price: String(t.I || "0"),
+        best_bid_price: String(t.b || "0"),
+        best_ask_price: String(t.a || "0"),
+        best_bid_amount: String(t.B || "0"),
+        best_ask_amount: String(t.A || "0"),
+        option_details: {
+          expiry: expiryTs,
+          strike,
+          option_type: optType,
+        },
+        option_pricing: op ? {
+          delta: op.d || "0",
+          gamma: op.g || "0",
+          vega: op.v || "0",
+          theta: op.t || "0",
+          rho: op.r || "0",
+          iv: op.i || "0",
+          bid_iv: op.bi || "0",
+          ask_iv: op.ai || "0",
+          mark_price: op.m || "0",
+          forward_price: op.f || "0",
+          discount_factor: op.df || "1",
+        } : null,
+        open_interest: { PM2: [], PM: [], SM: [] },
+        stats: stats ? {
+          contract_volume: stats.c || "0",
+          volume: stats.v || "0",
+          price_change: stats.pr || "0",
+          num_trades: stats.n || "0",
+          open_interest: stats.oi || "0",
+          high: stats.h || "0",
+          low: stats.l || "0",
+          percent_change: stats.p || "0",
+        } : null,
+      } as DeriveTicker;
+    }
+    return normalized;
   } catch {
     return {};
   }
+}
+
+function parseExpiryTimestamp(dateStr: string): number {
+  // dateStr format: "20260409"
+  const y = parseInt(dateStr.slice(0, 4));
+  const m = parseInt(dateStr.slice(4, 6)) - 1;
+  const d = parseInt(dateStr.slice(6, 8));
+  return Math.floor(new Date(y, m, d, 8, 0, 0).getTime() / 1000); // 8:00 UTC settlement
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
