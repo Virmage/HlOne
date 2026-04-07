@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:20-slim AS base
 
 # Install dependencies — all workspace deps go to root node_modules
 FROM base AS deps
@@ -7,7 +7,7 @@ COPY package.json package-lock.json ./
 COPY packages/db/package.json ./packages/db/
 COPY apps/api/package.json ./apps/api/
 RUN npm ci --workspace=packages/db --workspace=apps/api --include-workspace-root \
-    && npm ls zod --workspace=apps/api 2>/dev/null || true
+    && echo "npm ci OK"
 
 # Build
 FROM base AS builder
@@ -20,8 +20,11 @@ RUN rm -rf packages/db/dist apps/api/dist
 RUN npx tsc --project packages/db/tsconfig.json
 RUN npx tsc --project apps/api/tsconfig.json
 RUN ls -la apps/api/dist/index.js && echo "Build OK"
-RUN rm -rf node_modules/@hl-copy/db && cp -r packages/db node_modules/@hl-copy/db \
-    && ls node_modules/@hl-copy/db/drizzle/*.sql && echo "Migrations copied OK"
+# Replace workspace symlink with real copy (includes dist/ and drizzle/)
+RUN rm -rf node_modules/@hl-copy/db && cp -r packages/db node_modules/@hl-copy/db
+# Verify all critical files exist
+RUN ls node_modules/@hl-copy/db/dist/index.js && echo "DB dist OK"
+RUN ls node_modules/@hl-copy/db/drizzle/*.sql && echo "Migrations OK"
 
 # Run — minimal image
 FROM base AS runner
@@ -30,10 +33,33 @@ ENV NODE_ENV=production
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/
+COPY --from=builder /app/apps/api/start.mjs ./apps/api/start.mjs
 COPY --from=builder /app/package.json ./package.json
-RUN echo "deploy-v5" > /tmp/.build-id
-# Verify runner has required files
-RUN ls -la apps/api/dist/index.js && ls apps/api/package.json && echo "Runner files OK"
-RUN node -e "console.log('Node test OK, version:', process.version)"
+RUN echo "deploy-v6" > /tmp/.build-id
+
+# Verify runner has all required files
+RUN ls -la apps/api/dist/index.js && echo "1. API dist OK"
+RUN ls -la node_modules/@hl-copy/db/dist/index.js && echo "2. DB dist OK"
+RUN ls node_modules/@hl-copy/db/drizzle/*.sql && echo "3. Migrations OK"
+RUN ls node_modules/@fastify/rate-limit/package.json && echo "4. rate-limit OK"
+RUN ls node_modules/@fastify/cors/package.json && echo "5. cors OK"
+RUN ls node_modules/fastify/package.json && echo "6. fastify OK"
+RUN ls node_modules/dotenv/package.json && echo "7. dotenv OK"
+
+# Test that Node can actually resolve and load the DB module
+RUN node --input-type=module -e "import '@hl-copy/db'; console.log('8. DB module import OK')"
+
+# Test that all major deps can be resolved
+RUN node --input-type=module -e "\
+  import 'fastify'; \
+  import '@fastify/cors'; \
+  import '@fastify/rate-limit'; \
+  import 'dotenv'; \
+  import 'drizzle-orm'; \
+  import 'pg'; \
+  console.log('9. All deps import OK');"
+
+RUN node -e "console.log('Node OK, version:', process.version)"
+
 EXPOSE 3001
-CMD ["node", "apps/api/dist/index.js"]
+CMD ["node", "apps/api/start.mjs"]
