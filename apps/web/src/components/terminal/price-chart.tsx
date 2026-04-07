@@ -1089,12 +1089,10 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
               const h = Math.max(yBot - yTop, 2);
               const totalVal = band.longLiqValue + band.shortLiqValue;
               const intensity = totalVal / maxVal;
-              // Long liqs = red/orange, short liqs = cyan/blue
-              // If both, blend toward whichever is larger
-              const longRatio = totalVal > 0 ? band.longLiqValue / totalVal : 0;
-              const r = Math.round(255 * longRatio + 0 * (1 - longRatio));
-              const g = Math.round(80 * longRatio + 180 * (1 - longRatio));
-              const b = Math.round(50 * longRatio + 255 * (1 - longRatio));
+              // Blue (low) → Yellow (high) intensity gradient
+              const r = Math.round(100 + intensity * 155);
+              const g = Math.round(160 + intensity * 70);
+              const b = Math.round(255 - intensity * 255);
               const opacity = 0.06 + intensity * 0.42;
               const label = band.longLiqValue > 0 && band.shortLiqValue > 0
                 ? `Long $${(band.longLiqValue / 1e6).toFixed(1)}M + Short $${(band.shortLiqValue / 1e6).toFixed(1)}M`

@@ -29,9 +29,9 @@ export function LiquidationHeatmapPanel({ data, onSelectToken }: LiquidationHeat
   const activeCoin = selectedCoin || data[0]?.coin;
   const coinData = data.find(d => d.coin === activeCoin) || data[0];
 
-  // Find max value for bar scaling
+  // Find max combined value for intensity scaling
   const maxVal = Math.max(
-    ...coinData.bands.map(b => Math.max(b.longLiqValue, b.shortLiqValue)),
+    ...coinData.bands.map(b => b.longLiqValue + b.shortLiqValue),
     1
   );
 
@@ -63,20 +63,18 @@ export function LiquidationHeatmapPanel({ data, onSelectToken }: LiquidationHeat
         <span className="text-[var(--hl-muted)]">
           Price: <span className="text-[var(--foreground)] tabular-nums">${coinData.currentPrice.toLocaleString()}</span>
         </span>
-        <span className="text-[var(--hl-red)]" title="Long liquidations below current price">
-          Longs rekt: {formatUsd(coinData.totalLongLiqAbove)}
-        </span>
-        <span className="text-[var(--hl-green)]" title="Short liquidations above current price">
-          Shorts rekt: {formatUsd(coinData.totalShortLiqBelow)}
+        <span className="text-[var(--hl-muted)]">
+          Total: <span className="text-[var(--foreground)] tabular-nums">{formatUsd(coinData.totalLongLiqAbove + coinData.totalShortLiqBelow)}</span>
         </span>
       </div>
 
-      {/* Heatmap bars */}
+      {/* Heatmap bars — intensity gradient from blue (low) to yellow (high) */}
       <div className="overflow-y-auto scroll-on-hover max-h-[200px] px-1">
         {coinData.bands.map((band, i) => {
           const isAbove = band.priceMid > coinData.currentPrice;
-          const longPct = (band.longLiqValue / maxVal) * 100;
-          const shortPct = (band.shortLiqValue / maxVal) * 100;
+          const totalVal = band.longLiqValue + band.shortLiqValue;
+          const intensity = totalVal / maxVal; // 0..1
+          const barPct = (totalVal / maxVal) * 100;
           const isCurrentBand = Math.abs(band.distancePct) < 1;
 
           return (
@@ -93,13 +91,26 @@ export function LiquidationHeatmapPanel({ data, onSelectToken }: LiquidationHeat
                 {band.distancePct > 0 ? "+" : ""}{band.distancePct}%
               </span>
 
-              {/* Long liq bar (red — longs get rekt) */}
-              <div className="flex-1 flex justify-end h-3">
-                {band.longLiqValue > 0 && (
+              {/* Intensity bar — blue→yellow gradient based on CSS vars */}
+              <div className="flex-1 h-3.5 relative rounded-sm overflow-hidden bg-[var(--hl-border)]">
+                {totalVal > 0 && (
                   <div
-                    className="h-full bg-[var(--hl-red)] rounded-sm opacity-70"
-                    style={{ width: `${Math.max(longPct, 2)}%` }}
-                    title={`Long liqs: ${formatUsd(band.longLiqValue)} (${band.traderCount} traders)`}
+                    className="absolute inset-y-0 left-0 rounded-sm"
+                    style={{
+                      width: `${Math.max(barPct, 3)}%`,
+                      backgroundColor: `rgb(${Math.round(
+                        // Lerp from --hl-heat-low to --hl-heat-high based on intensity
+                        // Low (blue): rgb(100,160,255) → High (yellow): rgb(255,230,0)
+                        // Use inline calc since CSS vars with rgb channels
+                        100 + intensity * 155
+                      )}, ${Math.round(
+                        160 + intensity * 70
+                      )}, ${Math.round(
+                        255 - intensity * 255
+                      )})`,
+                      opacity: 0.5 + intensity * 0.5,
+                    }}
+                    title={`$${band.priceLow?.toFixed(0) ?? band.priceMid.toFixed(0)}–$${band.priceHigh?.toFixed(0) ?? band.priceMid.toFixed(0)}: ${formatUsd(totalVal)} (${band.traderCount} traders)`}
                   />
                 )}
               </div>
@@ -109,29 +120,31 @@ export function LiquidationHeatmapPanel({ data, onSelectToken }: LiquidationHeat
                 ${band.priceMid >= 1000 ? (band.priceMid / 1000).toFixed(1) + "K" : band.priceMid.toFixed(1)}
               </span>
 
-              {/* Short liq bar (green — shorts get rekt) */}
-              <div className="flex-1 flex justify-start h-3">
-                {band.shortLiqValue > 0 && (
-                  <div
-                    className="h-full bg-[var(--hl-green)] rounded-sm opacity-70"
-                    style={{ width: `${Math.max(shortPct, 2)}%` }}
-                    title={`Short liqs: ${formatUsd(band.shortLiqValue)} (${band.traderCount} traders)`}
-                  />
-                )}
-              </div>
+              {/* Value label */}
+              <span className="w-12 text-right tabular-nums text-[var(--hl-muted)] shrink-0 text-[9px]">
+                {totalVal > 0 ? formatUsd(totalVal) : ""}
+              </span>
             </div>
           );
         })}
       </div>
 
-      {/* Legend */}
-      <div className="flex items-center justify-center gap-4 mt-1 px-2 text-[9px] text-[var(--hl-muted)]">
-        <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded-sm bg-[var(--hl-red)] opacity-70" /> Long Liqs
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded-sm bg-[var(--hl-green)] opacity-70" /> Short Liqs
-        </span>
+      {/* Legend — intensity scale */}
+      <div className="flex items-center justify-center gap-2 mt-1.5 px-2 text-[8px] text-[var(--hl-muted)]">
+        <span>Low</span>
+        <div className="flex h-2 rounded-sm overflow-hidden" style={{ width: "80px" }}>
+          {[0, 0.2, 0.4, 0.6, 0.8, 1].map((t, i) => (
+            <div
+              key={i}
+              className="flex-1"
+              style={{
+                backgroundColor: `rgb(${Math.round(100 + t * 155)}, ${Math.round(160 + t * 70)}, ${Math.round(255 - t * 255)})`,
+                opacity: 0.5 + t * 0.5,
+              }}
+            />
+          ))}
+        </div>
+        <span>High</span>
       </div>
     </div>
   );

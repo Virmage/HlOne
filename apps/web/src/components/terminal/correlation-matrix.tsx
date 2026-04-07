@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import type { CorrelationMatrix as CorrMatrix } from "@/lib/api";
 
 interface CorrelationMatrixProps {
@@ -7,23 +8,21 @@ interface CorrelationMatrixProps {
   onSelectToken: (coin: string) => void;
 }
 
-function corrBg(val: number): string {
-  const abs = Math.abs(val);
-  if (val >= 0.8) return "bg-red-500/60";
-  if (val >= 0.6) return "bg-red-500/35";
-  if (val >= 0.4) return "bg-red-500/20";
-  if (val >= 0.2) return "bg-red-500/10";
-  if (val <= -0.4) return "bg-blue-500/50";
-  if (val <= -0.2) return "bg-blue-500/25";
-  if (val <= -0.05) return "bg-blue-500/10";
-  return "bg-white/[0.03]";
+function corrStyle(val: number): React.CSSProperties {
+  // Intensity-only: blue (low |corr|) → yellow (high |corr|)
+  const t = Math.abs(val);
+  const r = Math.round(100 + t * 155);
+  const g = Math.round(160 + t * 70);
+  const b = Math.round(255 - t * 255);
+  const a = 0.08 + t * 0.45;
+  return { backgroundColor: `rgba(${r}, ${g}, ${b}, ${a})` };
 }
 
 function corrTextColor(val: number): string {
-  if (val >= 0.7) return "text-[var(--hl-red)]";
-  if (val <= -0.2) return "text-blue-400";
-  if (val <= 0.2) return "text-[var(--hl-green)]";
-  return "text-[var(--hl-text)]";
+  const abs = Math.abs(val);
+  if (abs >= 0.7) return "text-yellow-400";
+  if (abs >= 0.4) return "text-[var(--hl-text)]";
+  return "text-[var(--hl-muted)]";
 }
 
 export function CorrelationMatrixPanel({ data, onSelectToken }: CorrelationMatrixProps) {
@@ -99,7 +98,8 @@ export function CorrelationMatrixPanel({ data, onSelectToken }: CorrelationMatri
                 return (
                   <div
                     key={`${i}-${j}`}
-                    className={`h-4 rounded-[2px] ${isDiag ? "bg-white/[0.06]" : corrBg(val)} cursor-default`}
+                    className="h-4 rounded-[2px] cursor-default"
+                    style={isDiag ? { backgroundColor: "rgba(255,255,255,0.06)" } : corrStyle(val)}
                     title={`${rowCoin}/${colCoin}: ${val.toFixed(2)}`}
                   />
                 );
@@ -108,11 +108,21 @@ export function CorrelationMatrixPanel({ data, onSelectToken }: CorrelationMatri
           ))}
         </div>
 
-        {/* Color legend */}
-        <div className="flex items-center justify-center gap-2 mt-1.5 text-[8px] text-[var(--hl-muted)]">
-          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-blue-500/40" /> -1</span>
-          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-white/[0.05]" /> 0</span>
-          <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-red-500/50" /> +1</span>
+        {/* Color legend — intensity scale */}
+        <div className="flex items-center justify-center gap-1.5 mt-1.5 text-[8px] text-[var(--hl-muted)]">
+          <span>Low</span>
+          <div className="flex h-2 rounded-sm overflow-hidden" style={{ width: "60px" }}>
+            {[0, 0.25, 0.5, 0.75, 1].map((t, i) => (
+              <div
+                key={i}
+                className="flex-1"
+                style={{
+                  backgroundColor: `rgba(${Math.round(100 + t * 155)}, ${Math.round(160 + t * 70)}, ${Math.round(255 - t * 255)}, ${0.3 + t * 0.4})`,
+                }}
+              />
+            ))}
+          </div>
+          <span>High</span>
         </div>
       </div>
 
@@ -133,8 +143,12 @@ export function CorrelationMatrixPanel({ data, onSelectToken }: CorrelationMatri
               <div className="flex items-center gap-2">
                 <div className="w-16 h-1.5 rounded-full bg-[var(--hl-border)] overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-[var(--hl-red)]"
-                    style={{ width: `${Math.max(p.corr * 100, 0)}%`, opacity: 0.7 }}
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${Math.max(Math.abs(p.corr) * 100, 0)}%`,
+                      backgroundColor: `rgb(${Math.round(100 + Math.abs(p.corr) * 155)}, ${Math.round(160 + Math.abs(p.corr) * 70)}, ${Math.round(255 - Math.abs(p.corr) * 255)})`,
+                      opacity: 0.7,
+                    }}
                   />
                 </div>
                 <span className={`tabular-nums font-medium w-10 text-right ${corrTextColor(p.corr)}`}>
@@ -161,8 +175,12 @@ export function CorrelationMatrixPanel({ data, onSelectToken }: CorrelationMatri
               <div className="flex items-center gap-2">
                 <div className="w-16 h-1.5 rounded-full bg-[var(--hl-border)] overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-[var(--hl-green)]"
-                    style={{ width: `${Math.max((1 - p.corr) * 50, 2)}%`, opacity: 0.7 }}
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${Math.max((1 - Math.abs(p.corr)) * 50, 2)}%`,
+                      backgroundColor: `rgb(${Math.round(100 + Math.abs(p.corr) * 155)}, ${Math.round(160 + Math.abs(p.corr) * 70)}, ${Math.round(255 - Math.abs(p.corr) * 255)})`,
+                      opacity: 0.7,
+                    }}
                   />
                 </div>
                 <span className={`tabular-nums font-medium w-10 text-right ${corrTextColor(p.corr)}`}>

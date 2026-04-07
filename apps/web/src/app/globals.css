@@ -14,6 +14,9 @@
   --hl-nav: #050505;
   --hl-muted: #666666;
   --hl-text: #999999;
+  /* Heatmap intensity: blue (low) → yellow (high) */
+  --hl-heat-low: 100, 160, 255;   /* light blue */
+  --hl-heat-high: 255, 230, 0;    /* bright yellow */
 }
 
 [data-theme="light"] {
@@ -29,6 +32,9 @@
   --hl-nav: #fafafa;
   --hl-muted: #888888;
   --hl-text: #555555;
+  /* Heatmap intensity: blue (low) → amber/orange (high) — visible on white */
+  --hl-heat-low: 140, 180, 230;   /* muted blue */
+  --hl-heat-high: 220, 160, 0;    /* amber/orange */
 }
 
 @theme inline {
