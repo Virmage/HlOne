@@ -1,3 +1,15 @@
+// Immediate startup diagnostic — logs before any imports can fail
+console.log(`[boot] Process starting pid=${process.pid} node=${process.version} cwd=${process.cwd()}`);
+console.log(`[boot] PORT=${process.env.PORT} NODE_ENV=${process.env.NODE_ENV} DATABASE_URL=${process.env.DATABASE_URL ? "set" : "NOT SET"}`);
+
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL] Uncaught exception:", err);
+  setTimeout(() => process.exit(1), 5000);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("[FATAL] Unhandled rejection:", err);
+});
+
 import { config } from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";

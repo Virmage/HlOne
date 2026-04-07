@@ -31,6 +31,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/
 COPY --from=builder /app/package.json ./package.json
-RUN echo "deploy-v4" > /tmp/.build-id
+RUN echo "deploy-v5" > /tmp/.build-id
+# Verify runner has required files
+RUN ls -la apps/api/dist/index.js && ls apps/api/package.json && echo "Runner files OK"
+RUN node -e "console.log('Node test OK, version:', process.version)"
 EXPOSE 3001
-CMD node apps/api/dist/index.js
+CMD ["node", "apps/api/dist/index.js"]
