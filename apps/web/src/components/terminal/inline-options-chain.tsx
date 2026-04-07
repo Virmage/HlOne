@@ -42,21 +42,174 @@ function ivColor(iv: number): string {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+// ─── Direct Derive API fallback (when backend is down) ──────────────────────
+
+async function fetchDirectFromDerive(coin: string): Promise<DeriveOptionsChain> {
+  const DERIVE_API = "https://api.lyra.finance";
+
+  // 1. Get instruments
+  const instRes = await fetch(`${DERIVE_API}/public/get_instruments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ currency: coin, expired: false, instrument_type: "option" }),
+  });
+  const instData = await instRes.json();
+  const instruments: string[] = (instData.result || []).map((i: { instrument_name: string }) => i.instrument_name);
+
+  if (instruments.length === 0) throw new Error("No instruments");
+
+  // 2. Get spot price
+  let spotPrice = 0;
+  try {
+    const tickerRes = await fetch(`${DERIVE_API}/public/get_ticker`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instrument_name: `${coin}-PERP` }),
+    });
+    const tickerData = await tickerRes.json();
+    spotPrice = parseFloat(tickerData.result?.best_bid_price || "0") || parseFloat(tickerData.result?.index_price || "0");
+  } catch {}
+
+  // 3. Get tickers for a subset (nearest expiries, near ATM)
+  // Parse expiries from instrument names
+  const expirySet = new Set<string>();
+  for (const name of instruments) {
+    const parts = name.split("-");
+    if (parts.length >= 4) expirySet.add(parts[1]);
+  }
+  const sortedExpiries = [...expirySet].sort();
+  // Take first 4 expiries to limit API calls
+  const nearExpiries = sortedExpiries.slice(0, 4);
+
+  // Filter instruments to near expiries
+  const nearInstruments = instruments.filter(name => {
+    const parts = name.split("-");
+    return nearExpiries.includes(parts[1]);
+  });
+
+  // Batch fetch tickers (max 40 at a time to be reasonable)
+  const toFetch = nearInstruments.slice(0, 80);
+  const chain: HypeOptionRow[] = [];
+
+  const batchSize = 10;
+  for (let i = 0; i < toFetch.length; i += batchSize) {
+    const batch = toFetch.slice(i, i + batchSize);
+    const results = await Promise.allSettled(
+      batch.map(async (inst) => {
+        const res = await fetch(`${DERIVE_API}/public/get_ticker`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ instrument_name: inst }),
+        });
+        return { instrument: inst, ticker: (await res.json()).result };
+      })
+    );
+
+    for (const r of results) {
+      if (r.status !== "fulfilled" || !r.value.ticker) continue;
+      const { instrument, ticker } = r.value;
+      const parts = instrument.split("-");
+      if (parts.length < 4) continue;
+
+      const expiryRaw = parts[1]; // e.g. "20260409"
+      const strike = parseInt(parts[2]);
+      const type = parts[3] as "C" | "P";
+
+      // Format expiry label: "Apr 9" from "20260409"
+      const y = parseInt(expiryRaw.slice(0, 4));
+      const m = parseInt(expiryRaw.slice(4, 6)) - 1;
+      const d = parseInt(expiryRaw.slice(6, 8));
+      const dt = new Date(y, m, d);
+      const label = dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const ts = dt.getTime();
+
+      chain.push({
+        instrument,
+        expiry: label,
+        expiryTimestamp: ts,
+        strike,
+        type,
+        markPrice: parseFloat(ticker.mark_price || "0"),
+        bidPrice: parseFloat(ticker.best_bid_price || "0"),
+        askPrice: parseFloat(ticker.best_ask_price || "0"),
+        bidAmount: parseFloat(ticker.best_bid_amount || "0"),
+        askAmount: parseFloat(ticker.best_ask_amount || "0"),
+        iv: parseFloat(ticker.mark_iv || "0"),
+        delta: parseFloat(ticker.greeks?.delta || "0"),
+        gamma: parseFloat(ticker.greeks?.gamma || "0"),
+        theta: parseFloat(ticker.greeks?.theta || "0"),
+        vega: parseFloat(ticker.greeks?.vega || "0"),
+        openInterest: parseFloat(ticker.open_interest || "0"),
+        volume24h: parseFloat(ticker.stats?.volume || "0"),
+      });
+    }
+  }
+
+  // Build expiries list
+  const expiryMap = new Map<string, number>();
+  for (const opt of chain) {
+    if (!expiryMap.has(opt.expiry)) expiryMap.set(opt.expiry, opt.expiryTimestamp);
+  }
+  const expiries = [...expiryMap.entries()]
+    .sort(([, a], [, b]) => a - b)
+    .map(([label, timestamp]) => ({ label, timestamp }));
+
+  return {
+    coin,
+    chain,
+    spotPrice,
+    expiries,
+    source: "derive" as const,
+    timestamp: Date.now(),
+    summary: {
+      maxPain: 0,
+      maxPainExpiry: "",
+      maxPainDistance: 0,
+      putCallRatio: 0,
+      totalCallOI: chain.filter(o => o.type === "C").reduce((s, o) => s + o.openInterest, 0),
+      totalPutOI: chain.filter(o => o.type === "P").reduce((s, o) => s + o.openInterest, 0),
+      iv: chain.length > 0 ? chain.reduce((s, o) => s + o.iv, 0) / chain.length : 0,
+      ivRank: 0,
+      skew25d: 0,
+      gex: 0,
+      gexLevel: "neutral" as const,
+      totalVolume24h: chain.reduce((s, o) => s + o.volume24h, 0),
+    },
+  };
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
+
 export function InlineOptionsChain({ coin, onSelectOption, selectedOption }: InlineOptionsChainProps) {
   const [data, setData] = useState<DeriveOptionsChain | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedExpiry, setSelectedExpiry] = useState<string | null>(null);
   const atmRef = useRef<HTMLTableRowElement>(null);
 
   const fetchData = useCallback(async () => {
     try {
+      // Try backend API first
       const result = await getDeriveOptionsChain(coin);
       setData(result);
+      setError(null);
       if (result?.expiries.length && !selectedExpiry) {
         setSelectedExpiry(result.expiries[0].label);
       }
     } catch (err) {
-      console.error("[options-chain] Fetch failed:", err);
+      console.warn("[options-chain] Backend fetch failed, trying Derive direct:", err);
+      try {
+        // Fallback: fetch directly from Derive API
+        const result = await fetchDirectFromDerive(coin);
+        setData(result);
+        setError(null);
+        if (result?.expiries.length && !selectedExpiry) {
+          setSelectedExpiry(result.expiries[0].label);
+        }
+      } catch (err2) {
+        console.error("[options-chain] Direct fetch also failed:", err2);
+        setError("Failed to load options data");
+      }
     } finally {
       setLoading(false);
     }
@@ -66,6 +219,7 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption }: Inl
     setSelectedExpiry(null);
     setData(null);
     setLoading(true);
+    setError(null);
     fetchData();
     const interval = setInterval(fetchData, 30_000);
     return () => clearInterval(interval);
@@ -132,10 +286,18 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption }: Inl
     );
   }
 
-  if (!data || data.expiries.length === 0) {
+  if (error || !data || data.expiries.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-[var(--hl-muted)] text-[12px]">
-        No options data available for {coin}
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <div className="text-[var(--hl-muted)] text-[12px] mb-2">{error || `No options data available for ${coin}`}</div>
+          <button
+            onClick={() => { setLoading(true); setError(null); fetchData(); }}
+            className="text-[11px] text-purple-400 hover:text-purple-300 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
