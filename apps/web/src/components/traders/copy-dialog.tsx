@@ -15,8 +15,6 @@ import { Slider } from "@/components/ui/slider";
 import { shortenAddress } from "@/lib/utils";
 import { startCopy, getBuilderFee, checkBuilderApproval, type BuilderFeeInfo } from "@/lib/api";
 import { useAccount } from "wagmi";
-import { getWalletClient } from "@wagmi/core";
-import { config } from "@/config/wagmi";
 
 interface CopyDialogProps {
   open: boolean;
@@ -65,10 +63,10 @@ export function CopyDialog({
       };
 
       // ── EIP-712 signing for ApproveBuilderFee ─────────────────────
-      // Uses raw eth_signTypedData_v4 to bypass viem's chainId validation.
+      // Uses window.ethereum directly to completely bypass viem's chainId validation.
       // HyperliquidSignTransaction domain with chainId 421614 (Arbitrum Sepolia).
-      const walletClient = await getWalletClient(config);
-      if (!walletClient) throw new Error("No wallet connected");
+      const ethereum = (window as unknown as { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
+      if (!ethereum) throw new Error("No wallet provider found");
 
       const typedData = {
         types: {
@@ -100,9 +98,9 @@ export function CopyDialog({
         },
       };
 
-      const signature = await walletClient.request({
+      const signature = await ethereum.request({
         method: "eth_signTypedData_v4",
-        params: [walletAddress as `0x${string}`, JSON.stringify(typedData)],
+        params: [walletAddress, JSON.stringify(typedData)],
       });
 
       // Split signature into r, s, v components

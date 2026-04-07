@@ -293,7 +293,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
           onClick={() => setSide("long")}
           className={`py-2 text-[12px] font-semibold transition-colors ${
             side === "long"
-              ? "bg-[var(--hl-green)] text-[var(--background)]"
+              ? "bg-[var(--hl-accent)] text-[var(--background)]"
               : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
           }`}
         >
@@ -303,7 +303,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
           onClick={() => setSide("short")}
           className={`py-2 text-[12px] font-semibold transition-colors ${
             side === "short"
-              ? "bg-[var(--hl-red)] text-white"
+              ? "bg-[var(--hl-accent)] text-[var(--background)]"
               : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
           }`}
         >
@@ -524,9 +524,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
             className={`w-full py-2.5 rounded font-semibold text-[13px] transition-colors ${
               sizeNum <= 0
                 ? "bg-[var(--hl-surface)] text-[var(--hl-muted)] cursor-not-allowed"
-                : side === "long"
-                  ? "bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
-                  : "bg-[var(--hl-red)] text-white hover:brightness-110"
+                : "bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110"
             } ${submitting ? "opacity-50" : ""}`}
             disabled={submitting || sizeNum <= 0}
             onClick={handleSubmit}

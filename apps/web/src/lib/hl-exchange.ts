@@ -124,17 +124,30 @@ export interface PlaceOrderResult {
   error?: string;
 }
 
+// ─── Raw EIP-1193 provider access ───────────────────────────────────────────
+// viem's walletClient.request() validates domain chainId against the connected
+// chain — which breaks Hyperliquid signing (chainId 1337 for orders, 421614 for
+// fee approvals). We bypass viem entirely by sending eth_signTypedData_v4
+// directly to the wallet's EIP-1193 provider.
+
+interface EIP1193Provider {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+}
+
+function getRawProvider(): EIP1193Provider {
+  const w = typeof window !== "undefined" ? (window as unknown as { ethereum?: EIP1193Provider }) : {};
+  if (!w.ethereum) throw new Error("No wallet provider found");
+  return w.ethereum;
+}
+
 // ─── EIP-712 signing ─────────────────────────────────────────────────────────
 
 async function signL1Action(
-  walletClient: WalletClient,
+  _walletClient: WalletClient,
   address: `0x${string}`,
   action: Record<string, unknown>,
   nonce: number,
 ): Promise<`0x${string}`> {
-  // Hyperliquid uses chainId 1337 (HL L1) for order signing, but viem rejects
-  // domain chainId mismatches vs the connected chain. We bypass this by using
-  // the raw eth_signTypedData_v4 JSON-RPC method directly.
   const typedData = {
     types: {
       EIP712Domain: [
@@ -163,9 +176,10 @@ async function signL1Action(
     },
   };
 
-  const signature = await walletClient.request({
+  const provider = getRawProvider();
+  const signature = await provider.request({
     method: "eth_signTypedData_v4",
-    params: [address as `0x${string}`, JSON.stringify(typedData)],
+    params: [address, JSON.stringify(typedData)],
   });
 
   return signature as `0x${string}`;
@@ -542,9 +556,10 @@ export async function approveBuilderFee(
       },
     };
 
-    const signature = await walletClient.request({
+    const provider = getRawProvider();
+    const signature = await provider.request({
       method: "eth_signTypedData_v4",
-      params: [address as `0x${string}`, JSON.stringify(typedData)],
+      params: [address, JSON.stringify(typedData)],
     });
 
     // Split signature into r, s, v
