@@ -6,20 +6,26 @@ import type { PlaceOrderResult } from "@/lib/hl-exchange";
 import { BUILDER_FEE_PERCENT, BUILDER_FEE_DISPLAY } from "@/lib/hl-exchange";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 import { hasDeriveOptions } from "./hype-options";
+import type { SelectedOption } from "./inline-options-chain";
 
 interface TradingPanelProps {
   coin: string;
   overview: TokenOverview | null;
   score: CpycatScore | null;
   onOpenOptionsChain?: (coin: string) => void;
+  tradingMode?: "perp" | "options";
+  onTradingModeChange?: (mode: "perp" | "options") => void;
+  selectedOption?: SelectedOption | null;
+  onClearOption?: () => void;
 }
 
 type Side = "long" | "short";
 type OrderType = "market" | "limit";
 type MarginMode = "cross" | "isolated";
 
-export function TradingPanel({ coin, overview, score, onOpenOptionsChain }: TradingPanelProps) {
-  const [mode, setMode] = useState<"perp" | "options">("perp");
+export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradingMode, onTradingModeChange, selectedOption, onClearOption }: TradingPanelProps) {
+  const mode = tradingMode ?? "perp";
+  const setMode = (m: "perp" | "options") => onTradingModeChange?.(m);
   const [side, setSide] = useState<Side>("long");
   const [orderType, setOrderType] = useState<OrderType>("market");
   const [size, setSize] = useState("");
@@ -233,77 +239,14 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain }: Trad
         </div>
       )}
 
-      {/* ─── Options Mode ─── */}
+      {/* ─── Options Mode: Order Entry ─── */}
       {mode === "options" && coinHasOptions && (
-        <div className="flex flex-col flex-1 px-3 mt-3">
-          <div className="text-center mb-4">
-            <div className="text-[12px] font-semibold text-purple-400 mb-1">{displayCoin} Options</div>
-            <div className="text-[10px] text-[var(--hl-muted)]">via Derive (formerly Lyra)</div>
-          </div>
-
-          {/* Quick option type selector */}
-          <div className="grid grid-cols-2 gap-px bg-[var(--hl-border)] rounded overflow-hidden mb-3">
-            <button
-              className="py-2 text-[12px] font-semibold bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)] hover:brightness-110 transition-colors"
-              onClick={() => onOpenOptionsChain?.(displayCoin)}
-            >
-              Buy Call
-            </button>
-            <button
-              className="py-2 text-[12px] font-semibold bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:brightness-110 transition-colors"
-              onClick={() => onOpenOptionsChain?.(displayCoin)}
-            >
-              Buy Put
-            </button>
-          </div>
-
-          {/* Info card */}
-          <div className="rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] p-3 space-y-2 mb-3">
-            <p className="text-[10px] text-[var(--hl-muted)]">
-              Options are traded on Derive, a decentralized options protocol. View the full chain to see strikes, expiries, Greeks, and pricing.
-            </p>
-            <div className="text-[10px] space-y-1">
-              <div className="flex justify-between">
-                <span className="text-[var(--hl-muted)]">Maker Fee</span>
-                <span className="text-[var(--hl-text)]">0.01%</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--hl-muted)]">Taker Fee</span>
-                <span className="text-[var(--hl-text)]">0.03%</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--hl-muted)]">Settlement</span>
-                <span className="text-[var(--hl-text)]">USDC</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--hl-muted)]">Type</span>
-                <span className="text-[var(--hl-text)]">European</span>
-              </div>
-            </div>
-          </div>
-
-          {/* View full chain button */}
-          <button
-            onClick={() => onOpenOptionsChain?.(displayCoin)}
-            className="w-full py-2.5 rounded font-semibold text-[12px] bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 transition-colors mb-2"
-          >
-            View Options Chain
-          </button>
-
-          {/* Trade on Derive link */}
-          <a
-            href={`https://derive.xyz/trade/options/${displayCoin}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full py-2.5 rounded font-semibold text-[12px] bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors text-center block"
-          >
-            Trade on Derive &rarr;
-          </a>
-
-          <div className="mt-auto pt-3 text-[9px] text-[var(--hl-muted)] text-center">
-            Options execution requires signing via Derive. Full chain view shows live Greeks, IV, and order book depth.
-          </div>
-        </div>
+        <OptionsOrderPanel
+          coin={displayCoin}
+          selectedOption={selectedOption ?? null}
+          onClearOption={onClearOption}
+          isConnected={isConnected}
+        />
       )}
 
       {/* ─── Perp Mode (existing) ─── */}
@@ -677,6 +620,250 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain }: Trad
                 Note that setting a higher leverage increases the risk of liquidation.
               </p>
             </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Options Order Entry Panel (right side, mimics Derive) ──────────────────
+
+interface OptionsOrderPanelProps {
+  coin: string;
+  selectedOption: SelectedOption | null;
+  onClearOption?: () => void;
+  isConnected: boolean;
+}
+
+function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }: OptionsOrderPanelProps) {
+  const [optionSide, setOptionSide] = useState<"buy" | "sell">("buy");
+  const [optOrderType, setOptOrderType] = useState<"limit" | "market">("limit");
+  const [limitPrice, setLimitPrice] = useState("");
+  const [amount, setAmount] = useState("");
+
+  // When a new option is selected from the chain, update the form
+  useEffect(() => {
+    if (selectedOption) {
+      setOptionSide(selectedOption.side);
+      setLimitPrice(selectedOption.price > 0 ? selectedOption.price.toFixed(2) : "");
+      setAmount("");
+    }
+  }, [selectedOption]);
+
+  const opt = selectedOption;
+  const typeLabel = opt?.type === "C" ? "Call" : "Put";
+  const priceNum = parseFloat(limitPrice) || 0;
+  const amountNum = parseFloat(amount) || 0;
+  const premium = priceNum * amountNum;
+
+  return (
+    <div className="flex flex-col flex-1 px-3 mt-3 overflow-y-auto">
+      {/* Option title */}
+      {opt ? (
+        <div className="mb-3">
+          <div className="flex items-center justify-between">
+            <div className="text-[12px] font-bold text-[var(--foreground)]">
+              {coin} ${opt.strike.toLocaleString()} {typeLabel} {opt.expiry}
+            </div>
+            <button
+              onClick={onClearOption}
+              className="text-[var(--hl-muted)] hover:text-[var(--foreground)] transition-colors text-sm"
+            >
+              &times;
+            </button>
+          </div>
+          <div className="text-[9px] text-purple-400 mt-0.5">via Derive</div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center h-24 text-center">
+          <div>
+            <div className="text-[12px] text-[var(--hl-muted)] mb-1">Select an option</div>
+            <div className="text-[10px] text-[var(--hl-muted)] opacity-60">Click a bid or ask in the chain</div>
+          </div>
+        </div>
+      )}
+
+      {opt && (
+        <>
+          {/* Buy to Open / Sell to Open */}
+          <div className="grid grid-cols-2 gap-px bg-[var(--hl-border)] rounded overflow-hidden mb-3">
+            <button
+              onClick={() => {
+                setOptionSide("buy");
+                setLimitPrice(opt.askPrice > 0 ? opt.askPrice.toFixed(2) : "");
+              }}
+              className={`py-2 text-[11px] font-semibold transition-colors ${
+                optionSide === "buy"
+                  ? "bg-[var(--hl-green)] text-[var(--background)]"
+                  : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Buy to Open
+            </button>
+            <button
+              onClick={() => {
+                setOptionSide("sell");
+                setLimitPrice(opt.bidPrice > 0 ? opt.bidPrice.toFixed(2) : "");
+              }}
+              className={`py-2 text-[11px] font-semibold transition-colors ${
+                optionSide === "sell"
+                  ? "bg-[var(--hl-red)] text-white"
+                  : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              Sell to Open
+            </button>
+          </div>
+
+          {/* Order Type */}
+          <div className="mb-2.5">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-[var(--hl-muted)]">Order Type</span>
+              <select
+                value={optOrderType}
+                onChange={e => setOptOrderType(e.target.value as "limit" | "market")}
+                className="text-[11px] bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1 text-[var(--foreground)] outline-none"
+              >
+                <option value="limit">Limit</option>
+                <option value="market">Market</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Limit Price */}
+          {optOrderType === "limit" && (
+            <div className="mb-2.5">
+              <div className="text-[10px] text-[var(--hl-muted)] mb-1">
+                Limit Price
+                {opt.bidPrice > 0 && (
+                  <span className="text-[var(--hl-muted)] opacity-60 ml-1">Bid: ${opt.bidPrice.toFixed(2)}</span>
+                )}
+              </div>
+              <div className="flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1.5">
+                <span className="text-[11px] text-[var(--hl-muted)] mr-1">$</span>
+                <input
+                  type="number"
+                  value={limitPrice}
+                  onChange={e => setLimitPrice(e.target.value)}
+                  placeholder="0.00"
+                  step="0.01"
+                  className="flex-1 bg-transparent text-right text-[13px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none font-medium"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Amount */}
+          <div className="mb-2.5">
+            <div className="text-[10px] text-[var(--hl-muted)] mb-1">Amount</div>
+            <div className="flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1.5">
+              <input
+                type="number"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                placeholder="0.0"
+                step="0.1"
+                className="flex-1 bg-transparent text-right text-[13px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none font-medium"
+              />
+            </div>
+          </div>
+
+          {/* Post Only + GTC */}
+          <div className="flex items-center gap-4 mb-3 text-[10px]">
+            <label className="flex items-center gap-1.5 text-[var(--hl-muted)] cursor-pointer">
+              <input type="checkbox" defaultChecked className="accent-purple-500 w-3 h-3" />
+              Post
+            </label>
+            <label className="flex items-center gap-1.5 text-[var(--hl-muted)] cursor-pointer">
+              <input type="checkbox" defaultChecked className="accent-purple-500 w-3 h-3" />
+              GTC
+            </label>
+          </div>
+
+          {/* Connect wallet or Trade button */}
+          {isConnected ? (
+            <a
+              href={`https://derive.xyz/trade/options/${coin}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`w-full py-2.5 rounded font-semibold text-[12px] text-center block transition-colors ${
+                optionSide === "buy"
+                  ? "bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
+                  : "bg-[var(--hl-red)] text-white hover:brightness-110"
+              }`}
+            >
+              {optionSide === "buy" ? "Buy" : "Sell"} on Derive
+            </a>
+          ) : (
+            <a
+              href={`https://derive.xyz/trade/options/${coin}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2.5 rounded font-semibold text-[12px] bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 transition-colors text-center block"
+            >
+              Connect a Wallet
+            </a>
+          )}
+
+          {/* Order summary */}
+          <div className="mt-3 space-y-1.5 text-[10px]">
+            <div className="flex justify-between">
+              <span className="text-[var(--hl-muted)]">{optionSide === "buy" ? "Max Cost" : "Min Received"}</span>
+              <span className="text-[var(--foreground)] tabular-nums font-medium">${premium > 0 ? premium.toFixed(2) : "0.00"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-[var(--hl-muted)]">Margin Required</span>
+              <span className="text-[var(--foreground)] tabular-nums">$0.00</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-[var(--hl-muted)]">Est. Fee</span>
+              <span className="text-[var(--foreground)] tabular-nums">${(premium * 0.0003).toFixed(4)}</span>
+            </div>
+          </div>
+
+          {/* Greeks / details tabs */}
+          <div className="mt-3 pt-3 border-t border-[var(--hl-border)]">
+            <div className="grid grid-cols-4 gap-x-2 gap-y-1.5 text-[9px]">
+              <div>
+                <div className="text-[var(--hl-muted)]">IV</div>
+                <div className="text-[var(--foreground)] tabular-nums font-medium">{opt.iv.toFixed(1)}%</div>
+              </div>
+              <div>
+                <div className="text-[var(--hl-muted)]">Delta</div>
+                <div className="text-[var(--foreground)] tabular-nums font-medium">{opt.delta.toFixed(3)}</div>
+              </div>
+              <div>
+                <div className="text-[var(--hl-muted)]">Gamma</div>
+                <div className="text-[var(--foreground)] tabular-nums font-medium">{opt.gamma.toFixed(4)}</div>
+              </div>
+              <div>
+                <div className="text-[var(--hl-muted)]">Theta</div>
+                <div className="text-[var(--foreground)] tabular-nums font-medium">{opt.theta.toFixed(3)}</div>
+              </div>
+              <div>
+                <div className="text-[var(--hl-muted)]">Vega</div>
+                <div className="text-[var(--foreground)] tabular-nums font-medium">{opt.vega.toFixed(3)}</div>
+              </div>
+              <div>
+                <div className="text-[var(--hl-muted)]">Mark</div>
+                <div className="text-[var(--foreground)] tabular-nums font-medium">${opt.markPrice.toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-[var(--hl-muted)]">Bid</div>
+                <div className="text-[var(--hl-green)] tabular-nums font-medium">${opt.bidPrice.toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-[var(--hl-muted)]">Ask</div>
+                <div className="text-[var(--hl-red)] tabular-nums font-medium">${opt.askPrice.toFixed(2)}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* OI */}
+          <div className="mt-2 text-[9px] flex justify-between">
+            <span className="text-[var(--hl-muted)]">Open Interest</span>
+            <span className="text-[var(--foreground)] tabular-nums">{opt.openInterest.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
         </>
       )}

@@ -26,6 +26,8 @@ import { PositionConcentrationPanel } from "@/components/terminal/position-conce
 import { PositionsPanel } from "@/components/terminal/positions-panel";
 import { TraderDetailPanel } from "@/components/traders/trader-detail-panel";
 import { OptionsChainModal } from "@/components/terminal/hype-options";
+import { InlineOptionsChain } from "@/components/terminal/inline-options-chain";
+import type { SelectedOption } from "@/components/terminal/inline-options-chain";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
 const CopyDialog = dynamic(
@@ -41,6 +43,8 @@ export default function HomePage() {
   const [selectedTrader, setSelectedTrader] = useState<string | null>(null);
   const [copyTrader, setCopyTrader] = useState<string | null>(null);
   const [optionsChainCoin, setOptionsChainCoin] = useState<string | null>(null);
+  const [tradingMode, setTradingMode] = useState<"perp" | "options">("perp");
+  const [selectedOption, setSelectedOption] = useState<SelectedOption | null>(null);
 
   // When a token is selected from any panel, update chart
   const handleSelectToken = (coin: string) => {
@@ -101,29 +105,45 @@ export default function HomePage() {
         />
       </div>
 
-      {/* Chart + Trading Panel */}
+      {/* Chart / Options Chain + Trading Panel */}
       <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)] overflow-hidden" style={{ minHeight: "320px" }}>
-        {/* Chart — takes most of the width */}
-        <div className="flex-1 min-w-0 h-[300px] md:h-[420px] overflow-hidden">
-          <PriceChart
-            coin={chartCoin}
-            tokens={data?.tokens || []}
-            onSelectToken={handleSelectToken}
-            whaleAlerts={data?.whaleAlerts || []}
-            liquidationBands={data?.liquidationHeatmap?.find(h => h.coin === chartCoin)?.bands}
-          />
-        </div>
-        {/* Order Book — hidden on mobile */}
-        <div className="hidden lg:block w-[180px] flex-shrink-0 h-[420px]">
-          <OrderBook coin={chartCoin} />
-        </div>
+        {/* Main area: Chart or Options Chain */}
+        {tradingMode === "options" ? (
+          <div className="flex-1 min-w-0 h-[300px] md:h-[420px] overflow-hidden">
+            <InlineOptionsChain
+              coin={chartCoin.includes(":") ? chartCoin.split(":")[1] : chartCoin}
+              onSelectOption={setSelectedOption}
+              selectedOption={selectedOption}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="flex-1 min-w-0 h-[300px] md:h-[420px] overflow-hidden">
+              <PriceChart
+                coin={chartCoin}
+                tokens={data?.tokens || []}
+                onSelectToken={handleSelectToken}
+                whaleAlerts={data?.whaleAlerts || []}
+                liquidationBands={data?.liquidationHeatmap?.find(h => h.coin === chartCoin)?.bands}
+              />
+            </div>
+            {/* Order Book — hidden on mobile */}
+            <div className="hidden lg:block w-[180px] flex-shrink-0 h-[420px]">
+              <OrderBook coin={chartCoin} />
+            </div>
+          </>
+        )}
         {/* Trading Panel — full width on mobile, fixed on desktop */}
-        <div className="w-full md:w-[240px] flex-shrink-0">
+        <div className="w-full md:w-[280px] flex-shrink-0">
           <TradingPanel
             coin={chartCoin}
             overview={chartOverview}
             score={chartOverview?.score ?? null}
             onOpenOptionsChain={(coin) => setOptionsChainCoin(coin)}
+            tradingMode={tradingMode}
+            onTradingModeChange={setTradingMode}
+            selectedOption={selectedOption}
+            onClearOption={() => setSelectedOption(null)}
           />
         </div>
       </div>

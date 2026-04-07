@@ -198,7 +198,7 @@ function parseInstrumentName(name: string): {
     return {
       asset: parts[0]!,
       type: "PERP",
-      subId: 0n,
+      subId: BigInt(0),
     };
   }
   // Options: ASSET-EXPIRY-STRIKE-TYPE (e.g. ETH-20261231-5000-C)
@@ -207,7 +207,7 @@ function parseInstrumentName(name: string): {
   return {
     asset: parts[0]!,
     type: "OPTION",
-    subId: 0n,
+    subId: BigInt(0),
   };
 }
 
