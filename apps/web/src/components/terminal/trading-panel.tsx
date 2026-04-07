@@ -62,6 +62,7 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
     if (!address || sizeNum <= 0) return;
     setSubmitting(true);
     setLastResult(null);
+    console.log(`[trade] Starting ${side} ${coin} size=${sizeNum} type=${orderType} lev=${leverage}x`);
 
     try {
       // Dynamically import wagmi core + exchange lib (avoids SSR crash)
@@ -73,33 +74,40 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
 
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) {
+        console.error("[trade] No wallet client");
         setLastResult({ success: false, error: "Wallet not connected" });
         setSubmitting(false);
         return;
       }
+      console.log("[trade] Wallet client OK, address:", address);
 
       // Check + request builder fee approval (one-time per wallet)
       if (!builderApproved) {
+        console.log("[trade] Checking builder fee approval...");
         const alreadyApproved = await exchange.checkBuilderApproval(address as string);
         if (alreadyApproved) {
+          console.log("[trade] Builder fee already approved");
           setBuilderApproved(true);
         } else {
-          // Request user to sign builder fee approval
+          console.log("[trade] Requesting builder fee approval signature...");
           const approvalResult = await exchange.approveBuilderFee(
             walletClient,
             address as `0x${string}`,
           );
           if (!approvalResult.success) {
+            console.error("[trade] Builder fee approval failed:", approvalResult.error);
             setLastResult({ success: false, error: `Fee approval: ${approvalResult.error}` });
             setSubmitting(false);
             return;
           }
+          console.log("[trade] Builder fee approved");
           setBuilderApproved(true);
         }
       }
 
       // Set leverage first if not yet confirmed
       if (!leverageSet) {
+        console.log(`[trade] Setting leverage to ${leverage}x...`);
         const levResult = await exchange.setLeverage(
           walletClient,
           address as `0x${string}`,
@@ -115,6 +123,7 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
       }
 
       // Place the order
+      console.log("[trade] Placing order...");
       const orderStart = Date.now();
       const result = await exchange.placeOrder(walletClient, address as `0x${string}`, {
         asset: coin,
@@ -126,6 +135,7 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
       });
       const latencyMs = Date.now() - orderStart;
 
+      console.log("[trade] Order result:", result);
       setLastResult(result);
       if (result.success) {
         setSize(""); // Clear size on success
@@ -352,15 +362,21 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
       <div className="px-3 py-2 border-t border-[var(--hl-border)]">
         {isConnected ? (
           <button
-            className={`w-full py-2 rounded font-semibold text-[13px] transition-colors disabled:opacity-50 ${
-              side === "long"
-                ? "bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
-                : "bg-[var(--hl-red)] text-white hover:brightness-110"
-            }`}
+            className={`w-full py-2 rounded font-semibold text-[13px] transition-colors ${
+              sizeNum <= 0
+                ? "bg-[var(--hl-surface)] text-[var(--hl-muted)] cursor-not-allowed"
+                : side === "long"
+                  ? "bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
+                  : "bg-[var(--hl-red)] text-white hover:brightness-110"
+            } ${submitting ? "opacity-50" : ""}`}
             disabled={submitting || sizeNum <= 0}
             onClick={handleSubmit}
           >
-            {submitting ? "Signing..." : `${side === "long" ? "Long" : "Short"} ${coin.includes(":") ? coin.split(":")[1] : coin}`}
+            {submitting
+              ? "Signing..."
+              : sizeNum <= 0
+                ? "Enter size to trade"
+                : `${side === "long" ? "Long" : "Short"} ${coin.includes(":") ? coin.split(":")[1] : coin}`}
           </button>
         ) : (
           <button

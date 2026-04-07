@@ -444,6 +444,20 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
       <div className="flex-1 min-h-0 flex">
         {/* Left-side drawing toolbar (TradingView style) */}
         <div className="flex flex-col items-center gap-0.5 py-2 px-1 border-r border-[var(--hl-border)] bg-[var(--background)] shrink-0" style={{ width: 32 }}>
+          {/* Cross / Cursor — deselect all drawing tools (TV style) */}
+          <button
+            onClick={() => { setDrawingTool("none"); setPendingDrawing(null); }}
+            className={`p-1 rounded transition-colors ${drawingTool === "none" ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            title="Crosshair — view chart"
+          >
+            <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <line x1="14" y1="2" x2="14" y2="26" />
+              <line x1="2" y1="14" x2="26" y2="14" />
+            </svg>
+          </button>
+
+          <div className="w-5 border-t border-[var(--hl-border)] my-1" />
+
           {/* Trend Line — diagonal line with endpoint circles (TV style) */}
           <button
             onClick={() => { setDrawingTool(drawingTool === "trendline" ? "none" : "trendline"); setPendingDrawing(null); }}
@@ -553,6 +567,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             drawings={drawings}
             pendingDrawing={pendingDrawing}
             drawingTool={drawingTool}
+            magnetMode={magnetMode}
             onDrawingClick={(time, rawPrice) => {
               if (drawingTool === "none") return;
               // Magnet mode: snap price to nearest candle OHLC
@@ -630,7 +645,7 @@ interface TopTraderFillData {
   trader: string;
 }
 
-function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], liquidationBands, drawings = [], pendingDrawing, drawingTool = "none", onDrawingClick, onDrawingHover, onRemoveDrawing }: {
+function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], liquidationBands, drawings = [], pendingDrawing, drawingTool = "none", magnetMode = false, onDrawingClick, onDrawingHover, onRemoveDrawing }: {
   candles: CandleData[];
   oiCandles: { time: number; open: number; high: number; low: number; close: number; bullish: boolean }[];
   formatTime: (t: number) => string;
@@ -643,11 +658,13 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   drawings?: DrawingLine[];
   pendingDrawing?: Partial<DrawingLine> | null;
   drawingTool?: DrawingTool;
+  magnetMode?: boolean;
   onDrawingClick?: (time: number, price: number) => void;
   onDrawingHover?: (time: number, price: number) => void;
   onRemoveDrawing?: (id: string) => void;
 }) {
   const [hover, setHover] = useState<number | null>(null);
+  const [mouseY, setMouseY] = useState<number | null>(null); // raw SVG Y for free crosshair
   const [visibleCount, setVisibleCount] = useState(60);
   const [offset, setOffset] = useState(0); // 0 = latest candles visible at right edge
   const [priceZoom, setPriceZoom] = useState(1); // 1 = auto-fit, >1 = zoomed in
@@ -959,6 +976,11 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             if (!dragRef.current && !yDragRef.current && svgRef.current) {
               const rect = svgRef.current.getBoundingClientRect();
               const svgX = ((e.clientX - rect.left) / rect.width) * W;
+              const svgY = ((e.clientY - rect.top) / rect.height) * H;
+              // Track raw mouse Y for free crosshair
+              if (svgY >= MT && svgY <= MT + priceH) {
+                setMouseY(svgY);
+              }
               if (drawingTool === "none") {
                 // Change cursor when over price axis
                 if (svgX > W - MR) {
@@ -973,7 +995,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             }
           }}
           onMouseUp={handleMouseUp}
-          onMouseLeave={() => { setHover(null); handleMouseUp(); }}
+          onMouseLeave={() => { setHover(null); setMouseY(null); handleMouseUp(); }}
           onDoubleClick={() => { if (drawingTool === "none") setPriceZoom(1); }}
           style={{ display: "block" }}
         >
@@ -1251,19 +1273,44 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
           {/* Crosshair */}
           {hover !== null && !dragRef.current && (
-            <>
-              <line
-                x1={ML + hover * candleW + candleW / 2} y1={0}
-                x2={ML + hover * candleW + candleW / 2} y2={H - MB}
-                stroke="var(--hl-muted)" strokeWidth={0.5} strokeDasharray="2 2"
-              />
-              {hovered && (
-                <line
-                  x1={ML} y1={priceY(hovered.close)} x2={W - MR} y2={priceY(hovered.close)}
-                  stroke="var(--hl-muted)" strokeWidth={0.5} strokeDasharray="2 2"
-                />
-              )}
-            </>
+            (() => {
+              // Determine horizontal crosshair Y position
+              let crossY = mouseY;
+              if (magnetMode && hovered) {
+                // Magnet ON: snap to nearest OHLC value (body + wicks)
+                const rawPrice = mouseY !== null ? yToPrice(mouseY) : hovered.close;
+                let bestDist = Infinity;
+                let bestPrice = hovered.close;
+                for (const p of [hovered.open, hovered.high, hovered.low, hovered.close]) {
+                  const dist = Math.abs(p - rawPrice);
+                  if (dist < bestDist) { bestDist = dist; bestPrice = p; }
+                }
+                crossY = priceY(bestPrice);
+              }
+              const crossPrice = crossY !== null ? yToPrice(crossY) : null;
+              return (
+                <>
+                  <line
+                    x1={ML + hover * candleW + candleW / 2} y1={0}
+                    x2={ML + hover * candleW + candleW / 2} y2={H - MB}
+                    stroke="var(--hl-muted)" strokeWidth={0.5} strokeDasharray="2 2"
+                  />
+                  {crossY !== null && (
+                    <>
+                      <line
+                        x1={ML} y1={crossY} x2={W - MR} y2={crossY}
+                        stroke="var(--hl-muted)" strokeWidth={0.5} strokeDasharray="2 2"
+                      />
+                      {/* Price label on right axis */}
+                      <rect x={W - MR} y={crossY - 8} width={MR - 2} height={16} rx={2} fill="var(--hl-surface)" stroke="var(--hl-border)" strokeWidth={0.5} />
+                      <text x={W - MR + 4} y={crossY + 4} fill="var(--foreground)" fontSize={10} fontFamily="monospace">
+                        {formatPrice(crossPrice!)}
+                      </text>
+                    </>
+                  )}
+                </>
+              );
+            })()
           )}
         </svg>
       </div>
