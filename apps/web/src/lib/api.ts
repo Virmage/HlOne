@@ -605,16 +605,48 @@ export interface TokenDetail {
   timestamp: number;
 }
 
+// ─── Request cache + dedup ─────────────────────────────────────────────────
+// Prevents duplicate in-flight requests and caches recent results
+
+const requestCache = new Map<string, { data: unknown; time: number }>();
+const inflightRequests = new Map<string, Promise<unknown>>();
+
+function cachedFetch<T>(key: string, fetcher: () => Promise<T>, ttlMs: number): Promise<T> {
+  // Return cached if fresh
+  const cached = requestCache.get(key);
+  if (cached && Date.now() - cached.time < ttlMs) {
+    return Promise.resolve(cached.data as T);
+  }
+  // Dedup in-flight requests
+  const inflight = inflightRequests.get(key);
+  if (inflight) return inflight as Promise<T>;
+
+  const promise = fetcher().then(data => {
+    requestCache.set(key, { data, time: Date.now() });
+    inflightRequests.delete(key);
+    return data;
+  }).catch(err => {
+    inflightRequests.delete(key);
+    // Return stale cache on error if available
+    if (cached) return cached.data as T;
+    throw err;
+  });
+  inflightRequests.set(key, promise);
+  return promise;
+}
+
 export async function getTerminalData() {
-  return apiFetch<TerminalData>("/api/market/terminal");
+  return cachedFetch("terminal", () => apiFetch<TerminalData>("/api/market/terminal"), 10_000);
 }
 
 export async function getTokenDetail(coin: string, interval = "1h") {
-  return apiFetch<TokenDetail>(`/api/market/token/${encodeURIComponent(coin)}?interval=${interval}`);
+  const key = `detail:${coin}:${interval}`;
+  return cachedFetch(key, () => apiFetch<TokenDetail>(`/api/market/token/${encodeURIComponent(coin)}?interval=${interval}`), 5_000);
 }
 
 export async function getDeriveOptionsChain(coin: string) {
-  return apiFetch<DeriveOptionsChain>(`/api/market/options/${encodeURIComponent(coin)}`);
+  const key = `options:${coin}`;
+  return cachedFetch(key, () => apiFetch<DeriveOptionsChain>(`/api/market/options/${encodeURIComponent(coin)}`), 15_000);
 }
 
 // Backward compat

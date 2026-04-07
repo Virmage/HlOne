@@ -43,18 +43,23 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
     if (showLoading) setLoading(false);
   }, [coin, interval]);
 
-  // Initial fetch + polling
+  // Initial fetch + polling — only show loading on first load or coin change
+  const prevCoinRef = useRef(coin);
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    // Only show loading spinner on coin change, not interval change
+    const coinChanged = prevCoinRef.current !== coin;
+    prevCoinRef.current = coin;
+    if (coinChanged || !detail) setLoading(true);
+
     getTokenDetail(coin, interval)
       .then(d => { if (!cancelled) setDetail(d); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
 
-    // Poll for live updates
+    // Poll for live updates (skip if tab hidden)
     pollRef.current = globalThis.setInterval(() => {
-      if (!cancelled) fetchData(false);
+      if (!cancelled && !document.hidden) fetchData(false);
     }, POLL_INTERVAL);
 
     return () => {

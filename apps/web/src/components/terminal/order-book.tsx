@@ -106,9 +106,11 @@ export function OrderBook({ coin }: OrderBookProps) {
 
     connect();
 
-    // Poll trades every 5s
+    // Poll trades every 5s (skip when tab hidden to save bandwidth)
     fetchTrades();
-    pollRef.current = setInterval(fetchTrades, 5_000);
+    pollRef.current = setInterval(() => {
+      if (!document.hidden) fetchTrades();
+    }, 5_000);
 
     return () => {
       cancelled = true;
