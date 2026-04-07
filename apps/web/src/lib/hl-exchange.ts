@@ -9,6 +9,8 @@
  */
 
 import type { WalletClient } from "viem";
+import { getAccount } from "@wagmi/core";
+import { config } from "@/config/wagmi";
 
 const HL_API = "https://api.hyperliquid.xyz";
 
@@ -124,56 +126,60 @@ export interface PlaceOrderResult {
   error?: string;
 }
 
-// ─── Raw signing — bypass viem chainId validation ───────────────────────────
-// viem's walletClient.request() validates domain chainId against the connected
-// chain. Rabby's window.ethereum proxy may also intercept/hang.
-// Solution: use walletClient.transport.request() which calls the raw EIP-1193
-// provider directly, skipping viem's client middleware.
+// ─── Raw signing — bypass viem entirely ─────────────────────────────────────
+// viem validates domain chainId against the connected chain (Arbitrum 42161),
+// but Hyperliquid uses custom chainIds (1337 for orders, 421614 for fee approvals).
+// Solution: get the raw EIP-1193 provider from the wagmi connector, which gives
+// us direct access to MetaMask/Rabby without any viem middleware.
+
+async function getRawProvider(): Promise<{ request: (args: { method: string; params: unknown[] }) => Promise<unknown> }> {
+  const account = getAccount(config);
+  if (account.connector) {
+    try {
+      const provider = await account.connector.getProvider();
+      if (provider && typeof (provider as Record<string, unknown>).request === "function") {
+        console.log("[signing] Got raw provider from connector:", account.connector.name);
+        return provider as { request: (args: { method: string; params: unknown[] }) => Promise<unknown> };
+      }
+    } catch (err) {
+      console.warn("[signing] connector.getProvider() failed:", (err as Error).message);
+    }
+  }
+
+  // Fallback: window.ethereum
+  const w = typeof window !== "undefined" ? (window as unknown as { ethereum?: { request: (args: { method: string; params: unknown[] }) => Promise<unknown> } }) : {};
+  if (w.ethereum) {
+    console.log("[signing] Using window.ethereum fallback");
+    return w.ethereum;
+  }
+
+  throw new Error("No wallet provider found — is your wallet connected?");
+}
 
 async function rawSignTypedData(
-  walletClient: WalletClient,
+  _walletClient: WalletClient, // kept for API compat, not used
   address: string,
   typedData: Record<string, unknown>,
 ): Promise<string> {
-  const params = [address, JSON.stringify(typedData)];
+  const provider = await getRawProvider();
+  const dataStr = JSON.stringify(typedData);
+  console.log("[signing] Requesting eth_signTypedData_v4 for", address.slice(0, 8) + "...");
+  console.log("[signing] Domain:", JSON.stringify((typedData as { domain?: unknown }).domain));
 
-  // Strategy 1: walletClient's raw transport (bypasses viem middleware)
-  try {
-    const transport = walletClient.transport as { request?: (args: { method: string; params: unknown[] }) => Promise<unknown> };
-    if (transport?.request) {
-      const sig = await withTimeout(
-        transport.request({ method: "eth_signTypedData_v4", params }),
-        30_000, "Signing"
-      );
-      if (typeof sig === "string" && sig.startsWith("0x")) return sig;
-    }
-  } catch (err) {
-    console.warn("[signing] transport.request failed:", (err as Error).message);
-  }
-
-  // Strategy 2: window.ethereum directly
-  try {
-    const w = typeof window !== "undefined" ? (window as unknown as { ethereum?: { request: (args: { method: string; params: unknown[] }) => Promise<unknown> } }) : {};
-    if (w.ethereum) {
-      const sig = await withTimeout(
-        w.ethereum.request({ method: "eth_signTypedData_v4", params }),
-        30_000, "Signing"
-      );
-      if (typeof sig === "string" && sig.startsWith("0x")) return sig;
-    }
-  } catch (err) {
-    console.warn("[signing] window.ethereum failed:", (err as Error).message);
-  }
-
-  // Strategy 3: walletClient.request (may fail with chainId mismatch)
   const sig = await withTimeout(
-    walletClient.request({
+    provider.request({
       method: "eth_signTypedData_v4",
-      params: [address as `0x${string}`, JSON.stringify(typedData)],
+      params: [address, dataStr],
     }),
-    30_000, "Signing"
+    30_000,
+    "Signing",
   );
-  return sig as string;
+
+  if (typeof sig !== "string" || !sig.startsWith("0x")) {
+    throw new Error(`Invalid signature returned: ${String(sig).slice(0, 20)}`);
+  }
+  console.log("[signing] Signature OK:", sig.slice(0, 10) + "...");
+  return sig;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -211,13 +217,13 @@ async function signL1Action(
     domain: {
       name: "Exchange",
       version: "1",
-      chainId: "0x539", // 1337 in hex
+      chainId: 1337,
       verifyingContract: "0x0000000000000000000000000000000000000000",
     },
     message: {
       hyppieLiquidChain: "Mainnet",
       isMainNet: true,
-      nonce: `0x${BigInt(nonce).toString(16)}`,
+      nonce: nonce,
     },
   };
 
@@ -585,14 +591,14 @@ export async function approveBuilderFee(
       domain: {
         name: "HyperliquidSignTransaction",
         version: "1",
-        chainId: "0x66eee", // 421614 in hex (Arbitrum Sepolia)
+        chainId: 421614,
         verifyingContract: "0x0000000000000000000000000000000000000000",
       },
       message: {
         hyperliquidChain: "Mainnet",
         maxFeeRate: "0.02%",
         builder: BUILDER_ADDRESS,
-        nonce: `0x${BigInt(nonce).toString(16)}`,
+        nonce: nonce,
       },
     };
 
