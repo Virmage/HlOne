@@ -6,22 +6,26 @@ import { useRef, useCallback, useEffect } from "react";
  * Pixel-based infinite ticker using requestAnimationFrame.
  * Measures actual content width for seamless looping.
  * Content must be duplicated (rendered twice) in the DOM.
+ *
+ * reverse=false: scrolls left (content enters from right)
+ * reverse=true:  scrolls right (content enters from left)
+ * startOffscreen: content starts off-screen and scrolls into view
  */
 export function useTickerAnimation(
   durationSeconds: number = 60,
-  reverse: boolean = false
+  reverse: boolean = false,
+  startOffscreen: boolean = false
 ) {
-  const offsetRef = useRef(0);       // current pixel offset
+  const offsetRef = useRef<number | null>(null); // null = not initialized
   const rafRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const pausedRef = useRef(false);
   const elRef = useRef<HTMLDivElement | null>(null);
-  const contentWidthRef = useRef(0);  // width of one copy of content
+  const contentWidthRef = useRef(0);
 
   const measure = useCallback(() => {
     const el = elRef.current;
     if (!el) return;
-    // The track has two identical children — measure the first one
     const firstChild = el.children[0] as HTMLElement | undefined;
     if (firstChild) {
       contentWidthRef.current = firstChild.scrollWidth;
@@ -38,8 +42,8 @@ export function useTickerAnimation(
     if (!el) return;
 
     lastTimeRef.current = 0;
+    offsetRef.current = null; // reset for re-init
 
-    // Measure after a frame so content has rendered
     requestAnimationFrame(() => {
       measure();
 
@@ -48,18 +52,28 @@ export function useTickerAnimation(
 
         if (!pausedRef.current && contentWidthRef.current > 0) {
           const delta = timestamp - lastTimeRef.current;
-          // pixels per ms = contentWidth / durationMs
           const speed = contentWidthRef.current / (durationSeconds * 1000);
           const movement = delta * speed;
 
+          // Initialize offset on first frame
+          if (offsetRef.current === null) {
+            if (startOffscreen) {
+              // Start with content off-screen: positive offset pushes content right
+              offsetRef.current = el.parentElement?.clientWidth ?? window.innerWidth;
+            } else {
+              offsetRef.current = 0;
+            }
+          }
+
           if (reverse) {
-            offsetRef.current -= movement;
-            if (offsetRef.current <= -contentWidthRef.current) {
-              offsetRef.current += contentWidthRef.current;
+            // Scroll right: offset increases
+            offsetRef.current += movement;
+            if (offsetRef.current >= contentWidthRef.current) {
+              offsetRef.current -= contentWidthRef.current;
             }
           } else {
+            // Scroll left: offset decreases
             offsetRef.current -= movement;
-            // When we've scrolled one full content width, wrap back
             if (offsetRef.current <= -contentWidthRef.current) {
               offsetRef.current += contentWidthRef.current;
             }
@@ -74,9 +88,8 @@ export function useTickerAnimation(
 
       rafRef.current = requestAnimationFrame(step);
     });
-  }, [durationSeconds, reverse, measure]);
+  }, [durationSeconds, reverse, startOffscreen, measure]);
 
-  // Re-measure when window resizes (content might reflow)
   useEffect(() => {
     const handleResize = () => measure();
     window.addEventListener("resize", handleResize);
@@ -89,7 +102,7 @@ export function useTickerAnimation(
 
   const onMouseLeave = useCallback(() => {
     pausedRef.current = false;
-    lastTimeRef.current = 0; // skip the delta gap while paused
+    lastTimeRef.current = 0;
   }, []);
 
   return { trackRef, onMouseEnter, onMouseLeave };
