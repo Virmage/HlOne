@@ -152,9 +152,9 @@ function classifyTraders(traders: DiscoveredTrader[]) {
   // Score all traders
   for (const t of traders) {
     const addr = t.address.toLowerCase();
-    if (t.roiAllTime > 0 && t.accountValue > 5_000) {
+    if (t.roiAllTime > -5 && t.accountValue > 1_000) {
       traderScores.set(addr, scoreTrader(t));
-    } else if (t.roiAllTime < -5 && t.accountValue > 1_000) {
+    } else if (t.roiAllTime < -5 && t.accountValue > 500) {
       // Negative score for squares (stored as negative to distinguish)
       traderScores.set(addr, -scoreSquare(t));
     }
@@ -162,9 +162,9 @@ function classifyTraders(traders: DiscoveredTrader[]) {
 
   // Sharps: positive score > 40, sorted by score, top 500
   const sharpCandidates = traders
-    .filter(t => (traderScores.get(t.address.toLowerCase()) || 0) > 40)
+    .filter(t => (traderScores.get(t.address.toLowerCase()) || 0) > 25)
     .sort((a, b) => (traderScores.get(b.address.toLowerCase()) || 0) - (traderScores.get(a.address.toLowerCase()) || 0))
-    .slice(0, 500);
+    .slice(0, 1000);
 
   const sharpAddresses = new Set(sharpCandidates.map(t => t.address.toLowerCase()));
 
@@ -172,7 +172,7 @@ function classifyTraders(traders: DiscoveredTrader[]) {
   const squares = traders
     .filter(t => {
       const score = traderScores.get(t.address.toLowerCase()) || 0;
-      return score < -30 && !sharpAddresses.has(t.address.toLowerCase());
+      return score < -20 && !sharpAddresses.has(t.address.toLowerCase());
     })
     .sort((a, b) => (traderScores.get(a.address.toLowerCase()) || 0) - (traderScores.get(b.address.toLowerCase()) || 0))
     .slice(0, 500);
@@ -391,7 +391,7 @@ async function doSmartMoneyRefresh(): Promise<SmartMoneyCache> {
     // Require: both sides have clear direction (>65% conviction), minimum 5 traders each side
     const strongSharpDir = sharpLongPct > 0.65 ? "long" : sharpLongPct < 0.35 ? "short" : "neutral";
     const strongSquareDir = squareLongPct > 0.65 ? "long" : squareLongPct < 0.35 ? "short" : "neutral";
-    const isDivergent = sharpTotal >= 10 && squareTotal >= 10 &&
+    const isDivergent = sharpTotal >= 3 && squareTotal >= 3 &&
                         strongSharpDir !== "neutral" && strongSquareDir !== "neutral" &&
                         strongSharpDir !== strongSquareDir;
 
@@ -445,9 +445,17 @@ async function doSmartMoneyRefresh(): Promise<SmartMoneyCache> {
     flow[i].divergenceScore = Math.round((rawScores[i] / maxRaw) * 100);
   }
 
-  // Sort flow by divergence score (best opportunities first), then by trader count
-  flow.sort((a, b) => b.divergenceScore - a.divergenceScore ||
-    (b.sharpLongCount + b.sharpShortCount) - (a.sharpLongCount + a.sharpShortCount));
+  // Sort flow by: divergent coins first, then by total sharp trader count (most interest first)
+  flow.sort((a, b) => {
+    // Divergent coins always on top
+    if (b.divergenceScore !== a.divergenceScore) return b.divergenceScore - a.divergenceScore;
+    // Then by sharp trader count
+    const aSharp = a.sharpLongCount + a.sharpShortCount;
+    const bSharp = b.sharpLongCount + b.sharpShortCount;
+    if (bSharp !== aSharp) return bSharp - aSharp;
+    // Then by total traders
+    return (b.squareLongCount + b.squareShortCount) - (a.squareLongCount + a.squareShortCount);
+  });
   divergences.sort((a, b) => b.sharpConviction - a.sharpConviction);
 
   // Flag divergence bolt using threshold (score >= 40) — typically ~3-7 coins

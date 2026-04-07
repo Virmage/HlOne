@@ -116,7 +116,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     }));
 
     // Sharp flow — top tokens by smart money interest, min 5 rows
-    const rawFlow = smartMoney?.flow.slice(0, 20).map(f => ({
+    const rawFlow = smartMoney?.flow.slice(0, 30).map(f => ({
       ...f,
       score: scores.get(f.coin)?.score ?? null,
       signal: scores.get(f.coin)?.signal ?? "neutral",
@@ -314,7 +314,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         "15m": 5 * 24 * 3600_000,  // 5 days
         "1h": 14 * 24 * 3600_000,  // 14 days
         "4h": 30 * 24 * 3600_000,  // 30 days
-        "1d": 180 * 24 * 3600_000, // 6 months
+        "1d": 365 * 24 * 3600_000, // 1 year
         "1w": 3 * 365 * 24 * 3600_000, // 3 years
         "1M": 5 * 365 * 24 * 3600_000, // 5 years
       };

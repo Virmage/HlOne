@@ -34,8 +34,14 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/
 COPY --from=builder /app/apps/api/start.mjs ./apps/api/start.mjs
-COPY --from=builder /app/package.json ./package.json
-RUN echo "deploy-v6" > /tmp/.build-id
+# Copy root package.json but strip workspaces/scripts to prevent npm resolving missing workspaces
+COPY --from=builder /app/package.json /tmp/pkg.json
+RUN node -e "\
+  const pkg = JSON.parse(require('fs').readFileSync('/tmp/pkg.json','utf8')); \
+  delete pkg.workspaces; \
+  delete pkg.scripts; \
+  require('fs').writeFileSync('/app/package.json', JSON.stringify(pkg, null, 2));"
+RUN echo "deploy-v7" > /tmp/.build-id
 
 # Verify runner has all required files
 RUN ls -la apps/api/dist/index.js && echo "1. API dist OK"

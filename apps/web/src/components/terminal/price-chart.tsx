@@ -704,9 +704,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   // Reset view when coin changes — show recent data with room to scroll back
   useEffect(() => {
     const total = candles.length;
-    // Show at most 60 candles initially, but never more than 60% of total
-    // so there's always room to scroll back in time
-    const initial = Math.min(60, Math.max(minVisible, Math.floor(total * 0.6)));
+    // Show at most 60 candles initially, but never more than 30% of total
+    // so there's always plenty of room to scroll back in time
+    const initial = Math.min(60, Math.max(minVisible, Math.floor(total * 0.3)));
     setVisibleCount(initial);
     // Start with negative offset to show padding to the right of the latest candle
     setOffset(-RIGHT_PAD_CANDLES);
