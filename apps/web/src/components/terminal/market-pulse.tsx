@@ -25,7 +25,7 @@ function formatOI(val: number): string {
 }
 
 export function MarketPulse({ regime, options, onSelectToken }: MarketPulseProps) {
-  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(300, false, true);
+  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(300, false, false);
   const regimeStyle = regime ? REGIME_STYLES[regime.regime] || REGIME_STYLES.chop : REGIME_STYLES.chop;
   const optionCoins = Object.keys(options);
 
@@ -39,28 +39,6 @@ export function MarketPulse({ regime, options, onSelectToken }: MarketPulseProps
       <div ref={trackRef} className="flex" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
           <div key={copy} className="flex items-center shrink-0" aria-hidden={copy === 1}>
-            {/* Market Regime — stands out */}
-            <div className={`flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] ${regimeStyle.bg}`}>
-              <span className={`font-bold text-[12px] tracking-wide ${regimeStyle.text}`}>
-                {regimeStyle.label}
-              </span>
-              {regime && regime.confidence > 0 && (
-                <span className="text-[var(--hl-muted)] text-[10px] tabular-nums">
-                  {regime.confidence}%
-                </span>
-              )}
-              {regime?.action && (
-                <span className="text-[var(--hl-text)] text-[10px] whitespace-nowrap">
-                  {regime.action}
-                </span>
-              )}
-              {regime?.description && (
-                <span className="text-[var(--hl-muted)] text-[10px] whitespace-nowrap">
-                  — {regime.description}
-                </span>
-              )}
-            </div>
-
             {/* Aggregate Options OI */}
             {totalOI > 0 && (
               <div className="flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] text-[11px]">
@@ -130,6 +108,28 @@ export function MarketPulse({ regime, options, onSelectToken }: MarketPulseProps
                 </button>
               );
             })}
+
+            {/* Market Regime — at end so it scrolls in from right */}
+            <div className={`flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] ${regimeStyle.bg}`}>
+              <span className={`font-bold text-[12px] tracking-wide ${regimeStyle.text}`}>
+                {regimeStyle.label}
+              </span>
+              {regime && regime.confidence > 0 && (
+                <span className="text-[var(--hl-muted)] text-[10px] tabular-nums">
+                  {regime.confidence}%
+                </span>
+              )}
+              {regime?.action && (
+                <span className="text-[var(--hl-text)] text-[10px] whitespace-nowrap">
+                  {regime.action}
+                </span>
+              )}
+              {regime?.description && (
+                <span className="text-[var(--hl-muted)] text-[10px] whitespace-nowrap">
+                  — {regime.description}
+                </span>
+              )}
+            </div>
           </div>
         ))}
       </div>
