@@ -25,16 +25,20 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 async function main() {
   console.log(`[startup] Starting API server (PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || "development"})...`);
 
-  // ─── Auto-run DB migrations on startup ──────────────────────────────────────
+  // ─── Auto-run DB migrations on startup (non-blocking) ───────────────────────
   try {
+    console.log("[startup] Running DB migrations...");
     await runMigrations(DATABASE_URL);
+    console.log("[startup] Migrations OK");
   } catch (err) {
     console.error("[startup] Migration failed (non-fatal):", (err as Error).message);
   }
 
+  console.log("[startup] Creating Fastify instance...");
   const app = Fastify({ logger: true });
 
   // ─── Rate limiting ──────────────────────────────────────────────────────────
+  console.log("[startup] Registering rate-limit...");
   await app.register(rateLimit, {
     max: 100,               // 100 requests per window per IP
     timeWindow: "1 minute",
@@ -49,8 +53,11 @@ async function main() {
   if (!IS_PRODUCTION) {
     allowedOrigins.push("http://localhost:3000");
   }
+  // In production with no FRONTEND_URL, allow all origins as fallback (better than blocking everything)
+  const corsOrigin = allowedOrigins.length > 0 ? allowedOrigins : true;
+  console.log("[startup] Registering CORS (origins:", allowedOrigins.length > 0 ? allowedOrigins : "all", ")...");
   await app.register(cors, {
-    origin: allowedOrigins.length > 0 ? allowedOrigins : false,
+    origin: corsOrigin,
     credentials: true,
   });
 

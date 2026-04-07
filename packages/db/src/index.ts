@@ -21,7 +21,11 @@ export type Database = ReturnType<typeof createDb>;
  * Safe to call on every startup — already-applied migrations are skipped.
  */
 export async function runMigrations(connectionString: string): Promise<void> {
-  const pool = new Pool({ connectionString });
+  const pool = new Pool({
+    connectionString,
+    connectionTimeoutMillis: 10_000, // 10s to connect
+    idleTimeoutMillis: 5_000,
+  });
   const db = drizzle(pool, { schema });
 
   // Resolve migrations folder relative to this file (works in both dev and built dist)
@@ -29,7 +33,12 @@ export async function runMigrations(connectionString: string): Promise<void> {
   const migrationsFolder = resolve(__dirname, "../drizzle");
 
   console.log("[db] Running migrations from", migrationsFolder);
-  await migrate(db, { migrationsFolder });
+
+  // Wrap in a timeout so a stuck migration never blocks server startup
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("Migration timed out after 30s")), 30_000)
+  );
+  await Promise.race([migrate(db, { migrationsFolder }), timeout]);
   console.log("[db] Migrations complete");
 
   await pool.end();

@@ -20,7 +20,8 @@ RUN rm -rf packages/db/dist apps/api/dist
 RUN npx tsc --project packages/db/tsconfig.json
 RUN npx tsc --project apps/api/tsconfig.json
 RUN ls -la apps/api/dist/index.js && echo "Build OK"
-RUN rm -rf node_modules/@hl-copy/db && cp -r packages/db node_modules/@hl-copy/db
+RUN rm -rf node_modules/@hl-copy/db && cp -r packages/db node_modules/@hl-copy/db \
+    && ls node_modules/@hl-copy/db/drizzle/*.sql && echo "Migrations copied OK"
 
 # Run — minimal image
 FROM base AS runner
