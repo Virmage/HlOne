@@ -14,8 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { shortenAddress } from "@/lib/utils";
 import { startCopy, getBuilderFee, checkBuilderApproval, type BuilderFeeInfo } from "@/lib/api";
-import { useSignTypedData, useSwitchChain, useChainId } from "wagmi";
-import { hyperliquidL1 } from "@/config/wagmi";
+import { useAccount, useConnectorClient } from "wagmi";
 
 interface CopyDialogProps {
   open: boolean;
@@ -39,9 +38,8 @@ export function CopyDialog({
   const [builderFee, setBuilderFee] = useState<BuilderFeeInfo | null>(null);
   const [feeApproved, setFeeApproved] = useState<boolean | null>(null);
   const [approvingFee, setApprovingFee] = useState(false);
-  const { signTypedDataAsync } = useSignTypedData();
-  const { switchChainAsync } = useSwitchChain();
-  const currentChainId = useChainId();
+  const { connector } = useAccount();
+  const { data: connectorClient } = useConnectorClient();
 
   useEffect(() => {
     if (open && walletAddress) {
@@ -51,26 +49,21 @@ export function CopyDialog({
   }, [open, walletAddress]);
 
   const handleApproveFee = async () => {
-    if (!walletAddress || !builderFee) return;
+    if (!walletAddress || !builderFee || !connectorClient) return;
     setApprovingFee(true);
-    const previousChainId = currentChainId;
     try {
-      // Switch to Hyperliquid L1 (chainId 1337) — required for EIP-712 domain match
-      if (currentChainId !== hyperliquidL1.id) {
-        await switchChainAsync({ chainId: hyperliquidL1.id });
-      }
-
-      // Sign the ApproveBuilderFee action via Hyperliquid's exchange endpoint
       const nonce = Date.now();
       const action = {
         type: "approveBuilderFee",
         hyperliquidChain: "Mainnet",
-        maxFeeRate: (builderFee.fee / 10 / 100 / 100).toString(), // Convert tenths of bps to decimal
+        maxFeeRate: (builderFee.fee / 10 / 100 / 100).toString(),
         builder: builderFee.builder,
         nonce,
       };
 
-      const signature = await signTypedDataAsync({
+      // Build the EIP-712 typed data payload for eth_signTypedData_v4
+      // We call the provider directly to bypass viem's chainId validation
+      const typedData = {
         domain: {
           name: "Exchange",
           version: "1",
@@ -78,6 +71,12 @@ export function CopyDialog({
           verifyingContract: "0x0000000000000000000000000000000000000000",
         },
         types: {
+          EIP712Domain: [
+            { name: "name", type: "string" },
+            { name: "version", type: "string" },
+            { name: "chainId", type: "uint256" },
+            { name: "verifyingContract", type: "address" },
+          ],
           "HyperliquidTransaction:ApproveBuilderFee": [
             { name: "hyperliquidChain", type: "string" },
             { name: "maxFeeRate", type: "string" },
@@ -89,9 +88,19 @@ export function CopyDialog({
         message: {
           hyperliquidChain: "Mainnet",
           maxFeeRate: (builderFee.fee / 10 / 100 / 100).toString(),
-          builder: builderFee.builder as `0x${string}`,
-          nonce: BigInt(nonce),
+          builder: builderFee.builder,
+          nonce: nonce.toString(),
         },
+      };
+
+      // Get the raw provider and call eth_signTypedData_v4 directly
+      // This bypasses viem's chain validation that causes the error
+      const provider = await connector?.getProvider();
+      if (!provider) throw new Error("No wallet provider found");
+
+      const signature = await (provider as { request: (args: { method: string; params: unknown[] }) => Promise<string> }).request({
+        method: "eth_signTypedData_v4",
+        params: [walletAddress, JSON.stringify(typedData)],
       });
 
       // Submit to Hyperliquid exchange
@@ -109,12 +118,6 @@ export function CopyDialog({
     } catch (err) {
       setResult(`Fee approval error: ${err instanceof Error ? err.message : "Failed"}`);
     } finally {
-      // Switch back to Arbitrum so deposits/other operations still work
-      try {
-        if (previousChainId !== hyperliquidL1.id) {
-          await switchChainAsync({ chainId: previousChainId });
-        }
-      } catch { /* best effort */ }
       setApprovingFee(false);
     }
   };

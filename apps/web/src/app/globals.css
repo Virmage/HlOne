@@ -2,39 +2,43 @@
 
 :root,
 [data-theme="dark"] {
-  --background: #000000;
-  --foreground: #e8e8e8;
-  --hl-green: #50d2c1;
-  --hl-green-dim: #3ba898;
-  --hl-green-bright: #7eeadc;
-  --hl-red: #f05858;
-  --hl-border: #1a1a1a;
-  --hl-surface: #0a0a0a;
-  --hl-surface-hover: #151515;
-  --hl-nav: #050505;
-  --hl-muted: #666666;
-  --hl-text: #999999;
-  /* Heatmap intensity: blue (low) → yellow (high) */
-  --hl-heat-low: 100, 160, 255;   /* light blue */
-  --hl-heat-high: 255, 230, 0;    /* bright yellow */
+  /* Neon Cyan — electric cyan glow on void black */
+  --background: #060a0c;
+  --foreground: #e4f0f4;
+  --hl-green: #4ade80;
+  --hl-green-dim: #22c55e;
+  --hl-green-bright: #86efac;
+  --hl-red: #f87171;
+  --hl-border: #1a2428;
+  --hl-surface: #0e1416;
+  --hl-surface-hover: #161e20;
+  --hl-nav: #040808;
+  --hl-muted: #3a5058;
+  --hl-text: #6a8a94;
+  --hl-accent: #00f0ff;
+  /* Heatmap intensity: cyan (low) → bright cyan (high) */
+  --hl-heat-low: 0, 120, 140;
+  --hl-heat-high: 0, 240, 255;
 }
 
 [data-theme="light"] {
-  --background: #ffffff;
-  --foreground: #1a1a1a;
-  --hl-green: #0d9b87;
-  --hl-green-dim: #0a7d6d;
-  --hl-green-bright: #10b89e;
-  --hl-red: #dc3545;
-  --hl-border: #e2e2e2;
-  --hl-surface: #f8f8f8;
-  --hl-surface-hover: #f0f0f0;
-  --hl-nav: #fafafa;
-  --hl-muted: #888888;
-  --hl-text: #555555;
-  /* Heatmap intensity: blue (low) → amber/orange (high) — visible on white */
-  --hl-heat-low: 140, 180, 230;   /* muted blue */
-  --hl-heat-high: 220, 160, 0;    /* amber/orange */
+  /* Warm Cream — cozy off-white with charcoal accent */
+  --background: #faf8f5;
+  --foreground: #1c1a16;
+  --hl-green: #16a34a;
+  --hl-green-dim: #15803d;
+  --hl-green-bright: #22c55e;
+  --hl-red: #dc2626;
+  --hl-border: #ddd8ce;
+  --hl-surface: #f0ece6;
+  --hl-surface-hover: #e6e1da;
+  --hl-nav: #fdfcf9;
+  --hl-muted: #9a9488;
+  --hl-text: #605c52;
+  --hl-accent: #3a3830;
+  /* Heatmap intensity */
+  --hl-heat-low: 140, 160, 130;
+  --hl-heat-high: 58, 56, 48;
 }
 
 @theme inline {
