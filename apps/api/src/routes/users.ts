@@ -1,14 +1,21 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq } from "drizzle-orm";
 import { users, apiWallets } from "@hl-copy/db";
+import { ethAddress } from "../lib/validation.js";
 
 export const userRoutes: FastifyPluginAsync = async (app) => {
   /**
    * POST /api/users/connect
    * Create or fetch user by wallet address
    */
-  app.post<{ Body: { walletAddress: string } }>("/connect", async (req) => {
-    const addr = req.body.walletAddress.toLowerCase();
+  app.post<{ Body: { walletAddress: string } }>("/connect", async (req, reply) => {
+    const parsed = ethAddress.safeParse(req.body.walletAddress);
+    if (!parsed.success) {
+      reply.code(400);
+      return { error: "Invalid wallet address" };
+    }
+
+    const addr = parsed.data.toLowerCase();
 
     let [user] = await app.db
       .select()
@@ -51,7 +58,12 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
    */
   app.get<{ Params: { walletAddress: string } }>(
     "/:walletAddress",
-    async (req) => {
+    async (req, reply) => {
+      if (!ethAddress.safeParse(req.params.walletAddress).success) {
+        reply.code(400);
+        return { error: "Invalid wallet address" };
+      }
+
       const addr = req.params.walletAddress.toLowerCase();
 
       const [user] = await app.db
@@ -63,6 +75,6 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       if (!user) return { user: null };
 
       return { user };
-    }
+    },
   );
 };

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",
+    "@fastify/rate-limit": "^10.3.0",
     "@fastify/websocket": "^11.0.0",
     "@hl-copy/db": "*",
     "bullmq": "^5.30.0",

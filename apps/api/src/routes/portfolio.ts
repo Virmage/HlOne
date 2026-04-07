@@ -10,6 +10,7 @@ import {
   executions,
 } from "@hl-copy/db";
 import { getClearinghouseState } from "../services/hyperliquid.js";
+import { ethAddress } from "../lib/validation.js";
 
 export const portfolioRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -18,8 +19,12 @@ export const portfolioRoutes: FastifyPluginAsync = async (app) => {
    */
   app.get<{ Params: { walletAddress: string } }>(
     "/:walletAddress",
-    async (req) => {
+    async (req, reply) => {
       const { walletAddress } = req.params;
+      if (!ethAddress.safeParse(walletAddress).success) {
+        reply.code(400);
+        return { error: "Invalid wallet address" };
+      }
       const addr = walletAddress.toLowerCase();
 
       // Get user
@@ -169,7 +174,11 @@ export const portfolioRoutes: FastifyPluginAsync = async (app) => {
   app.get<{
     Params: { walletAddress: string };
     Querystring: { days?: string };
-  }>("/:walletAddress/history", async (req) => {
+  }>("/:walletAddress/history", async (req, reply) => {
+    if (!ethAddress.safeParse(req.params.walletAddress).success) {
+      reply.code(400);
+      return { error: "Invalid wallet address" };
+    }
     const addr = req.params.walletAddress.toLowerCase();
     const [user] = await app.db
       .select()
@@ -179,12 +188,13 @@ export const portfolioRoutes: FastifyPluginAsync = async (app) => {
 
     if (!user) return { snapshots: [] };
 
+    const days = Math.min(Math.max(1, parseInt(req.query.days || "30") || 30), 365);
     const snapshots = await app.db
       .select()
       .from(portfolioSnapshots)
       .where(eq(portfolioSnapshots.userId, user.id))
       .orderBy(desc(portfolioSnapshots.snapshotAt))
-      .limit(parseInt(req.query.days || "30"));
+      .limit(days);
 
     return { snapshots: snapshots.reverse() };
   });
@@ -196,7 +206,11 @@ export const portfolioRoutes: FastifyPluginAsync = async (app) => {
   app.get<{
     Params: { walletAddress: string };
     Querystring: { limit?: string };
-  }>("/:walletAddress/executions", async (req) => {
+  }>("/:walletAddress/executions", async (req, reply) => {
+    if (!ethAddress.safeParse(req.params.walletAddress).success) {
+      reply.code(400);
+      return { error: "Invalid wallet address" };
+    }
     const addr = req.params.walletAddress.toLowerCase();
     const [user] = await app.db
       .select()
@@ -220,7 +234,7 @@ export const portfolioRoutes: FastifyPluginAsync = async (app) => {
         eq(executions.copyRelationshipId, rels[0].id) // simplified — in prod would use IN clause
       )
       .orderBy(desc(executions.createdAt))
-      .limit(parseInt(req.query.limit || "50"));
+      .limit(Math.min(Math.max(1, parseInt(req.query.limit || "50") || 50), 200));
 
     return { executions: recentExecs };
   });

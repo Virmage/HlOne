@@ -22,6 +22,23 @@ import { getCorrelationMatrixCached } from "../services/correlation-matrix.js";
 import { getOrderFlow } from "../services/order-flow.js";
 import { getPositionConcentration } from "../services/position-concentration.js";
 import { logTrade, getTradeLog, getTradeStats } from "../services/trade-log.js";
+import { z } from "zod";
+import { ethAddress, positiveNumber, nonNegativeNumber, coinName } from "../lib/validation.js";
+
+const TradeLogSchema = z.object({
+  userAddress: ethAddress,
+  asset: coinName,
+  side: z.enum(["buy", "sell"]),
+  orderType: z.enum(["market", "limit"]),
+  size: positiveNumber,
+  price: positiveNumber,
+  success: z.boolean(),
+  orderId: z.string().max(100).optional(),
+  filledSize: z.string().max(50).optional(),
+  avgPrice: z.string().max(50).optional(),
+  error: z.string().max(500).optional(),
+  latencyMs: nonNegativeNumber,
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -400,7 +417,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: { limit?: string; coin?: string } }>(
     "/whale-alerts",
     async (req) => {
-      const limit = parseInt(req.query.limit || "50");
+      const limit = Math.min(Math.max(1, parseInt(req.query.limit || "50") || 50), 200);
       const coin = req.query.coin;
       return {
         alerts: getWhaleAlerts(limit, coin),
@@ -462,9 +479,9 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: { limit?: string } }>(
     "/trades",
     async (req) => {
-      const limit = parseInt(req.query.limit || "50");
+      const limit = Math.min(Math.max(1, parseInt(req.query.limit || "50") || 50), 200);
       return {
-        trades: getLargeTradesCached().slice(0, Math.min(limit, 200)),
+        trades: getLargeTradesCached().slice(0, limit),
         timestamp: Date.now(),
       };
     },
@@ -475,23 +492,14 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
    * Log a trade executed from the frontend (for auditing + fee tracking).
    * Called by the trading panel after every order attempt.
    */
-  app.post<{
-    Body: {
-      userAddress: string;
-      asset: string;
-      side: "buy" | "sell";
-      orderType: "market" | "limit";
-      size: number;
-      price: number;
-      success: boolean;
-      orderId?: string;
-      filledSize?: string;
-      avgPrice?: string;
-      error?: string;
-      latencyMs: number;
-    };
-  }>("/trade-log", async (req) => {
-    const b = req.body;
+  app.post("/trade-log", async (req, reply) => {
+    const parsed = TradeLogSchema.safeParse(req.body);
+    if (!parsed.success) {
+      reply.code(400);
+      return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
+    }
+
+    const b = parsed.data;
     const notionalUsd = b.size * b.price;
     const feeEstimatedUsd = notionalUsd * 0.0002; // 0.02% builder fee
 
@@ -533,8 +541,12 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
    */
   app.get<{ Params: { address: string } }>(
     "/positions/:address",
-    async (req) => {
+    async (req, reply) => {
       const { address } = req.params;
+      if (!ethAddress.safeParse(address).success) {
+        reply.code(400);
+        return { error: "Invalid address format" };
+      }
       const [state, orders] = await Promise.all([
         getClearinghouseState(address).catch(() => null),
         getOpenOrders(address).catch(() => []),

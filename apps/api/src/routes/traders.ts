@@ -15,6 +15,7 @@ import {
 } from "../services/hyperliquid.js";
 import { getTraderDisplayName } from "../services/name-generator.js";
 import { isSharpAddress } from "../services/smart-money.js";
+import { ethAddress } from "../lib/validation.js";
 
 export const traderRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -42,26 +43,34 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
       maxLeverage,
       sortBy = "compositeScore",
       order = "desc",
-      limit = "50",
-      offset = "0",
     } = req.query;
+
+    // Cap pagination to prevent resource exhaustion
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit || "50") || 50), 200).toString();
+    const offset = Math.max(0, parseInt(req.query.offset || "0") || 0).toString();
 
     const conditions = [];
 
+    // Validate numeric filters — reject non-numeric values
     if (minAccountSize) {
-      conditions.push(gte(traderProfiles.accountSize, minAccountSize));
+      const val = parseFloat(minAccountSize);
+      if (!isNaN(val)) conditions.push(gte(traderProfiles.accountSize, val.toString()));
     }
     if (minRoi) {
-      conditions.push(gte(traderProfiles.roiPercent, parseFloat(minRoi)));
+      const val = parseFloat(minRoi);
+      if (!isNaN(val)) conditions.push(gte(traderProfiles.roiPercent, val));
     }
     if (minPnl) {
-      conditions.push(gte(traderProfiles.totalPnl, minPnl));
+      const val = parseFloat(minPnl);
+      if (!isNaN(val)) conditions.push(gte(traderProfiles.totalPnl, val.toString()));
     }
     if (minTrades) {
-      conditions.push(gte(traderProfiles.tradeCount, parseInt(minTrades)));
+      const val = parseInt(minTrades);
+      if (!isNaN(val)) conditions.push(gte(traderProfiles.tradeCount, val));
     }
     if (maxLeverage) {
-      conditions.push(lte(traderProfiles.maxLeverage, parseFloat(maxLeverage)));
+      const val = parseFloat(maxLeverage);
+      if (!isNaN(val)) conditions.push(lte(traderProfiles.maxLeverage, val));
     }
 
     const whereClause =
@@ -174,6 +183,11 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
    */
   app.get<{ Params: { address: string } }>("/:address", async (req, reply) => {
     const { address } = req.params;
+
+    if (!ethAddress.safeParse(address).success) {
+      reply.code(400);
+      return { error: "Invalid address format" };
+    }
 
     // Get from DB first (may fail if DB is unavailable)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -428,11 +442,13 @@ export const traderRoutes: FastifyPluginAsync = async (app) => {
   app.get<{
     Params: { address: string };
     Querystring: { limit?: string };
-  }>("/:address/fills", async (req) => {
-    const fills = await getUserFills(
-      req.params.address,
-      parseInt(req.query.limit || "100")
-    );
+  }>("/:address/fills", async (req, reply) => {
+    if (!ethAddress.safeParse(req.params.address).success) {
+      reply.code(400);
+      return { error: "Invalid address format" };
+    }
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit || "100") || 100), 200);
+    const fills = await getUserFills(req.params.address, limit);
     return { fills: Array.isArray(fills) ? fills : [] };
   });
 };

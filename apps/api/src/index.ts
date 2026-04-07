@@ -6,6 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: resolve(__dirname, "../../.env") }); // apps/api/.env
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import { createDb } from "@hl-copy/db";
 import { traderRoutes } from "./routes/traders.js";
 import { portfolioRoutes } from "./routes/portfolio.js";
@@ -18,16 +19,41 @@ import { initWhaleTrackerDb } from "./services/whale-tracker.js";
 const DATABASE_URL =
   process.env.DATABASE_URL || "postgresql://localhost:5432/hl_copy";
 const PORT = parseInt(process.env.PORT || "3001");
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 async function main() {
   console.log(`[startup] Starting API server (PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || "development"})...`);
   const app = Fastify({ logger: true });
 
+  // ─── Rate limiting ──────────────────────────────────────────────────────────
+  await app.register(rateLimit, {
+    max: 100,               // 100 requests per window per IP
+    timeWindow: "1 minute",
+    allowList: ["127.0.0.1", "::1"], // exempt localhost in dev
+  });
+
+  // ─── CORS — no localhost in production ──────────────────────────────────────
+  const allowedOrigins: string[] = [];
+  if (process.env.FRONTEND_URL) {
+    allowedOrigins.push(process.env.FRONTEND_URL);
+  }
+  if (!IS_PRODUCTION) {
+    allowedOrigins.push("http://localhost:3000");
+  }
   await app.register(cors, {
-    origin: process.env.FRONTEND_URL
-      ? [process.env.FRONTEND_URL, "http://localhost:3000"]
-      : "http://localhost:3000",
+    origin: allowedOrigins.length > 0 ? allowedOrigins : false,
     credentials: true,
+  });
+
+  // ─── Global error handler — never leak stack traces ─────────────────────────
+  app.setErrorHandler((err: Error & { statusCode?: number }, request, reply) => {
+    request.log.error(err);
+    const statusCode = err.statusCode || 500;
+    reply.code(statusCode).send({
+      error: statusCode === 429 ? "Too many requests" : "Internal server error",
+      ...(statusCode === 429 && { retryAfter: err.message }),
+      ...(!IS_PRODUCTION && { message: err.message }), // only show message in dev
+    });
   });
 
   // Share db instance across routes
@@ -45,30 +71,7 @@ async function main() {
   await app.register(marketRoutes, { prefix: "/api/market" });
 
   // Health check
-  app.get("/api/health", async () => ({ status: "ok", version: "2.2.0", timestamp: Date.now() }));
-
-  // Debug: test leaderboard fetch directly
-  app.get("/api/debug/leaderboard", async (req, reply) => {
-    try {
-      const { discoverActiveTraders } = await import("./services/hyperliquid.js");
-      const start = Date.now();
-      const traders = await discoverActiveTraders();
-      return {
-        count: traders.length,
-        fetchMs: Date.now() - start,
-        sample: traders.slice(0, 3).map(t => ({
-          address: t.address.slice(0, 10),
-          roi30d: t.roi30d,
-          roiAllTime: t.roiAllTime,
-          displayName: t.displayName,
-        })),
-      };
-    } catch (err) {
-      reply.code(500);
-      const e = err as Error;
-      return { error: e.message, stack: e.stack, cause: e.cause ? String(e.cause) : undefined };
-    }
-  });
+  app.get("/api/health", async () => ({ status: "ok", version: "2.3.0", timestamp: Date.now() }));
 
   console.log(`[startup] Routes registered, binding to port ${PORT}...`);
   await app.listen({ port: PORT, host: "0.0.0.0" });

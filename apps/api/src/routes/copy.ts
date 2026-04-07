@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq, and } from "drizzle-orm";
+import { z } from "zod";
 import {
   users,
   traderProfiles,
@@ -7,42 +8,114 @@ import {
   copyAllocations,
   copiedPositions,
 } from "@hl-copy/db";
+import { ethAddress, positiveNumber, nonNegativeNumber } from "../lib/validation.js";
 
-const BUILDER_ADDRESS = process.env.BUILDER_ADDRESS || "0xB4a59142607C744CCF6C4828f01A6ab79c1f2520";
-const BUILDER_FEE = parseInt(process.env.BUILDER_FEE || "20", 10); // tenths of bps: 20 = 2 bps = 0.02%
+const BUILDER_ADDRESS = process.env.BUILDER_ADDRESS;
+if (!BUILDER_ADDRESS || !/^0x[a-fA-F0-9]{40}$/.test(BUILDER_ADDRESS)) {
+  console.warn("[copy] BUILDER_ADDRESS not set or invalid — using default");
+}
+const EFFECTIVE_BUILDER = BUILDER_ADDRESS || "0xB4a59142607C744CCF6C4828f01A6ab79c1f2520";
+const BUILDER_FEE = parseInt(process.env.BUILDER_FEE || "20", 10);
+
+// ─── Schemas ────────────────────────────────────────────────────────────────
+
+const StartCopySchema = z.object({
+  walletAddress: ethAddress,
+  traderAddress: ethAddress,
+  allocatedCapital: positiveNumber,
+  maxLeverage: z.number().int().min(1).max(200).default(10),
+  maxPositionSizePercent: z.number().min(1).max(100).default(25),
+  minOrderSize: nonNegativeNumber.default(10),
+});
+
+const StopCopySchema = z.object({
+  walletAddress: ethAddress,
+  traderAddress: ethAddress,
+});
+
+const PauseCopySchema = z.object({
+  walletAddress: ethAddress, // caller must prove ownership
+  copyRelationshipId: z.string().uuid(),
+  paused: z.boolean(),
+});
+
+const AllocationSchema = z.object({
+  walletAddress: ethAddress, // caller must prove ownership
+  copyRelationshipId: z.string().uuid(),
+  allocatedCapital: positiveNumber.optional(),
+  maxLeverage: z.number().int().min(1).max(200).optional(),
+  maxPositionSizePercent: z.number().min(1).max(100).optional(),
+  minOrderSize: nonNegativeNumber.optional(),
+});
+
+const ClosePositionSchema = z.object({
+  walletAddress: ethAddress, // caller must prove ownership
+  positionId: z.string().uuid(),
+  reason: z.string().max(200).optional(),
+});
+
+// ─── Helper: verify caller owns the copy relationship ───────────────────────
+
+async function verifyOwnership(
+  db: typeof import("@hl-copy/db").createDb extends (...args: any[]) => infer R ? R : never,
+  walletAddress: string,
+  copyRelationshipId: string,
+): Promise<{ userId: string } | null> {
+  const addr = walletAddress.toLowerCase();
+
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.walletAddress, addr))
+    .limit(1);
+
+  if (!user) return null;
+
+  const [rel] = await db
+    .select({ id: copyRelationships.id })
+    .from(copyRelationships)
+    .where(
+      and(
+        eq(copyRelationships.id, copyRelationshipId),
+        eq(copyRelationships.userId, user.id),
+      ),
+    )
+    .limit(1);
+
+  if (!rel) return null;
+  return { userId: user.id };
+}
+
+// ─── Routes ─────────────────────────────────────────────────────────────────
 
 export const copyRoutes: FastifyPluginAsync = async (app) => {
   /**
    * GET /api/copy/builder-fee
-   * Returns builder fee config so frontend can prompt user approval
    */
-  app.get("/builder-fee", async () => {
-    return {
-      builder: BUILDER_ADDRESS,
-      fee: BUILDER_FEE,
-      feePercent: (BUILDER_FEE / 10 / 100).toFixed(4), // e.g. "0.0005" = 0.05%
-      feeDisplay: `${(BUILDER_FEE / 10).toFixed(1)} bps (${((BUILDER_FEE / 10) / 100 * 100).toFixed(2)}%)`,
-    };
-  });
+  app.get("/builder-fee", async () => ({
+    builder: EFFECTIVE_BUILDER,
+    fee: BUILDER_FEE,
+    feePercent: (BUILDER_FEE / 10 / 100).toFixed(4),
+    feeDisplay: `${(BUILDER_FEE / 10).toFixed(1)} bps (${((BUILDER_FEE / 10) / 100 * 100).toFixed(2)}%)`,
+  }));
 
   /**
    * GET /api/copy/check-builder-approval
-   * Check if user has approved the builder fee
    */
   app.get<{
     Querystring: { user: string };
   }>("/check-builder-approval", async (req) => {
-    if (!BUILDER_ADDRESS || !req.query.user) {
-      return { approved: false, maxFee: 0 };
-    }
+    const parsed = ethAddress.safeParse(req.query.user);
+    if (!parsed.success) return { approved: false, maxFee: 0 };
+
     try {
       const res = await fetch("https://api.hyperliquid.xyz/info", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "maxBuilderFee",
-          user: req.query.user,
-          builder: BUILDER_ADDRESS,
+          user: parsed.data,
+          builder: EFFECTIVE_BUILDER,
         }),
       });
       const maxFee = await res.json();
@@ -51,28 +124,25 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
       return { approved: false, maxFee: 0 };
     }
   });
+
   /**
    * POST /api/copy/start
-   * Start copying a trader
    */
-  app.post<{
-    Body: {
-      walletAddress: string;
-      traderAddress: string;
-      allocatedCapital: number;
-      maxLeverage?: number;
-      maxPositionSizePercent?: number;
-      minOrderSize?: number;
-    };
-  }>("/start", async (req, reply) => {
+  app.post("/start", async (req, reply) => {
+    const parsed = StartCopySchema.safeParse(req.body);
+    if (!parsed.success) {
+      reply.code(400);
+      return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
+    }
+
     const {
       walletAddress,
       traderAddress,
       allocatedCapital,
-      maxLeverage = 10,
-      maxPositionSizePercent = 25,
-      minOrderSize = 10,
-    } = req.body;
+      maxLeverage,
+      maxPositionSizePercent,
+      minOrderSize,
+    } = parsed.data;
 
     const addr = walletAddress.toLowerCase();
     const traderAddr = traderAddress.toLowerCase();
@@ -112,13 +182,12 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
       .where(
         and(
           eq(copyRelationships.userId, user.id),
-          eq(copyRelationships.traderProfileId, trader.id)
-        )
+          eq(copyRelationships.traderProfileId, trader.id),
+        ),
       )
       .limit(1);
 
     if (existing) {
-      // Reactivate if inactive
       if (!existing.isActive) {
         await app.db
           .update(copyRelationships)
@@ -126,7 +195,6 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
           .where(eq(copyRelationships.id, existing.id));
       }
 
-      // Update allocation
       await app.db
         .insert(copyAllocations)
         .values({
@@ -150,7 +218,6 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
       return { id: existing.id, status: "reactivated" };
     }
 
-    // Create new relationship + allocation
     const [rel] = await app.db
       .insert(copyRelationships)
       .values({
@@ -172,13 +239,16 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
 
   /**
    * POST /api/copy/stop
-   * Stop copying a trader
    */
-  app.post<{
-    Body: { walletAddress: string; traderAddress: string };
-  }>("/stop", async (req) => {
-    const addr = req.body.walletAddress.toLowerCase();
-    const traderAddr = req.body.traderAddress.toLowerCase();
+  app.post("/stop", async (req, reply) => {
+    const parsed = StopCopySchema.safeParse(req.body);
+    if (!parsed.success) {
+      reply.code(400);
+      return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
+    }
+
+    const addr = parsed.data.walletAddress.toLowerCase();
+    const traderAddr = parsed.data.traderAddress.toLowerCase();
 
     const [user] = await app.db
       .select()
@@ -202,91 +272,107 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
       .where(
         and(
           eq(copyRelationships.userId, user.id),
-          eq(copyRelationships.traderProfileId, trader.id)
-        )
+          eq(copyRelationships.traderProfileId, trader.id),
+        ),
       );
 
     return { status: "stopped" };
   });
 
   /**
-   * POST /api/copy/pause
-   * Pause/unpause copying
+   * POST /api/copy/pause — REQUIRES OWNERSHIP
    */
-  app.post<{
-    Body: { copyRelationshipId: string; paused: boolean };
-  }>("/pause", async (req) => {
+  app.post("/pause", async (req, reply) => {
+    const parsed = PauseCopySchema.safeParse(req.body);
+    if (!parsed.success) {
+      reply.code(400);
+      return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
+    }
+
+    const owner = await verifyOwnership(app.db, parsed.data.walletAddress, parsed.data.copyRelationshipId);
+    if (!owner) {
+      reply.code(403);
+      return { error: "Forbidden: you do not own this copy relationship" };
+    }
+
     await app.db
       .update(copyRelationships)
-      .set({ isPaused: req.body.paused, updatedAt: new Date() })
-      .where(eq(copyRelationships.id, req.body.copyRelationshipId));
+      .set({ isPaused: parsed.data.paused, updatedAt: new Date() })
+      .where(eq(copyRelationships.id, parsed.data.copyRelationshipId));
 
-    return { status: req.body.paused ? "paused" : "resumed" };
+    return { status: parsed.data.paused ? "paused" : "resumed" };
   });
 
   /**
-   * PUT /api/copy/allocation
-   * Update copy allocation settings
+   * PUT /api/copy/allocation — REQUIRES OWNERSHIP
    */
-  app.put<{
-    Body: {
-      copyRelationshipId: string;
-      allocatedCapital?: number;
-      maxLeverage?: number;
-      maxPositionSizePercent?: number;
-      minOrderSize?: number;
-    };
-  }>("/allocation", async (req) => {
-    const updates: Record<string, unknown> = { updatedAt: new Date() };
+  app.put("/allocation", async (req, reply) => {
+    const parsed = AllocationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      reply.code(400);
+      return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
+    }
 
-    if (req.body.allocatedCapital !== undefined) {
-      updates.allocatedCapital = req.body.allocatedCapital.toString();
+    const owner = await verifyOwnership(app.db, parsed.data.walletAddress, parsed.data.copyRelationshipId);
+    if (!owner) {
+      reply.code(403);
+      return { error: "Forbidden: you do not own this copy relationship" };
     }
-    if (req.body.maxLeverage !== undefined) {
-      updates.maxLeverage = req.body.maxLeverage;
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (parsed.data.allocatedCapital !== undefined) {
+      updates.allocatedCapital = parsed.data.allocatedCapital.toString();
     }
-    if (req.body.maxPositionSizePercent !== undefined) {
-      updates.maxPositionSizePercent = req.body.maxPositionSizePercent;
+    if (parsed.data.maxLeverage !== undefined) {
+      updates.maxLeverage = parsed.data.maxLeverage;
     }
-    if (req.body.minOrderSize !== undefined) {
-      updates.minOrderSize = req.body.minOrderSize.toString();
+    if (parsed.data.maxPositionSizePercent !== undefined) {
+      updates.maxPositionSizePercent = parsed.data.maxPositionSizePercent;
+    }
+    if (parsed.data.minOrderSize !== undefined) {
+      updates.minOrderSize = parsed.data.minOrderSize.toString();
     }
 
     await app.db
       .update(copyAllocations)
       .set(updates)
-      .where(
-        eq(copyAllocations.copyRelationshipId, req.body.copyRelationshipId)
-      );
+      .where(eq(copyAllocations.copyRelationshipId, parsed.data.copyRelationshipId));
 
     return { status: "updated" };
   });
 
   /**
-   * POST /api/copy/close-position
-   * Manually close a copied position
+   * POST /api/copy/close-position — REQUIRES OWNERSHIP
    */
-  app.post<{
-    Body: { positionId: string; reason?: string };
-  }>("/close-position", async (req) => {
+  app.post("/close-position", async (req, reply) => {
+    const parsed = ClosePositionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      reply.code(400);
+      return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
+    }
+
     const [position] = await app.db
       .select()
       .from(copiedPositions)
-      .where(eq(copiedPositions.id, req.body.positionId))
+      .where(eq(copiedPositions.id, parsed.data.positionId))
       .limit(1);
 
     if (!position || !position.isOpen) {
       return { status: "not_found" };
     }
 
-    // Mark as closed in DB — actual order submission happens in the worker
+    // Verify caller owns the relationship this position belongs to
+    const owner = await verifyOwnership(app.db, parsed.data.walletAddress, position.copyRelationshipId);
+    if (!owner) {
+      reply.code(403);
+      return { error: "Forbidden: you do not own this position" };
+    }
+
     await app.db
       .update(copiedPositions)
       .set({ isOpen: false, closedAt: new Date() })
-      .where(eq(copiedPositions.id, req.body.positionId));
+      .where(eq(copiedPositions.id, parsed.data.positionId));
 
-    // TODO: In Phase 3, enqueue a BullMQ job to submit close order to Hyperliquid
-
-    return { status: "closed", positionId: req.body.positionId };
+    return { status: "closed", positionId: parsed.data.positionId };
   });
 };
