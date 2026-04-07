@@ -379,6 +379,14 @@ async function signL1Action(
 
 // ─── Submit to exchange ──────────────────────────────────────────────────────
 
+function splitSig(sig: `0x${string}`): { r: string; s: string; v: number } {
+  return {
+    r: sig.slice(0, 66),
+    s: `0x${sig.slice(66, 130)}`,
+    v: parseInt(sig.slice(130, 132), 16),
+  };
+}
+
 async function submitToExchange(
   action: Record<string, unknown>,
   nonce: number,
@@ -390,7 +398,7 @@ async function submitToExchange(
     body: JSON.stringify({
       action,
       nonce,
-      signature,
+      signature: splitSig(signature),
       vaultAddress: null,
     }),
   });
