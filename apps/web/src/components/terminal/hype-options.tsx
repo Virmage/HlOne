@@ -1,13 +1,16 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import type { HypeOptionsChain, HypeOptionRow } from "@/lib/api";
-import { getHypeOptionsChain } from "@/lib/api";
+import type { DeriveOptionsChain, HypeOptionRow } from "@/lib/api";
+import { getDeriveOptionsChain } from "@/lib/api";
+
+// Coins supported on Derive
+const DERIVE_COINS = ["BTC", "ETH", "SOL", "HYPE"];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatPrice(val: number, decimals = 2): string {
-  return val > 0 ? `$${val.toFixed(decimals)}` : "—";
+  return val > 0 ? `$${val.toFixed(decimals)}` : "\u2014";
 }
 
 function formatOI(val: number): string {
@@ -17,7 +20,7 @@ function formatOI(val: number): string {
 }
 
 function formatGreek(val: number, decimals = 3): string {
-  if (val === 0) return "—";
+  if (val === 0) return "\u2014";
   return val.toFixed(decimals);
 }
 
@@ -27,15 +30,22 @@ function ivColor(iv: number): string {
   return "text-[var(--hl-text)]";
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// ─── Exported: check if coin has Derive options ─────────────────────────────
 
-interface HypeOptionsProps {
+export function hasDeriveOptions(coin: string): boolean {
+  return DERIVE_COINS.includes(coin);
+}
+
+// ─── Full-screen Options Chain Modal ─────────────────────────────────────────
+
+interface OptionsChainModalProps {
+  coin: string;
   isOpen: boolean;
   onClose: () => void;
 }
 
-export function HypeOptionsPanel({ isOpen, onClose }: HypeOptionsProps) {
-  const [data, setData] = useState<HypeOptionsChain | null>(null);
+export function OptionsChainModal({ coin, isOpen, onClose }: OptionsChainModalProps) {
+  const [data, setData] = useState<DeriveOptionsChain | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedExpiry, setSelectedExpiry] = useState<string | null>(null);
   const [showGreeks, setShowGreeks] = useState(false);
@@ -43,40 +53,38 @@ export function HypeOptionsPanel({ isOpen, onClose }: HypeOptionsProps) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await getHypeOptionsChain();
+      const result = await getDeriveOptionsChain(coin);
       setData(result);
       if (result?.expiries.length && !selectedExpiry) {
         setSelectedExpiry(result.expiries[0].label);
       }
     } catch (err) {
-      console.error("[hype-options] Fetch failed:", err);
+      console.error("[options] Fetch failed:", err);
     } finally {
       setLoading(false);
     }
-  }, [selectedExpiry]);
+  }, [coin, selectedExpiry]);
 
   useEffect(() => {
     if (isOpen) {
+      setSelectedExpiry(null); // reset expiry on coin change
+      setData(null);
       fetchData();
       const interval = setInterval(fetchData, 30_000);
       return () => clearInterval(interval);
     }
-  }, [isOpen, fetchData]);
+  }, [isOpen, coin, fetchData]);
 
-  // Group by strike for the chain view
   const chainByStrike = useMemo(() => {
     if (!data?.chain || !selectedExpiry) return [];
-
     const filtered = data.chain.filter(o => o.expiry === selectedExpiry);
     const strikeMap = new Map<number, { call: HypeOptionRow | null; put: HypeOptionRow | null }>();
-
     for (const opt of filtered) {
       const existing = strikeMap.get(opt.strike) || { call: null, put: null };
       if (opt.type === "C") existing.call = opt;
       else existing.put = opt;
       strikeMap.set(opt.strike, existing);
     }
-
     return [...strikeMap.entries()]
       .sort(([a], [b]) => a - b)
       .map(([strike, opts]) => ({ strike, ...opts }));
@@ -93,10 +101,10 @@ export function HypeOptionsPanel({ isOpen, onClose }: HypeOptionsProps) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--hl-border)] bg-[var(--hl-surface)]">
           <div className="flex items-center gap-3">
-            <h2 className="text-[14px] font-bold text-[var(--foreground)]">HYPE Options</h2>
+            <h2 className="text-[14px] font-bold text-[var(--foreground)]">{coin} Options</h2>
             <span className="text-[11px] px-2 py-0.5 rounded bg-[rgba(168,85,247,0.15)] text-purple-400 font-medium">Derive</span>
             {spotPrice > 0 && (
-              <span className="text-[12px] text-[var(--hl-text)] tabular-nums">${spotPrice.toFixed(2)}</span>
+              <span className="text-[12px] text-[var(--hl-text)] tabular-nums">${spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             )}
           </div>
           <div className="flex items-center gap-3">
@@ -110,11 +118,7 @@ export function HypeOptionsPanel({ isOpen, onClose }: HypeOptionsProps) {
             >
               Greeks
             </button>
-            <button
-              onClick={fetchData}
-              className="text-[10px] text-[var(--hl-muted)] hover:text-[var(--hl-text)] transition-colors"
-              title="Refresh"
-            >
+            <button onClick={fetchData} className="text-[10px] text-[var(--hl-muted)] hover:text-[var(--hl-text)] transition-colors">
               {loading ? "..." : "Refresh"}
             </button>
             <button onClick={onClose} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] transition-colors text-lg leading-none">&times;</button>
@@ -167,12 +171,6 @@ export function HypeOptionsPanel({ isOpen, onClose }: HypeOptionsProps) {
               <span className="text-[var(--hl-muted)]">Put OI </span>
               <span className="text-[var(--hl-red)] tabular-nums">{formatOI(summary.totalPutOI)}</span>
             </div>
-            {summary.totalVolume24h > 0 && (
-              <div>
-                <span className="text-[var(--hl-muted)]">24h Vol </span>
-                <span className="text-[var(--hl-text)] tabular-nums">{formatOI(summary.totalVolume24h)}</span>
-              </div>
-            )}
           </div>
         )}
 
@@ -199,7 +197,7 @@ export function HypeOptionsPanel({ isOpen, onClose }: HypeOptionsProps) {
         <div className="flex-1 overflow-auto">
           {loading && !data ? (
             <div className="flex items-center justify-center h-40 text-[var(--hl-muted)] text-[12px]">
-              Loading HYPE options...
+              Loading {coin} options...
             </div>
           ) : chainByStrike.length === 0 ? (
             <div className="flex items-center justify-center h-40 text-[var(--hl-muted)] text-[12px]">
@@ -209,7 +207,6 @@ export function HypeOptionsPanel({ isOpen, onClose }: HypeOptionsProps) {
             <table className="w-full text-[10px]">
               <thead className="sticky top-0 bg-[var(--hl-surface)] z-10">
                 <tr className="border-b border-[var(--hl-border)]">
-                  {/* Calls side */}
                   <th className="text-left px-2 py-1.5 text-[var(--hl-green)] font-medium">OI</th>
                   <th className="text-left px-2 py-1.5 text-[var(--hl-green)] font-medium">Vol</th>
                   <th className="text-right px-2 py-1.5 text-[var(--hl-green)] font-medium">IV</th>
@@ -222,9 +219,7 @@ export function HypeOptionsPanel({ isOpen, onClose }: HypeOptionsProps) {
                   <th className="text-right px-2 py-1.5 text-[var(--hl-green)] font-medium">Bid</th>
                   <th className="text-right px-2 py-1.5 text-[var(--hl-green)] font-medium">Ask</th>
                   <th className="text-right px-2 py-1.5 text-[var(--hl-green)] font-medium">Mark</th>
-                  {/* Strike */}
                   <th className="text-center px-3 py-1.5 text-[var(--foreground)] font-bold bg-[var(--hl-bg)]">Strike</th>
-                  {/* Puts side */}
                   <th className="text-left px-2 py-1.5 text-[var(--hl-red)] font-medium">Mark</th>
                   <th className="text-left px-2 py-1.5 text-[var(--hl-red)] font-medium">Bid</th>
                   <th className="text-left px-2 py-1.5 text-[var(--hl-red)] font-medium">Ask</th>
@@ -244,81 +239,41 @@ export function HypeOptionsPanel({ isOpen, onClose }: HypeOptionsProps) {
                   const isITMCall = spotPrice > 0 && strike < spotPrice;
                   const isITMPut = spotPrice > 0 && strike > spotPrice;
                   const isATM = spotPrice > 0 && Math.abs(strike - spotPrice) / spotPrice < 0.02;
+                  const callBg = isITMCall ? "bg-[rgba(80,210,193,0.05)]" : "";
+                  const putBg = isITMPut ? "bg-[rgba(240,88,88,0.05)]" : "";
 
                   return (
-                    <tr
-                      key={strike}
-                      className={`border-b border-[var(--hl-border)]/30 hover:bg-[var(--hl-surface-hover)] transition-colors ${
-                        isATM ? "bg-[rgba(168,85,247,0.08)]" : ""
-                      }`}
-                    >
-                      {/* Call side */}
-                      <td className={`px-2 py-1 tabular-nums ${isITMCall ? "bg-[rgba(80,210,193,0.05)]" : ""}`}>
-                        {call ? formatOI(call.openInterest) : "—"}
-                      </td>
-                      <td className={`px-2 py-1 tabular-nums ${isITMCall ? "bg-[rgba(80,210,193,0.05)]" : ""}`}>
-                        {call && call.volume24h > 0 ? formatOI(call.volume24h) : "—"}
-                      </td>
-                      <td className={`px-2 py-1 text-right tabular-nums ${call ? ivColor(call.iv) : ""} ${isITMCall ? "bg-[rgba(80,210,193,0.05)]" : ""}`}>
-                        {call ? `${call.iv.toFixed(0)}%` : "—"}
-                      </td>
+                    <tr key={strike} className={`border-b border-[var(--hl-border)]/30 hover:bg-[var(--hl-surface-hover)] transition-colors ${isATM ? "bg-[rgba(168,85,247,0.08)]" : ""}`}>
+                      <td className={`px-2 py-1 tabular-nums ${callBg}`}>{call ? formatOI(call.openInterest) : "\u2014"}</td>
+                      <td className={`px-2 py-1 tabular-nums ${callBg}`}>{call && call.volume24h > 0 ? formatOI(call.volume24h) : "\u2014"}</td>
+                      <td className={`px-2 py-1 text-right tabular-nums ${call ? ivColor(call.iv) : ""} ${callBg}`}>{call ? `${call.iv.toFixed(0)}%` : "\u2014"}</td>
                       {showGreeks && (
                         <>
-                          <td className={`px-2 py-1 text-right tabular-nums text-[var(--hl-muted)] ${isITMCall ? "bg-[rgba(80,210,193,0.05)]" : ""}`}>
-                            {call ? formatGreek(call.delta) : "—"}
-                          </td>
-                          <td className={`px-2 py-1 text-right tabular-nums text-[var(--hl-muted)] ${isITMCall ? "bg-[rgba(80,210,193,0.05)]" : ""}`}>
-                            {call ? formatGreek(call.gamma, 4) : "—"}
-                          </td>
+                          <td className={`px-2 py-1 text-right tabular-nums text-[var(--hl-muted)] ${callBg}`}>{call ? formatGreek(call.delta) : "\u2014"}</td>
+                          <td className={`px-2 py-1 text-right tabular-nums text-[var(--hl-muted)] ${callBg}`}>{call ? formatGreek(call.gamma, 4) : "\u2014"}</td>
                         </>
                       )}
-                      <td className={`px-2 py-1 text-right tabular-nums text-[var(--hl-green)] ${isITMCall ? "bg-[rgba(80,210,193,0.05)]" : ""}`}>
-                        {call && call.bidPrice > 0 ? `$${call.bidPrice.toFixed(2)}` : "—"}
-                      </td>
-                      <td className={`px-2 py-1 text-right tabular-nums text-[var(--hl-green)] ${isITMCall ? "bg-[rgba(80,210,193,0.05)]" : ""}`}>
-                        {call && call.askPrice > 0 ? `$${call.askPrice.toFixed(2)}` : "—"}
-                      </td>
-                      <td className={`px-2 py-1 text-right tabular-nums font-medium ${isITMCall ? "bg-[rgba(80,210,193,0.05)]" : ""}`}>
-                        {call ? formatPrice(call.markPrice) : "—"}
-                      </td>
+                      <td className={`px-2 py-1 text-right tabular-nums text-[var(--hl-green)] ${callBg}`}>{call && call.bidPrice > 0 ? `$${call.bidPrice.toFixed(2)}` : "\u2014"}</td>
+                      <td className={`px-2 py-1 text-right tabular-nums text-[var(--hl-green)] ${callBg}`}>{call && call.askPrice > 0 ? `$${call.askPrice.toFixed(2)}` : "\u2014"}</td>
+                      <td className={`px-2 py-1 text-right tabular-nums font-medium ${callBg}`}>{call ? formatPrice(call.markPrice) : "\u2014"}</td>
 
-                      {/* Strike column */}
-                      <td className={`px-3 py-1 text-center font-bold tabular-nums bg-[var(--hl-bg)] border-x border-[var(--hl-border)]/30 ${
-                        isATM ? "text-purple-400" : "text-[var(--foreground)]"
-                      }`}>
-                        ${strike}
+                      <td className={`px-3 py-1 text-center font-bold tabular-nums bg-[var(--hl-bg)] border-x border-[var(--hl-border)]/30 ${isATM ? "text-purple-400" : "text-[var(--foreground)]"}`}>
+                        ${strike.toLocaleString()}
                         {isATM && <span className="ml-1 text-[8px] text-purple-400/70">ATM</span>}
                       </td>
 
-                      {/* Put side */}
-                      <td className={`px-2 py-1 tabular-nums font-medium ${isITMPut ? "bg-[rgba(240,88,88,0.05)]" : ""}`}>
-                        {put ? formatPrice(put.markPrice) : "—"}
-                      </td>
-                      <td className={`px-2 py-1 tabular-nums text-[var(--hl-red)] ${isITMPut ? "bg-[rgba(240,88,88,0.05)]" : ""}`}>
-                        {put && put.bidPrice > 0 ? `$${put.bidPrice.toFixed(2)}` : "—"}
-                      </td>
-                      <td className={`px-2 py-1 tabular-nums text-[var(--hl-red)] ${isITMPut ? "bg-[rgba(240,88,88,0.05)]" : ""}`}>
-                        {put && put.askPrice > 0 ? `$${put.askPrice.toFixed(2)}` : "—"}
-                      </td>
+                      <td className={`px-2 py-1 tabular-nums font-medium ${putBg}`}>{put ? formatPrice(put.markPrice) : "\u2014"}</td>
+                      <td className={`px-2 py-1 tabular-nums text-[var(--hl-red)] ${putBg}`}>{put && put.bidPrice > 0 ? `$${put.bidPrice.toFixed(2)}` : "\u2014"}</td>
+                      <td className={`px-2 py-1 tabular-nums text-[var(--hl-red)] ${putBg}`}>{put && put.askPrice > 0 ? `$${put.askPrice.toFixed(2)}` : "\u2014"}</td>
                       {showGreeks && (
                         <>
-                          <td className={`px-2 py-1 tabular-nums text-[var(--hl-muted)] ${isITMPut ? "bg-[rgba(240,88,88,0.05)]" : ""}`}>
-                            {put ? formatGreek(put.delta) : "—"}
-                          </td>
-                          <td className={`px-2 py-1 tabular-nums text-[var(--hl-muted)] ${isITMPut ? "bg-[rgba(240,88,88,0.05)]" : ""}`}>
-                            {put ? formatGreek(put.gamma, 4) : "—"}
-                          </td>
+                          <td className={`px-2 py-1 tabular-nums text-[var(--hl-muted)] ${putBg}`}>{put ? formatGreek(put.delta) : "\u2014"}</td>
+                          <td className={`px-2 py-1 tabular-nums text-[var(--hl-muted)] ${putBg}`}>{put ? formatGreek(put.gamma, 4) : "\u2014"}</td>
                         </>
                       )}
-                      <td className={`px-2 py-1 tabular-nums ${put ? ivColor(put.iv) : ""} ${isITMPut ? "bg-[rgba(240,88,88,0.05)]" : ""}`}>
-                        {put ? `${put.iv.toFixed(0)}%` : "—"}
-                      </td>
-                      <td className={`px-2 py-1 text-right tabular-nums ${isITMPut ? "bg-[rgba(240,88,88,0.05)]" : ""}`}>
-                        {put && put.volume24h > 0 ? formatOI(put.volume24h) : "—"}
-                      </td>
-                      <td className={`px-2 py-1 text-right tabular-nums ${isITMPut ? "bg-[rgba(240,88,88,0.05)]" : ""}`}>
-                        {put ? formatOI(put.openInterest) : "—"}
-                      </td>
+                      <td className={`px-2 py-1 tabular-nums ${put ? ivColor(put.iv) : ""} ${putBg}`}>{put ? `${put.iv.toFixed(0)}%` : "\u2014"}</td>
+                      <td className={`px-2 py-1 text-right tabular-nums ${putBg}`}>{put && put.volume24h > 0 ? formatOI(put.volume24h) : "\u2014"}</td>
+                      <td className={`px-2 py-1 text-right tabular-nums ${putBg}`}>{put ? formatOI(put.openInterest) : "\u2014"}</td>
                     </tr>
                   );
                 })}
@@ -327,14 +282,13 @@ export function HypeOptionsPanel({ isOpen, onClose }: HypeOptionsProps) {
           )}
         </div>
 
-        {/* Footer with Derive link */}
+        {/* Footer */}
         <div className="flex items-center justify-between px-4 py-2 border-t border-[var(--hl-border)] bg-[var(--hl-surface)] text-[10px]">
           <span className="text-[var(--hl-muted)]">
             Data from <span className="text-purple-400">Derive</span> (formerly Lyra Finance)
-            {" "}&middot; Min size: 10 HYPE &middot; Maker: 0.01% &middot; Taker: 0.03%
           </span>
           <a
-            href="https://derive.xyz/trade/options/HYPE"
+            href={`https://derive.xyz/trade/options/${coin}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-purple-400 hover:text-purple-300 transition-colors font-medium"
@@ -345,4 +299,10 @@ export function HypeOptionsPanel({ isOpen, onClose }: HypeOptionsProps) {
       </div>
     </div>
   );
+}
+
+// ─── Backward compat export ──────────────────────────────────────────────────
+
+export function HypeOptionsPanel({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  return <OptionsChainModal coin="HYPE" isOpen={isOpen} onClose={onClose} />;
 }

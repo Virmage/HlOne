@@ -3,11 +3,14 @@
 import type { MarketRegime, OptionsSnapshot } from "@/lib/api";
 import { useTickerAnimation } from "@/hooks/use-ticker-animation";
 
+// Coins with options on Derive (clickable to open chain)
+const DERIVE_COINS = new Set(["BTC", "ETH", "SOL", "HYPE"]);
+
 interface MarketPulseProps {
   regime: MarketRegime | null;
   options: Record<string, OptionsSnapshot>;
   onSelectToken: (coin: string) => void;
-  onOpenHypeOptions?: () => void;
+  onOpenOptions?: (coin: string) => void;
 }
 
 const REGIME_STYLES: Record<string, { text: string; label: string; bg: string }> = {
@@ -25,7 +28,7 @@ function formatOI(val: number): string {
   return `$${(val / 1e3).toFixed(0)}K`;
 }
 
-export function MarketPulse({ regime, options, onSelectToken, onOpenHypeOptions }: MarketPulseProps) {
+export function MarketPulse({ regime, options, onSelectToken, onOpenOptions }: MarketPulseProps) {
   const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(90, false, false);
   const regimeStyle = regime ? REGIME_STYLES[regime.regime] || REGIME_STYLES.chop : REGIME_STYLES.chop;
   const optionCoins = Object.keys(options);
@@ -50,23 +53,9 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenHypeOptions 
               </div>
             )}
 
-            {/* HYPE Options (Derive) button */}
-            {onOpenHypeOptions && options["HYPE"] && (
-              <button
-                onClick={onOpenHypeOptions}
-                className="flex items-center gap-1.5 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] hover:bg-[rgba(168,85,247,0.1)] transition-colors text-[11px]"
-              >
-                <span className="font-semibold text-purple-400">HYPE Options</span>
-                <span className="text-[10px] px-1.5 py-0 rounded bg-purple-500/15 text-purple-400">Derive</span>
-                <span className="tabular-nums">IV {options["HYPE"].dvol.toFixed(0)}%</span>
-                <span className={`tabular-nums ${options["HYPE"].putCallRatio > 1 ? "text-[var(--hl-red)]" : "text-[var(--hl-green)]"}`}>
-                  P/C {options["HYPE"].putCallRatio.toFixed(2)}
-                </span>
-              </button>
-            )}
-
-            {/* Per-coin Deribit data */}
+            {/* Per-coin options data — Derive coins are clickable to open chain */}
             {optionCoins.map((coin) => {
+              const isDerive = DERIVE_COINS.has(coin);
               const opt = options[coin];
               if (!opt) return null;
               const maxPain = opt.maxPain ?? 0;
@@ -82,10 +71,13 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenHypeOptions 
               return (
                 <button
                   key={`${copy}-${coin}`}
-                  onClick={() => onSelectToken(coin)}
-                  className="flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors text-[11px]"
+                  onClick={() => isDerive && onOpenOptions ? onOpenOptions(coin) : onSelectToken(coin)}
+                  className={`flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] transition-colors text-[11px] ${
+                    isDerive ? "hover:bg-[rgba(168,85,247,0.08)]" : "hover:bg-[var(--hl-surface-hover)]"
+                  }`}
                 >
-                  <span className="font-semibold text-[var(--foreground)]">{coin}</span>
+                  <span className={`font-semibold ${isDerive ? "text-purple-400" : "text-[var(--foreground)]"}`}>{coin}</span>
+                  {isDerive && <span className="text-[8px] px-1 rounded bg-purple-500/15 text-purple-400/70">Derive</span>}
                   <span className="text-[var(--hl-muted)] text-[10px]">MP</span>
                   <span className="tabular-nums">${maxPain.toLocaleString()}</span>
                   {maxPainDist !== 0 && (

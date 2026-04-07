@@ -1,10 +1,14 @@
 /**
- * HYPE options data from Derive (formerly Lyra Finance).
+ * Options data from Derive (formerly Lyra Finance).
+ * Replaces Deribit — Derive supports BTC, ETH, SOL, HYPE options.
  * Free public API, no auth needed for market data.
- * Computes same metrics as Deribit: Max Pain, P/C ratio, IV, Skew, GEX.
+ * Auth required for trading (Ethereum signatures + session keys).
  */
 
 const DERIVE_API = "https://api.lyra.finance/public";
+
+// Derive supports these currencies for options
+const SUPPORTED_COINS = ["BTC", "ETH", "SOL", "HYPE"];
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -13,13 +17,17 @@ interface DeriveInstrument {
   is_active: boolean;
   option_details: {
     index: string;
-    expiry: number;       // unix timestamp
-    strike: string;       // e.g. "35"
+    expiry: number;
+    strike: string;
     option_type: "C" | "P";
     settlement_price: string | null;
   } | null;
   base_currency: string;
   quote_currency: string;
+  minimum_amount: string;
+  maximum_amount: string;
+  maker_fee_rate: string;
+  taker_fee_rate: string;
 }
 
 interface DeriveTicker {
@@ -42,7 +50,7 @@ interface DeriveTicker {
     vega: string;
     theta: string;
     rho: string;
-    iv: string;            // e.g. "0.993246" = 99.3%
+    iv: string;
     bid_iv: string;
     ask_iv: string;
     mark_price: string;
@@ -63,9 +71,9 @@ interface DeriveTicker {
   };
 }
 
-// ─── Cache ───────────────────────────────────────────────────────────────────
+// ─── Exported Types ─────────────────────────────────────────────────────────
 
-interface DeriveOptionsSnapshot {
+export interface DeriveOptionsSnapshot {
   currency: string;
   source: "derive";
   maxPain: number;
@@ -74,24 +82,44 @@ interface DeriveOptionsSnapshot {
   putCallRatio: number;
   totalCallOI: number;
   totalPutOI: number;
-  dvol: number;             // weighted avg IV across active options
+  dvol: number;
   ivRank: number;
   skew25d: number;
   gex: number;
   gexLevel: "dampening" | "amplifying" | "neutral";
   topStrikes: { strike: number; callOI: number; putOI: number }[];
   fetchedAt: number;
-  // Derive-specific extras
   spotPrice: number;
-  expiryDates: string[];    // available expiry dates
+  expiryDates: string[];
   totalVolume24h: number;
 }
 
-let cache: DeriveOptionsSnapshot | null = null;
+export interface DeriveOptionRow {
+  instrument: string;
+  expiry: string;
+  expiryTimestamp: number;
+  strike: number;
+  type: "C" | "P";
+  markPrice: number;
+  bidPrice: number;
+  askPrice: number;
+  bidAmount: number;
+  askAmount: number;
+  iv: number;
+  delta: number;
+  gamma: number;
+  theta: number;
+  vega: number;
+  openInterest: number;
+  volume24h: number;
+}
+
+// ─── Cache ───────────────────────────────────────────────────────────────────
+
+const snapshotCache = new Map<string, DeriveOptionsSnapshot>();
 const CACHE_TTL = 5 * 60_000;
 
-// IV history for IV rank computation
-let ivHistoryCache: { values: number[]; fetchedAt: number } | null = null;
+const ivHistoryCache = new Map<string, { values: number[]; fetchedAt: number }>();
 const IV_HISTORY_TTL = 30 * 60_000;
 
 // ─── Fetcher ─────────────────────────────────────────────────────────────────
@@ -104,16 +132,16 @@ async function deriveGet(method: string, params: Record<string, unknown> = {}): 
 
   const resp = await fetch(url.toString());
   if (!resp.ok) throw new Error(`Derive API error: ${resp.status}`);
-  const data = await resp.json() as { result: unknown; error?: { message: string } };
+  const data = await resp.json() as { result: unknown; error?: { message: string; code?: number } };
   if (data.error) throw new Error(`Derive API: ${data.error.message}`);
   return data.result;
 }
 
 // ─── Data fetching ───────────────────────────────────────────────────────────
 
-async function getHypeInstruments(): Promise<DeriveInstrument[]> {
+async function getInstruments(currency: string): Promise<DeriveInstrument[]> {
   const result = await deriveGet("get_instruments", {
-    currency: "HYPE",
+    currency,
     instrument_type: "option",
     expired: "false",
   });
@@ -122,19 +150,17 @@ async function getHypeInstruments(): Promise<DeriveInstrument[]> {
 
 async function getTickerForInstrument(instrumentName: string): Promise<DeriveTicker | null> {
   try {
-    const result = await deriveGet("get_ticker", { instrument_name: instrumentName });
-    return result as DeriveTicker;
+    return await deriveGet("get_ticker", { instrument_name: instrumentName }) as DeriveTicker;
   } catch {
     return null;
   }
 }
 
-/** Batch fetch tickers for an expiry date */
-async function getTickersForExpiry(expiryDate: string): Promise<Record<string, DeriveTicker>> {
+async function getTickersForExpiry(currency: string, expiryDate: string): Promise<Record<string, DeriveTicker>> {
   try {
     const result = await deriveGet("get_tickers", {
       instrument_type: "option",
-      currency: "HYPE",
+      currency,
       expiry_date: expiryDate,
     }) as { tickers: Record<string, DeriveTicker> };
     return result.tickers || {};
@@ -165,8 +191,6 @@ function formatExpiryLabel(timestamp: number): string {
   return `${d.getDate()}${months[d.getMonth()]}${String(d.getFullYear()).slice(2)}`;
 }
 
-// ─── IV Rank ─────────────────────────────────────────────────────────────────
-
 function computeIvRank(history: number[], current: number): number {
   if (history.length < 2) return 50;
   const min = Math.min(...history);
@@ -175,7 +199,14 @@ function computeIvRank(history: number[], current: number): number {
   return Math.round(((current - min) / (max - min)) * 100);
 }
 
-// ─── Max Pain ────────────────────────────────────────────────────────────────
+// GEX thresholds by coin (BTC/ETH are bigger markets)
+function gexThreshold(coin: string): number {
+  if (coin === "BTC") return 5;
+  if (coin === "ETH") return 5;
+  return 0.5; // SOL, HYPE — smaller markets
+}
+
+// ─── Option Entry type ──────────────────────────────────────────────────────
 
 interface OptionEntry {
   strike: number;
@@ -188,8 +219,9 @@ interface OptionEntry {
   expiryLabel: string;
 }
 
+// ─── Max Pain ────────────────────────────────────────────────────────────────
+
 function computeMaxPain(options: OptionEntry[]): { maxPain: number; expiry: string; topStrikes: { strike: number; callOI: number; putOI: number }[] } {
-  // Group by expiry
   const expiries = new Map<string, OptionEntry[]>();
   for (const opt of options) {
     const label = opt.expiryLabel;
@@ -197,10 +229,9 @@ function computeMaxPain(options: OptionEntry[]): { maxPain: number; expiry: stri
     expiries.get(label)!.push(opt);
   }
 
-  // Sort by expiry timestamp and pick nearest with sufficient OI
   const sorted = [...expiries.entries()]
     .map(([exp, opts]) => ({ exp, opts, totalOI: opts.reduce((s, o) => s + o.oi, 0) }))
-    .filter(e => e.totalOI > 10) // lower threshold than Deribit (HYPE is smaller market)
+    .filter(e => e.totalOI > 10)
     .sort((a, b) => a.exp.localeCompare(b.exp));
 
   if (sorted.length === 0) return { maxPain: 0, expiry: "", topStrikes: [] };
@@ -217,13 +248,9 @@ function computeMaxPain(options: OptionEntry[]): { maxPain: number; expiry: stri
       if (o.isCall && s > o.strike) pain += (s - o.strike) * o.oi;
       else if (!o.isCall && s < o.strike) pain += (o.strike - s) * o.oi;
     }
-    if (pain < minPain) {
-      minPain = pain;
-      maxPainStrike = s;
-    }
+    if (pain < minPain) { minPain = pain; maxPainStrike = s; }
   }
 
-  // Top strikes by OI
   const strikeOI = new Map<number, { callOI: number; putOI: number }>();
   for (const o of nearest.opts) {
     const existing = strikeOI.get(o.strike) || { callOI: 0, putOI: 0 };
@@ -240,301 +267,262 @@ function computeMaxPain(options: OptionEntry[]): { maxPain: number; expiry: stri
   return { maxPain: maxPainStrike, expiry: nearest.exp, topStrikes };
 }
 
+// ─── Core: fetch + compute for any supported coin ──────────────────────────
+
+async function fetchTickersForCoin(currency: string, instruments: DeriveInstrument[]): Promise<DeriveTicker[]> {
+  const expiryTimestamps = [...new Set(
+    instruments.map(i => i.option_details?.expiry || 0).filter(e => e * 1000 > Date.now())
+  )].sort((a, b) => a - b);
+
+  const allTickers: DeriveTicker[] = [];
+
+  for (const expiryTs of expiryTimestamps) {
+    const dateStr = formatExpiryDate(expiryTs);
+    try {
+      const tickers = await getTickersForExpiry(currency, dateStr);
+      const tickerList = Object.values(tickers);
+      if (tickerList.length > 0) {
+        allTickers.push(...tickerList);
+        continue;
+      }
+    } catch { /* fall through */ }
+
+    // Fallback to individual
+    const expiryInstruments = instruments
+      .filter(i => i.option_details?.expiry === expiryTs)
+      .slice(0, 30);
+    const tickers = (await Promise.all(
+      expiryInstruments.map(i => getTickerForInstrument(i.instrument_name))
+    )).filter(Boolean) as DeriveTicker[];
+    allTickers.push(...tickers);
+  }
+
+  return allTickers;
+}
+
+function computeSnapshot(currency: string, allTickers: DeriveTicker[]): DeriveOptionsSnapshot | null {
+  if (allTickers.length === 0) return null;
+
+  const spotPrice = parseFloat(allTickers[0]?.index_price || "0");
+  if (spotPrice === 0) return null;
+
+  const options: OptionEntry[] = [];
+  let totalCallOI = 0;
+  let totalPutOI = 0;
+  const ivValues: number[] = [];
+  let totalVolume24h = 0;
+
+  const expirySet = new Set<number>();
+
+  for (const ticker of allTickers) {
+    const details = ticker.option_details;
+    const pricing = ticker.option_pricing;
+    if (!details || !pricing) continue;
+
+    const strike = parseFloat(details.strike);
+    const isCall = details.option_type === "C";
+    const oi = getTotalOI(ticker);
+    const iv = parseFloat(pricing.iv || "0") * 100;
+    const delta = parseFloat(pricing.delta || "0");
+    const gamma = parseFloat(pricing.gamma || "0");
+
+    if (isCall) totalCallOI += oi;
+    else totalPutOI += oi;
+    if (iv > 0) ivValues.push(iv);
+    if (ticker.stats?.volume) totalVolume24h += parseFloat(ticker.stats.volume);
+    if (details.expiry * 1000 > Date.now()) expirySet.add(details.expiry);
+
+    options.push({ strike, isCall, oi, iv, delta, gamma, expiry: details.expiry, expiryLabel: formatExpiryLabel(details.expiry) });
+  }
+
+  if (totalCallOI === 0 && totalPutOI === 0) return null;
+
+  const { maxPain, expiry, topStrikes } = computeMaxPain(options);
+  const maxPainDistance = spotPrice > 0 ? ((maxPain - spotPrice) / spotPrice) * 100 : 0;
+  const putCallRatio = totalCallOI > 0 ? totalPutOI / totalCallOI : 0;
+
+  // Avg IV
+  let avgIv = 0;
+  if (ivValues.length > 0) avgIv = ivValues.reduce((a, b) => a + b, 0) / ivValues.length;
+
+  // IV Rank
+  let ivRank = 50;
+  const cached = ivHistoryCache.get(currency);
+  if (cached && Date.now() - cached.fetchedAt < IV_HISTORY_TTL) {
+    ivRank = computeIvRank(cached.values, avgIv);
+  } else {
+    const existing = cached?.values || [];
+    existing.push(avgIv);
+    if (existing.length > 90) existing.shift();
+    ivHistoryCache.set(currency, { values: existing, fetchedAt: Date.now() });
+    ivRank = computeIvRank(existing, avgIv);
+  }
+
+  // 25-delta skew from nearest expiry
+  let skew25d = 0;
+  const sortedExpiries = [...expirySet].sort((a, b) => a - b);
+  const nearestExpiry = sortedExpiries[0];
+  if (nearestExpiry) {
+    const nearOptions = options.filter(o => o.expiry === nearestExpiry);
+    let closest25Put: OptionEntry | null = null;
+    let closest25Call: OptionEntry | null = null;
+    let minPutDist = Infinity;
+    let minCallDist = Infinity;
+
+    for (const o of nearOptions) {
+      const absDelta = Math.abs(o.delta);
+      if (!o.isCall) {
+        const dist = Math.abs(absDelta - 0.25);
+        if (dist < minPutDist) { minPutDist = dist; closest25Put = o; }
+      } else {
+        const dist = Math.abs(absDelta - 0.25);
+        if (dist < minCallDist) { minCallDist = dist; closest25Call = o; }
+      }
+    }
+    if (closest25Put && closest25Call) skew25d = closest25Put.iv - closest25Call.iv;
+  }
+
+  // GEX
+  let totalGex = 0;
+  for (const o of options) {
+    const sign = o.isCall ? 1 : -1;
+    totalGex += sign * o.gamma * o.oi * spotPrice * spotPrice * 0.01;
+  }
+  const gexM = totalGex / 1_000_000;
+  const threshold = gexThreshold(currency);
+  let gexLevel: "dampening" | "amplifying" | "neutral" = "neutral";
+  if (gexM > threshold) gexLevel = "dampening";
+  else if (gexM < -threshold) gexLevel = "amplifying";
+
+  return {
+    currency,
+    source: "derive",
+    maxPain,
+    maxPainExpiry: expiry,
+    maxPainDistance: Math.round(maxPainDistance * 100) / 100,
+    putCallRatio: Math.round(putCallRatio * 100) / 100,
+    totalCallOI,
+    totalPutOI,
+    dvol: Math.round(avgIv * 10) / 10,
+    ivRank,
+    skew25d: Math.round(skew25d * 100) / 100,
+    gex: Math.round(gexM * 10) / 10,
+    gexLevel,
+    topStrikes,
+    fetchedAt: Date.now(),
+    spotPrice,
+    expiryDates: sortedExpiries.map(e => formatExpiryLabel(e)),
+    totalVolume24h,
+  };
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export async function getHypeOptionsData(): Promise<DeriveOptionsSnapshot | null> {
-  if (cache && Date.now() - cache.fetchedAt < CACHE_TTL) return cache;
+/** Get options snapshot for a single coin */
+export async function getDeriveOptionsData(coin: string): Promise<DeriveOptionsSnapshot | null> {
+  if (!SUPPORTED_COINS.includes(coin)) return null;
+
+  const cached = snapshotCache.get(coin);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL) return cached;
 
   try {
-    // 1. Get all active HYPE option instruments
-    const instruments = await getHypeInstruments();
+    const instruments = await getInstruments(coin);
     if (instruments.length === 0) {
-      console.log("[derive] No active HYPE options found");
+      console.log(`[derive] No active ${coin} options found`);
       return null;
     }
 
-    // 2. Group by expiry date for batch fetching
-    const expiryTimestamps = new Set<number>();
-    for (const inst of instruments) {
-      if (inst.option_details?.expiry) {
-        expiryTimestamps.add(inst.option_details.expiry);
-      }
+    const allTickers = await fetchTickersForCoin(coin, instruments);
+    const snapshot = computeSnapshot(coin, allTickers);
+
+    if (snapshot) {
+      snapshotCache.set(coin, snapshot);
+      console.log(`[derive] ${coin} options: ${allTickers.length} instruments, IV=${snapshot.dvol.toFixed(1)}%, P/C=${snapshot.putCallRatio.toFixed(2)}, MaxPain=$${snapshot.maxPain}`);
     }
 
-    const expiryDates = [...expiryTimestamps]
-      .sort((a, b) => a - b)
-      .filter(e => e * 1000 > Date.now()); // only future expiries
+    return snapshot;
+  } catch (err) {
+    console.error(`[derive] Failed to fetch ${coin} options:`, (err as Error).message);
+    return cached || null;
+  }
+}
 
-    // 3. Fetch tickers — batch by expiry where possible, fallback to individual
-    const allTickers: DeriveTicker[] = [];
+/** Get options snapshots for all supported coins */
+export async function getAllDeriveOptionsData(): Promise<Map<string, DeriveOptionsSnapshot>> {
+  const results = new Map<string, DeriveOptionsSnapshot>();
 
-    // Try batch fetch first for each expiry
-    for (const expiryTs of expiryDates) {
-      const dateStr = formatExpiryDate(expiryTs);
-      try {
-        const tickers = await getTickersForExpiry(dateStr);
-        const tickerList = Object.values(tickers);
-        if (tickerList.length > 0) {
-          allTickers.push(...tickerList);
-          continue;
-        }
-      } catch {
-        // Batch failed, fall through to individual
-      }
+  // Fetch in parallel but with slight stagger to be nice to the API
+  const promises = SUPPORTED_COINS.map(async (coin) => {
+    const data = await getDeriveOptionsData(coin);
+    if (data) results.set(coin, data);
+  });
 
-      // Individual fetch fallback (max 30 instruments per expiry to avoid rate limits)
-      const expiryInstruments = instruments
-        .filter(i => i.option_details?.expiry === expiryTs)
-        .slice(0, 30);
+  await Promise.all(promises);
+  return results;
+}
 
-      const tickerPromises = expiryInstruments.map(i => getTickerForInstrument(i.instrument_name));
-      const tickers = (await Promise.all(tickerPromises)).filter(Boolean) as DeriveTicker[];
-      allTickers.push(...tickers);
-    }
+/** Get full options chain for a coin — used for the options trading UI */
+export async function getDeriveOptionsChain(coin: string): Promise<{
+  chain: DeriveOptionRow[];
+  spotPrice: number;
+  expiries: { label: string; timestamp: number }[];
+} | null> {
+  if (!SUPPORTED_COINS.includes(coin)) return null;
 
-    if (allTickers.length === 0) {
-      console.log("[derive] No ticker data available for HYPE options");
-      return null;
-    }
+  try {
+    const instruments = await getInstruments(coin);
+    if (instruments.length === 0) return null;
 
-    // 4. Parse into option entries
-    const spotPrice = parseFloat(allTickers[0]?.index_price || "0");
-    if (spotPrice === 0) return null;
+    const allTickers = await fetchTickersForCoin(coin, instruments);
+    if (allTickers.length === 0) return null;
 
-    const options: OptionEntry[] = [];
-    let totalCallOI = 0;
-    let totalPutOI = 0;
-    const ivValues: number[] = [];
+    let spotPrice = 0;
+    const chain: DeriveOptionRow[] = [];
+    const expirySet = new Set<number>();
 
     for (const ticker of allTickers) {
       const details = ticker.option_details;
       const pricing = ticker.option_pricing;
       if (!details || !pricing) continue;
 
-      const strike = parseFloat(details.strike);
-      const isCall = details.option_type === "C";
-      const oi = getTotalOI(ticker);
-      const iv = parseFloat(pricing.iv || "0") * 100; // Convert 0.99 → 99%
-      const delta = parseFloat(pricing.delta || "0");
-      const gamma = parseFloat(pricing.gamma || "0");
+      if (!spotPrice) spotPrice = parseFloat(ticker.index_price || "0");
+      if (details.expiry * 1000 > Date.now()) expirySet.add(details.expiry);
 
-      if (isCall) totalCallOI += oi;
-      else totalPutOI += oi;
-
-      if (iv > 0) ivValues.push(iv);
-
-      options.push({
-        strike,
-        isCall,
-        oi,
-        iv,
-        delta,
-        gamma,
-        expiry: details.expiry,
-        expiryLabel: formatExpiryLabel(details.expiry),
+      chain.push({
+        instrument: ticker.instrument_name,
+        expiry: formatExpiryLabel(details.expiry),
+        expiryTimestamp: details.expiry,
+        strike: parseFloat(details.strike),
+        type: details.option_type,
+        markPrice: parseFloat(pricing.mark_price || ticker.mark_price || "0"),
+        bidPrice: parseFloat(ticker.best_bid_price || "0"),
+        askPrice: parseFloat(ticker.best_ask_price || "0"),
+        bidAmount: parseFloat(ticker.best_bid_amount || "0"),
+        askAmount: parseFloat(ticker.best_ask_amount || "0"),
+        iv: parseFloat(pricing.iv || "0") * 100,
+        delta: parseFloat(pricing.delta || "0"),
+        gamma: parseFloat(pricing.gamma || "0"),
+        theta: parseFloat(pricing.theta || "0"),
+        vega: parseFloat(pricing.vega || "0"),
+        openInterest: getTotalOI(ticker),
+        volume24h: parseFloat(ticker.stats?.volume || "0"),
       });
     }
 
-    if (totalCallOI === 0 && totalPutOI === 0) return null;
-
-    // 5. Compute metrics
-    const { maxPain, expiry, topStrikes } = computeMaxPain(options);
-    const maxPainDistance = spotPrice > 0 ? ((maxPain - spotPrice) / spotPrice) * 100 : 0;
-    const putCallRatio = totalCallOI > 0 ? totalPutOI / totalCallOI : 0;
-
-    // Weighted avg IV (weight by OI)
-    let avgIv = 0;
-    if (ivValues.length > 0) {
-      avgIv = ivValues.reduce((a, b) => a + b, 0) / ivValues.length;
-    }
-
-    // IV Rank from history
-    let ivRank = 50;
-    if (ivHistoryCache && Date.now() - ivHistoryCache.fetchedAt < IV_HISTORY_TTL) {
-      ivRank = computeIvRank(ivHistoryCache.values, avgIv);
-    } else {
-      // Store current IV in history for future rank calc
-      const existing = ivHistoryCache?.values || [];
-      existing.push(avgIv);
-      // Keep last 90 data points
-      if (existing.length > 90) existing.shift();
-      ivHistoryCache = { values: existing, fetchedAt: Date.now() };
-      ivRank = computeIvRank(existing, avgIv);
-    }
-
-    // 25-delta skew: find puts/calls closest to 0.25 abs delta in nearest expiry
-    let skew25d = 0;
-    const nearestExpiry = expiryDates[0];
-    if (nearestExpiry) {
-      const nearOptions = options.filter(o => o.expiry === nearestExpiry);
-      let closest25Put: OptionEntry | null = null;
-      let closest25Call: OptionEntry | null = null;
-      let minPutDist = Infinity;
-      let minCallDist = Infinity;
-
-      for (const o of nearOptions) {
-        const absDelta = Math.abs(o.delta);
-        if (!o.isCall) {
-          const dist = Math.abs(absDelta - 0.25);
-          if (dist < minPutDist) { minPutDist = dist; closest25Put = o; }
-        } else {
-          const dist = Math.abs(absDelta - 0.25);
-          if (dist < minCallDist) { minCallDist = dist; closest25Call = o; }
-        }
-      }
-
-      if (closest25Put && closest25Call) {
-        skew25d = closest25Put.iv - closest25Call.iv;
-      }
-    }
-
-    // GEX (Gamma Exposure)
-    let totalGex = 0;
-    for (const o of options) {
-      const sign = o.isCall ? 1 : -1;
-      totalGex += sign * o.gamma * o.oi * spotPrice * spotPrice * 0.01;
-    }
-    const gexM = totalGex / 1_000_000;
-    let gexLevel: "dampening" | "amplifying" | "neutral" = "neutral";
-    // Lower thresholds for HYPE (smaller market than BTC/ETH)
-    if (gexM > 0.5) gexLevel = "dampening";
-    else if (gexM < -0.5) gexLevel = "amplifying";
-
-    // 24h volume
-    let totalVolume24h = 0;
-    for (const ticker of allTickers) {
-      if (ticker.stats?.volume) {
-        totalVolume24h += parseFloat(ticker.stats.volume);
-      }
-    }
-
-    const snapshot: DeriveOptionsSnapshot = {
-      currency: "HYPE",
-      source: "derive",
-      maxPain,
-      maxPainExpiry: expiry,
-      maxPainDistance: Math.round(maxPainDistance * 100) / 100,
-      putCallRatio: Math.round(putCallRatio * 100) / 100,
-      totalCallOI,
-      totalPutOI,
-      dvol: Math.round(avgIv * 10) / 10,
-      ivRank,
-      skew25d: Math.round(skew25d * 100) / 100,
-      gex: Math.round(gexM * 10) / 10,
-      gexLevel,
-      topStrikes,
-      fetchedAt: Date.now(),
-      spotPrice,
-      expiryDates: expiryDates.map(e => formatExpiryLabel(e)),
-      totalVolume24h,
-    };
-
-    cache = snapshot;
-    console.log(`[derive] HYPE options: ${options.length} instruments, IV=${avgIv.toFixed(1)}%, P/C=${putCallRatio.toFixed(2)}, MaxPain=$${maxPain}`);
-    return snapshot;
-  } catch (err) {
-    console.error("[derive] Failed to fetch HYPE options:", (err as Error).message);
-    return cache || null;
-  }
-}
-
-/** Get HYPE options chain — full list of instruments with pricing for the options UI */
-export interface DeriveOptionRow {
-  instrument: string;
-  expiry: string;
-  expiryTimestamp: number;
-  strike: number;
-  type: "C" | "P";
-  markPrice: number;
-  bidPrice: number;
-  askPrice: number;
-  bidAmount: number;
-  askAmount: number;
-  iv: number;
-  delta: number;
-  gamma: number;
-  theta: number;
-  vega: number;
-  openInterest: number;
-  volume24h: number;
-}
-
-export async function getHypeOptionsChain(): Promise<{
-  chain: DeriveOptionRow[];
-  spotPrice: number;
-  expiries: { label: string; timestamp: number }[];
-} | null> {
-  try {
-    const instruments = await getHypeInstruments();
-    if (instruments.length === 0) return null;
-
-    // Group by expiry
-    const expiryTimestamps = [...new Set(
-      instruments
-        .map(i => i.option_details?.expiry || 0)
-        .filter(e => e * 1000 > Date.now())
-    )].sort((a, b) => a - b);
-
-    const chain: DeriveOptionRow[] = [];
-    let spotPrice = 0;
-
-    for (const expiryTs of expiryTimestamps) {
-      const dateStr = formatExpiryDate(expiryTs);
-      let tickers: Record<string, DeriveTicker> = {};
-      try {
-        tickers = await getTickersForExpiry(dateStr);
-      } catch {
-        // Fallback to individual
-        const expiryInstruments = instruments
-          .filter(i => i.option_details?.expiry === expiryTs)
-          .slice(0, 40);
-        const results = await Promise.all(
-          expiryInstruments.map(i => getTickerForInstrument(i.instrument_name))
-        );
-        for (const t of results) {
-          if (t) tickers[t.instrument_name] = t;
-        }
-      }
-
-      for (const ticker of Object.values(tickers)) {
-        const details = ticker.option_details;
-        const pricing = ticker.option_pricing;
-        if (!details || !pricing) continue;
-
-        if (!spotPrice) spotPrice = parseFloat(ticker.index_price || "0");
-
-        chain.push({
-          instrument: ticker.instrument_name,
-          expiry: formatExpiryLabel(details.expiry),
-          expiryTimestamp: details.expiry,
-          strike: parseFloat(details.strike),
-          type: details.option_type,
-          markPrice: parseFloat(pricing.mark_price || ticker.mark_price || "0"),
-          bidPrice: parseFloat(ticker.best_bid_price || "0"),
-          askPrice: parseFloat(ticker.best_ask_price || "0"),
-          bidAmount: parseFloat(ticker.best_bid_amount || "0"),
-          askAmount: parseFloat(ticker.best_ask_amount || "0"),
-          iv: parseFloat(pricing.iv || "0") * 100,
-          delta: parseFloat(pricing.delta || "0"),
-          gamma: parseFloat(pricing.gamma || "0"),
-          theta: parseFloat(pricing.theta || "0"),
-          vega: parseFloat(pricing.vega || "0"),
-          openInterest: getTotalOI(ticker),
-          volume24h: parseFloat(ticker.stats?.volume || "0"),
-        });
-      }
-    }
-
-    // Sort by expiry then strike
     chain.sort((a, b) => a.expiryTimestamp - b.expiryTimestamp || a.strike - b.strike);
 
-    return {
-      chain,
-      spotPrice,
-      expiries: expiryTimestamps.map(ts => ({ label: formatExpiryLabel(ts), timestamp: ts })),
-    };
+    const expiries = [...expirySet]
+      .sort((a, b) => a - b)
+      .map(ts => ({ label: formatExpiryLabel(ts), timestamp: ts }));
+
+    return { chain, spotPrice, expiries };
   } catch (err) {
-    console.error("[derive] Failed to fetch HYPE options chain:", (err as Error).message);
+    console.error(`[derive] Failed to fetch ${coin} options chain:`, (err as Error).message);
     return null;
   }
+}
+
+/** Which coins does Derive support? */
+export function getDeriveSupportedCoins(): string[] {
+  return [...SUPPORTED_COINS];
 }

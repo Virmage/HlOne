@@ -25,7 +25,7 @@ import { OrderFlowPanel } from "@/components/terminal/order-flow-panel";
 import { PositionConcentrationPanel } from "@/components/terminal/position-concentration";
 import { PositionsPanel } from "@/components/terminal/positions-panel";
 import { TraderDetailPanel } from "@/components/traders/trader-detail-panel";
-import { HypeOptionsPanel } from "@/components/terminal/hype-options";
+import { OptionsChainModal } from "@/components/terminal/hype-options";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
 const CopyDialog = dynamic(
@@ -40,7 +40,7 @@ export default function HomePage() {
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
   const [selectedTrader, setSelectedTrader] = useState<string | null>(null);
   const [copyTrader, setCopyTrader] = useState<string | null>(null);
-  const [showHypeOptions, setShowHypeOptions] = useState(false);
+  const [optionsChainCoin, setOptionsChainCoin] = useState<string | null>(null);
 
   // When a token is selected from any panel, update chart
   const handleSelectToken = (coin: string) => {
@@ -97,7 +97,7 @@ export default function HomePage() {
           regime={data?.regime || null}
           options={data?.options || {}}
           onSelectToken={handleSelectToken}
-          onOpenHypeOptions={() => setShowHypeOptions(true)}
+          onOpenOptions={(coin: string) => setOptionsChainCoin(coin)}
         />
       </div>
 
@@ -123,6 +123,7 @@ export default function HomePage() {
             coin={chartCoin}
             overview={chartOverview}
             score={chartOverview?.score ?? null}
+            onOpenOptionsChain={(coin) => setOptionsChainCoin(coin)}
           />
         </div>
       </div>
@@ -267,8 +268,12 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* HYPE Options Chain (Derive) */}
-      <HypeOptionsPanel isOpen={showHypeOptions} onClose={() => setShowHypeOptions(false)} />
+      {/* Options Chain (Derive) */}
+      <OptionsChainModal
+        coin={optionsChainCoin || "BTC"}
+        isOpen={!!optionsChainCoin}
+        onClose={() => setOptionsChainCoin(null)}
+      />
 
       {/* Copy Dialog — only mount when needed to avoid wagmi hook crash */}
       {copyTrader && (

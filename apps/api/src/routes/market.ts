@@ -10,7 +10,7 @@ import { getTokenScoresCached } from "../services/scoring.js";
 import { getTraderDisplayName } from "../services/name-generator.js";
 import { discoverActiveTraders, getCandleSnapshot, getFundingHistory, getL2Book, getRecentTrades, getClearinghouseState, getOpenOrders } from "../services/hyperliquid.js";
 import { getOptionsData, getAllOptionsData, type OptionsSnapshot } from "../services/options-data.js";
-import { getHypeOptionsData, getHypeOptionsChain } from "../services/derive-options.js";
+import { getDeriveOptionsData, getAllDeriveOptionsData, getDeriveOptionsChain, getDeriveSupportedCoins } from "../services/derive-options.js";
 import { getSignals, getSignalsCached } from "../services/signals.js";
 import { getOICandlesForInterval } from "../services/oi-tracker.js";
 import { getNewsFeedCached, getCoinNews, type NewsPost } from "../services/crypto-panic.js";
@@ -200,32 +200,36 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       }
     } catch { /* ignore */ }
 
-    // Options data: BTC/ETH/SOL/XRP/AVAX/TRX from Deribit + HYPE from Derive
+    // Options data: BTC/ETH/SOL/HYPE from Derive, XRP/AVAX/TRX from Deribit
     let optionsData: Record<string, OptionsSnapshot> = {};
     try {
-      const [deribitOpts, hypeOpts] = await Promise.all([
+      const deriveSupportedCoins = new Set(getDeriveSupportedCoins());
+      const [deriveOpts, deribitOpts] = await Promise.all([
+        getAllDeriveOptionsData().catch(() => new Map()),
         getAllOptionsData().catch(() => new Map<string, OptionsSnapshot>()),
-        getHypeOptionsData().catch(() => null),
       ]);
-      for (const [k, v] of deribitOpts) optionsData[k] = v;
-      // Merge HYPE from Derive into same format
-      if (hypeOpts) {
-        optionsData["HYPE"] = {
-          currency: "HYPE",
-          maxPain: hypeOpts.maxPain,
-          maxPainExpiry: hypeOpts.maxPainExpiry,
-          maxPainDistance: hypeOpts.maxPainDistance,
-          putCallRatio: hypeOpts.putCallRatio,
-          totalCallOI: hypeOpts.totalCallOI,
-          totalPutOI: hypeOpts.totalPutOI,
-          dvol: hypeOpts.dvol,
-          ivRank: hypeOpts.ivRank,
-          skew25d: hypeOpts.skew25d,
-          gex: hypeOpts.gex,
-          gexLevel: hypeOpts.gexLevel,
-          topStrikes: hypeOpts.topStrikes,
-          fetchedAt: hypeOpts.fetchedAt,
+      // Derive is primary for BTC/ETH/SOL/HYPE
+      for (const [k, v] of deriveOpts) {
+        optionsData[k] = {
+          currency: v.currency,
+          maxPain: v.maxPain,
+          maxPainExpiry: v.maxPainExpiry,
+          maxPainDistance: v.maxPainDistance,
+          putCallRatio: v.putCallRatio,
+          totalCallOI: v.totalCallOI,
+          totalPutOI: v.totalPutOI,
+          dvol: v.dvol,
+          ivRank: v.ivRank,
+          skew25d: v.skew25d,
+          gex: v.gex,
+          gexLevel: v.gexLevel,
+          topStrikes: v.topStrikes,
+          fetchedAt: v.fetchedAt,
         };
+      }
+      // Deribit fills in coins Derive doesn't have (XRP, AVAX, TRX)
+      for (const [k, v] of deribitOpts) {
+        if (!deriveSupportedCoins.has(k)) optionsData[k] = v;
       }
     } catch { /* ignore */ }
 
@@ -318,42 +322,44 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
 
       // Critical path: candles first (needed for chart render).
       // Non-critical data loaded in parallel but doesn't block candles.
+      const deriveSupportedCoins = new Set(getDeriveSupportedCoins());
+      const useDerive = deriveSupportedCoins.has(coin);
+
       const [
         candles,
         bookAnalysis,
         funding,
         whaleAlerts,
+        deriveOptions,
         deribitOptions,
-        hypeOptions,
         overviews,
       ] = await Promise.all([
         getCandleSnapshot(coin, interval, candleSince, now).catch(() => []),
         analyzeBook(coin).catch(() => null),
         getFundingHistory(coin, now - 3 * 24 * 60 * 60 * 1000).catch(() => []),
         getHistoricalWhaleEvents(coin, interval, candleSince),
-        getOptionsData(coin).catch(() => null),
-        coin === "HYPE" ? getHypeOptionsData().catch(() => null) : Promise.resolve(null),
-        // Use cached overviews only (don't trigger fresh HIP-3 fetch)
+        useDerive ? getDeriveOptionsData(coin).catch(() => null) : Promise.resolve(null),
+        !useDerive ? getOptionsData(coin).catch(() => null) : Promise.resolve(null),
         getTokenOverviews().catch(() => []),
       ]);
 
-      // Use Derive data for HYPE, Deribit for everything else
-      const options = coin === "HYPE" && hypeOptions ? {
-        currency: "HYPE",
-        maxPain: hypeOptions.maxPain,
-        maxPainExpiry: hypeOptions.maxPainExpiry,
-        maxPainDistance: hypeOptions.maxPainDistance,
-        putCallRatio: hypeOptions.putCallRatio,
-        totalCallOI: hypeOptions.totalCallOI,
-        totalPutOI: hypeOptions.totalPutOI,
-        dvol: hypeOptions.dvol,
-        ivRank: hypeOptions.ivRank,
-        skew25d: hypeOptions.skew25d,
-        gex: hypeOptions.gex,
-        gexLevel: hypeOptions.gexLevel,
-        topStrikes: hypeOptions.topStrikes,
-        fetchedAt: hypeOptions.fetchedAt,
-      } as OptionsSnapshot : deribitOptions;
+      // Derive for BTC/ETH/SOL/HYPE, Deribit for others
+      const options: OptionsSnapshot | null = deriveOptions ? {
+        currency: deriveOptions.currency,
+        maxPain: deriveOptions.maxPain,
+        maxPainExpiry: deriveOptions.maxPainExpiry,
+        maxPainDistance: deriveOptions.maxPainDistance,
+        putCallRatio: deriveOptions.putCallRatio,
+        totalCallOI: deriveOptions.totalCallOI,
+        totalPutOI: deriveOptions.totalPutOI,
+        dvol: deriveOptions.dvol,
+        ivRank: deriveOptions.ivRank,
+        skew25d: deriveOptions.skew25d,
+        gex: deriveOptions.gex,
+        gexLevel: deriveOptions.gexLevel,
+        topStrikes: deriveOptions.topStrikes,
+        fetchedAt: deriveOptions.fetchedAt,
+      } : deribitOptions;
 
       const overview = overviews.find(o => o.coin === coin) || null;
 
@@ -666,16 +672,25 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
-   * GET /api/market/options/hype
-   * HYPE options chain from Derive — full chain with pricing, Greeks, OI.
+   * GET /api/market/options/:coin
+   * Options chain from Derive — full chain with pricing, Greeks, OI.
+   * Supports: BTC, ETH, SOL, HYPE
    */
-  app.get("/options/hype", async () => {
+  app.get<{ Params: { coin: string } }>("/options/:coin", async (req, reply) => {
+    const coin = req.params.coin.toUpperCase();
+    const supported = getDeriveSupportedCoins();
+    if (!supported.includes(coin)) {
+      reply.code(400);
+      return { error: `Options not available for ${coin}. Supported: ${supported.join(", ")}` };
+    }
+
     const [chain, snapshot] = await Promise.all([
-      getHypeOptionsChain().catch(() => null),
-      getHypeOptionsData().catch(() => null),
+      getDeriveOptionsChain(coin).catch(() => null),
+      getDeriveOptionsData(coin).catch(() => null),
     ]);
 
     return {
+      coin,
       chain: chain?.chain || [],
       spotPrice: chain?.spotPrice || 0,
       expiries: chain?.expiries || [],

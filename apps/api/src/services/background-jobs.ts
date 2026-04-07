@@ -18,7 +18,7 @@ import { computeCorrelationMatrix } from "./correlation-matrix.js";
 import { startOrderFlowTracking, warmOrderFlowMids } from "./order-flow.js";
 import { warmLiquidationMids } from "./liquidation-heatmap.js";
 import { getCachedHip3Tokens } from "./market-data.js";
-import { getHypeOptionsData } from "./derive-options.js";
+import { getAllDeriveOptionsData } from "./derive-options.js";
 
 let started = false;
 
@@ -67,7 +67,7 @@ export function startBackgroundJobs() {
       await computeCorrelationMatrix().catch(e => console.error("[bg] Correlation:", (e as Error).message));
       await warmLiquidationMids().catch(() => {});
       await warmOrderFlowMids().catch(() => {});
-      await getHypeOptionsData().catch(e => console.error("[bg] Derive HYPE options:", (e as Error).message));
+      await getAllDeriveOptionsData().catch(e => console.error("[bg] Derive options:", (e as Error).message));
       console.log("[bg] Smart money + scores + signals + news + social + macro + correlation + derive refreshed");
     } catch (err) {
       console.error("[bg] Smart money refresh failed:", (err as Error).message);
@@ -139,7 +139,7 @@ export function startBackgroundJobs() {
       await computeCorrelationMatrix().catch(e => console.error("[bg] Correlation warm-up:", (e as Error).message));
       await warmLiquidationMids().catch(() => {});
       await warmOrderFlowMids().catch(() => {});
-      await getHypeOptionsData().catch(e => console.error("[bg] Derive warm-up:", (e as Error).message));
+      await getAllDeriveOptionsData().catch(e => console.error("[bg] Derive warm-up:", (e as Error).message));
       console.log("[bg] News + social + macro + correlation + derive warm-up complete");
     } catch (err) {
       console.error("[bg] News/social warm-up failed:", (err as Error).message);

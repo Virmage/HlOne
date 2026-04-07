@@ -98,7 +98,7 @@ export function TokenDrawer({ coin, onClose, onCopy, onFade }: TokenDrawerProps)
           {/* Options Data (BTC/ETH only) */}
           {detail.options && (
             <div className="rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] p-2.5">
-              <p className="text-[10px] uppercase tracking-wider text-[var(--hl-muted)] mb-2">Options Intelligence ({detail.options.currency === "HYPE" ? "Derive" : "Deribit"})</p>
+              <p className="text-[10px] uppercase tracking-wider text-[var(--hl-muted)] mb-2">Options Intelligence ({["BTC","ETH","SOL","HYPE"].includes(detail.options.currency) ? "Derive" : "Deribit"})</p>
               <div className="grid grid-cols-3 gap-2 mb-2">
                 <div>
                   <p className="text-[9px] text-[var(--hl-muted)]">Max Pain</p>

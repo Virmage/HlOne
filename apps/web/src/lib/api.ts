@@ -346,7 +346,8 @@ export interface HypeOptionRow {
   volume24h: number;
 }
 
-export interface HypeOptionsChain {
+export interface DeriveOptionsChain {
+  coin: string;
   chain: HypeOptionRow[];
   spotPrice: number;
   expiries: { label: string; timestamp: number }[];
@@ -367,6 +368,9 @@ export interface HypeOptionsChain {
   source: "derive";
   timestamp: number;
 }
+
+// Keep backward compat alias
+export type HypeOptionsChain = DeriveOptionsChain;
 
 export interface TradingSignal {
   type: string;
@@ -609,9 +613,12 @@ export async function getTokenDetail(coin: string, interval = "1h") {
   return apiFetch<TokenDetail>(`/api/market/token/${encodeURIComponent(coin)}?interval=${interval}`);
 }
 
-export async function getHypeOptionsChain() {
-  return apiFetch<HypeOptionsChain>("/api/market/options/hype");
+export async function getDeriveOptionsChain(coin: string) {
+  return apiFetch<DeriveOptionsChain>(`/api/market/options/${encodeURIComponent(coin)}`);
 }
+
+// Backward compat
+export const getHypeOptionsChain = () => getDeriveOptionsChain("HYPE");
 
 export async function getWhaleAlertsFeed(limit = 50, coin?: string) {
   const params = new URLSearchParams({ limit: String(limit) });

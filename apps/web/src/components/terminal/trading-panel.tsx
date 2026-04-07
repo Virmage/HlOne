@@ -5,18 +5,21 @@ import type { TokenOverview, CpycatScore } from "@/lib/api";
 import type { PlaceOrderResult } from "@/lib/hl-exchange";
 import { BUILDER_FEE_PERCENT, BUILDER_FEE_DISPLAY } from "@/lib/hl-exchange";
 import { useSafeAccount } from "@/hooks/use-safe-account";
+import { hasDeriveOptions } from "./hype-options";
 
 interface TradingPanelProps {
   coin: string;
   overview: TokenOverview | null;
   score: CpycatScore | null;
+  onOpenOptionsChain?: (coin: string) => void;
 }
 
 type Side = "long" | "short";
 type OrderType = "market" | "limit";
 type MarginMode = "cross" | "isolated";
 
-export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
+export function TradingPanel({ coin, overview, score, onOpenOptionsChain }: TradingPanelProps) {
+  const [mode, setMode] = useState<"perp" | "options">("perp");
   const [side, setSide] = useState<Side>("long");
   const [orderType, setOrderType] = useState<OrderType>("market");
   const [size, setSize] = useState("");
@@ -195,8 +198,116 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
     }
   }, [address, coin, side, sizeNum, orderType, limitPrice, leverage, marginMode, leverageSet, builderApproved, reduceOnly]);
 
+  const coinHasOptions = hasDeriveOptions(displayCoin);
+
+  // Reset to perp mode when switching to coin without options
+  useEffect(() => {
+    if (!coinHasOptions) setMode("perp");
+  }, [coinHasOptions]);
+
   return (
     <div className="flex flex-col h-full border-l border-[var(--hl-border)] bg-[var(--background)]">
+      {/* Mode toggle: Perp | Options — only show if coin has Derive options */}
+      {coinHasOptions && (
+        <div className="flex items-center mx-3 mt-3 rounded overflow-hidden border border-[var(--hl-border)]">
+          <button
+            onClick={() => setMode("perp")}
+            className={`flex-1 py-1.5 text-[11px] font-medium transition-colors ${
+              mode === "perp"
+                ? "bg-[var(--hl-surface)] text-[var(--foreground)]"
+                : "text-[var(--hl-muted)] hover:text-[var(--hl-text)]"
+            }`}
+          >
+            Perp
+          </button>
+          <button
+            onClick={() => setMode("options")}
+            className={`flex-1 py-1.5 text-[11px] font-medium transition-colors ${
+              mode === "options"
+                ? "bg-[rgba(168,85,247,0.15)] text-purple-400"
+                : "text-[var(--hl-muted)] hover:text-[var(--hl-text)]"
+            }`}
+          >
+            Options
+          </button>
+        </div>
+      )}
+
+      {/* ─── Options Mode ─── */}
+      {mode === "options" && coinHasOptions && (
+        <div className="flex flex-col flex-1 px-3 mt-3">
+          <div className="text-center mb-4">
+            <div className="text-[12px] font-semibold text-purple-400 mb-1">{displayCoin} Options</div>
+            <div className="text-[10px] text-[var(--hl-muted)]">via Derive (formerly Lyra)</div>
+          </div>
+
+          {/* Quick option type selector */}
+          <div className="grid grid-cols-2 gap-px bg-[var(--hl-border)] rounded overflow-hidden mb-3">
+            <button
+              className="py-2 text-[12px] font-semibold bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)] hover:brightness-110 transition-colors"
+              onClick={() => onOpenOptionsChain?.(displayCoin)}
+            >
+              Buy Call
+            </button>
+            <button
+              className="py-2 text-[12px] font-semibold bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:brightness-110 transition-colors"
+              onClick={() => onOpenOptionsChain?.(displayCoin)}
+            >
+              Buy Put
+            </button>
+          </div>
+
+          {/* Info card */}
+          <div className="rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] p-3 space-y-2 mb-3">
+            <p className="text-[10px] text-[var(--hl-muted)]">
+              Options are traded on Derive, a decentralized options protocol. View the full chain to see strikes, expiries, Greeks, and pricing.
+            </p>
+            <div className="text-[10px] space-y-1">
+              <div className="flex justify-between">
+                <span className="text-[var(--hl-muted)]">Maker Fee</span>
+                <span className="text-[var(--hl-text)]">0.01%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--hl-muted)]">Taker Fee</span>
+                <span className="text-[var(--hl-text)]">0.03%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--hl-muted)]">Settlement</span>
+                <span className="text-[var(--hl-text)]">USDC</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--hl-muted)]">Type</span>
+                <span className="text-[var(--hl-text)]">European</span>
+              </div>
+            </div>
+          </div>
+
+          {/* View full chain button */}
+          <button
+            onClick={() => onOpenOptionsChain?.(displayCoin)}
+            className="w-full py-2.5 rounded font-semibold text-[12px] bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 transition-colors mb-2"
+          >
+            View Options Chain
+          </button>
+
+          {/* Trade on Derive link */}
+          <a
+            href={`https://derive.xyz/trade/options/${displayCoin}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full py-2.5 rounded font-semibold text-[12px] bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors text-center block"
+          >
+            Trade on Derive &rarr;
+          </a>
+
+          <div className="mt-auto pt-3 text-[9px] text-[var(--hl-muted)] text-center">
+            Options execution requires signing via Derive. Full chain view shows live Greeks, IV, and order book depth.
+          </div>
+        </div>
+      )}
+
+      {/* ─── Perp Mode (existing) ─── */}
+      {mode === "perp" && <>
       {/* Top row: Isolated / Leverage / Classic — HL style */}
       <div className="grid grid-cols-3 gap-px mx-3 mt-3">
         <button
@@ -495,6 +606,8 @@ export function TradingPanel({ coin, overview, score }: TradingPanelProps) {
           </button>
         )}
       </div>
+
+      </>}
 
       {/* ── Leverage Modal (centered, HL style) ── */}
       {showLevModal && (
