@@ -7,7 +7,7 @@ config({ path: resolve(__dirname, "../../.env") }); // apps/api/.env
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
-import { createDb } from "@hl-copy/db";
+import { createDb, runMigrations } from "@hl-copy/db";
 import { traderRoutes } from "./routes/traders.js";
 import { portfolioRoutes } from "./routes/portfolio.js";
 import { copyRoutes } from "./routes/copy.js";
@@ -24,6 +24,14 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 async function main() {
   console.log(`[startup] Starting API server (PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || "development"})...`);
+
+  // ─── Auto-run DB migrations on startup ──────────────────────────────────────
+  try {
+    await runMigrations(DATABASE_URL);
+  } catch (err) {
+    console.error("[startup] Migration failed (non-fatal):", (err as Error).message);
+  }
+
   const app = Fastify({ logger: true });
 
   // ─── Rate limiting ──────────────────────────────────────────────────────────
