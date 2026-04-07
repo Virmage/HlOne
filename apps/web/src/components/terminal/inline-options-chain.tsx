@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { DeriveOptionsChain, HypeOptionRow } from "@/lib/api";
 import { getDeriveOptionsChain } from "@/lib/api";
 
@@ -223,7 +223,7 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption }: Inl
                 const showSpotDivider = spot > 0 && prevStrike < spot && strike >= spot && prevStrike > 0;
 
                 return (
-                  <tbody key={strike}>
+                  <React.Fragment key={strike}>
                     {showSpotDivider && (
                       <tr>
                         <td colSpan={16} className="relative h-6">
@@ -320,7 +320,7 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption }: Inl
                         {put?.bidAmount ? put.bidAmount.toFixed(1) : "\u2014"}
                       </td>
                     </tr>
-                  </tbody>
+                  </React.Fragment>
                 );
               })}
             </tbody>
