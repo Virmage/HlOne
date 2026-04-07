@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { shortenAddress } from "@/lib/utils";
 import { startCopy, getBuilderFee, checkBuilderApproval, type BuilderFeeInfo } from "@/lib/api";
-import { useAccount } from "wagmi";
+import { useAccount, useSignTypedData } from "wagmi";
 
 interface CopyDialogProps {
   open: boolean;
@@ -39,6 +39,7 @@ export function CopyDialog({
   const [feeApproved, setFeeApproved] = useState<boolean | null>(null);
   const [approvingFee, setApprovingFee] = useState(false);
   const { connector } = useAccount();
+  const { signTypedDataAsync } = useSignTypedData();
 
   useEffect(() => {
     if (open && walletAddress) {
@@ -52,31 +53,27 @@ export function CopyDialog({
     setApprovingFee(true);
     try {
       const nonce = Date.now();
+      // fee is raw HL units (e.g. 20). Convert: fee/10 = bps, bps/100 = percent.
+      const maxFeeRate = `${(builderFee.fee / 10 / 100).toFixed(4)}%`;
       const action = {
         type: "approveBuilderFee",
         hyperliquidChain: "Mainnet",
-        maxFeeRate: (builderFee.fee / 10 / 100 / 100).toString(),
+        maxFeeRate,
         builder: builderFee.builder,
         nonce,
       };
 
-      // EIP-712 typed data — Hyperliquid requires chainId 1337 but wallet
-      // is on Arbitrum (42161). We MUST use window.ethereum directly because
-      // viem/wagmi both validate chainId and reject the mismatch.
-      const typedData = JSON.stringify({
+      // ── EIP-712 signing for ApproveBuilderFee ─────────────────────
+      // Uses HyperliquidSignTransaction domain with fixed chainId 421614
+      // (Arbitrum Sepolia) which won't conflict with the connected chain.
+      const signature = await signTypedDataAsync({
         domain: {
-          name: "Exchange",
+          name: "HyperliquidSignTransaction",
           version: "1",
-          chainId: 1337,
-          verifyingContract: "0x0000000000000000000000000000000000000000",
+          chainId: 421614,
+          verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
         },
         types: {
-          EIP712Domain: [
-            { name: "name", type: "string" },
-            { name: "version", type: "string" },
-            { name: "chainId", type: "uint256" },
-            { name: "verifyingContract", type: "address" },
-          ],
           "HyperliquidTransaction:ApproveBuilderFee": [
             { name: "hyperliquidChain", type: "string" },
             { name: "maxFeeRate", type: "string" },
@@ -87,27 +84,28 @@ export function CopyDialog({
         primaryType: "HyperliquidTransaction:ApproveBuilderFee",
         message: {
           hyperliquidChain: "Mainnet",
-          maxFeeRate: (builderFee.fee / 10 / 100 / 100).toString(),
-          builder: builderFee.builder,
-          nonce: nonce.toString(),
+          maxFeeRate,
+          builder: builderFee.builder as `0x${string}`,
+          nonce: BigInt(nonce),
         },
       });
 
-      // Go directly to window.ethereum — this is the raw EIP-1193 provider
-      // that MetaMask/Rabby/etc expose. No viem, no wagmi, no chain validation.
-      const eth = (window as unknown as { ethereum?: { request: (args: { method: string; params: unknown[] }) => Promise<string> } }).ethereum;
-      if (!eth) throw new Error("No wallet found. Please install MetaMask or another wallet.");
-
-      const signature = await eth.request({
-        method: "eth_signTypedData_v4",
-        params: [walletAddress, typedData],
-      });
+      // Split signature into r, s, v components
+      const r = signature.slice(0, 66);
+      const s = `0x${signature.slice(66, 130)}`;
+      const v = parseInt(signature.slice(130, 132), 16);
 
       // Submit to Hyperliquid exchange
       const res = await fetch("https://api.hyperliquid.xyz/exchange", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, nonce, signature }),
+        body: JSON.stringify({
+          action,
+          nonce,
+          signature: { r, s, v },
+          vaultAddress: null,
+          signatureChainId: "0x66eee",
+        }),
       });
       const data = await res.json();
       if (data.status === "ok") {

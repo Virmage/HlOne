@@ -59,7 +59,8 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
   const fetchPositions = useCallback(async () => {
     if (!address) return;
-    setLoading(true);
+    // Only show loading on very first fetch — subsequent refreshes keep stale data visible
+    if (positions.length === 0 && !account) setLoading(true);
     try {
       const data = await getUserPositions(address);
       setPositions(data.positions);
@@ -71,7 +72,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
     } finally {
       setLoading(false);
     }
-  }, [address]);
+  }, [address, positions.length, account]);
 
   // Fetch trade history from HL directly
   const fetchFills = useCallback(async () => {
@@ -262,7 +263,7 @@ function PositionsTab({ positions, loading, error, closing, tpSlMode, triggerPri
   onTriggerPriceChange: (v: string) => void;
   onTpSlSubmit: (pos: UserPosition) => void;
 }) {
-  if (loading && positions.length === 0) return <div className="text-[11px] text-[var(--hl-muted)] text-center py-4">Loading...</div>;
+  if (positions.length === 0 && loading) return <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">No open positions</div>;
   if (error) return <div className="text-[10px] text-[var(--hl-red)] text-center py-2">{error}</div>;
   if (positions.length === 0) return <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">No open positions</div>;
 
@@ -311,7 +312,7 @@ function PositionsTab({ positions, loading, error, closing, tpSlMode, triggerPri
                     <div className="flex items-center gap-1 mt-1 justify-end">
                       <span className="text-[9px] text-[var(--hl-muted)]">{tpSlMode!.type === "tp" ? "TP" : "SL"} $</span>
                       <input type="number" value={triggerPrice} onChange={(e) => onTriggerPriceChange(e.target.value)} placeholder={p.entryPx.toFixed(2)} className="w-20 px-1 py-0.5 text-[10px] bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[var(--foreground)] tabular-nums outline-none" onClick={(e) => e.stopPropagation()} />
-                      <button onClick={(e) => { e.stopPropagation(); onTpSlSubmit(p); }} disabled={submitting || !triggerPrice} className="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-[var(--hl-green)] text-[var(--background)] hover:opacity-80 transition-opacity disabled:opacity-50">{submitting ? "..." : "Set"}</button>
+                      <button onClick={(e) => { e.stopPropagation(); onTpSlSubmit(p); }} disabled={submitting || !triggerPrice} className="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-[var(--hl-accent)] text-[var(--background)] hover:opacity-80 transition-opacity disabled:opacity-50">{submitting ? "..." : "Set"}</button>
                     </div>
                   )}
                   {result && <div className={`text-[9px] mt-0.5 ${result.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{result.msg}</div>}
@@ -328,7 +329,7 @@ function PositionsTab({ positions, loading, error, closing, tpSlMode, triggerPri
 // ─── Balances Tab ─────────────────────────────────────────────────────────────
 
 function BalancesTab({ account }: { account: UserAccount | null }) {
-  if (!account) return <EmptyTab label="Loading balances..." />;
+  if (!account) return <EmptyTab label="No balance data" />;
   return (
     <div className="py-3 px-1">
       <table className="w-full text-[11px]">

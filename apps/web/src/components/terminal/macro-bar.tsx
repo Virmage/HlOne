@@ -46,11 +46,11 @@ export function MacroBar({ macro, onSelectToken }: MacroBarProps) {
   if (!macro.length) return null;
 
   return (
-    <div className="overflow-hidden border-b border-[var(--hl-border)] bg-[var(--hl-surface)]">
-      <div ref={trackRef} className="flex" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
+    <div className="overflow-hidden border-b border-[var(--hl-border)]">
+      <div ref={trackRef} className="flex py-1.5 px-2 gap-1.5" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
-          <div key={copy} className="flex shrink-0" aria-hidden={copy === 1}>
-            <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium text-[var(--hl-muted)] uppercase tracking-wider whitespace-nowrap border-r border-[var(--hl-border)]">
+          <div key={copy} className="flex shrink-0 gap-1.5" aria-hidden={copy === 1}>
+            <div className="ticker-chip text-[10px] font-medium text-[var(--hl-muted)] uppercase tracking-wider">
               TradFi
             </div>
             {macro.map((a) => {
@@ -58,43 +58,31 @@ export function MacroBar({ macro, onSelectToken }: MacroBarProps) {
               const hlCoin = MACRO_TO_HL[a.symbol];
               const isClickable = !!hlCoin && !!onSelectToken;
 
-              const content = (
-                <>
-                  <span className={`font-medium ${isClickable ? "text-[var(--foreground)]" : "text-[var(--hl-text)]"}`}>
-                    {a.name}
-                  </span>
-                  <span className="text-[var(--foreground)] tabular-nums">
-                    {formatPrice(a)}
-                  </span>
-                  <span className={`tabular-nums ${isPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
-                    {isPositive ? "+" : ""}{a.change24h.toFixed(2)}%
-                  </span>
-                  {isClickable && (
-                    <span className="text-[var(--hl-green)] text-[9px] font-medium">HL</span>
-                  )}
-                  <span className="text-[var(--hl-border)]">|</span>
-                </>
-              );
-
               if (isClickable) {
                 return (
                   <button
                     key={`${copy}-${a.symbol}`}
                     onClick={() => onSelectToken(hlCoin)}
-                    className="flex items-center gap-1.5 px-3 py-1 text-[11px] whitespace-nowrap hover:bg-[var(--hl-surface-hover)] transition-colors"
+                    className="ticker-chip cursor-pointer"
                     title={`View ${a.name} on Hyperliquid (${hlCoin}-USDC)`}
                   >
-                    {content}
+                    <span className="font-semibold text-[var(--foreground)]">{a.name}</span>
+                    <span className="text-[var(--foreground)] tabular-nums">{formatPrice(a)}</span>
+                    <span className={`tabular-nums font-medium ${isPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                      {isPositive ? "+" : ""}{a.change24h.toFixed(2)}%
+                    </span>
+                    <span className="text-[var(--hl-accent)] text-[9px] font-medium">HL</span>
                   </button>
                 );
               }
 
               return (
-                <div
-                  key={`${copy}-${a.symbol}`}
-                  className="flex items-center gap-1.5 px-3 py-1 text-[11px] whitespace-nowrap"
-                >
-                  {content}
+                <div key={`${copy}-${a.symbol}`} className="ticker-chip">
+                  <span className="font-medium text-[var(--hl-text)]">{a.name}</span>
+                  <span className="text-[var(--foreground)] tabular-nums">{formatPrice(a)}</span>
+                  <span className={`tabular-nums font-medium ${isPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                    {isPositive ? "+" : ""}{a.change24h.toFixed(2)}%
+                  </span>
                 </div>
               );
             })}

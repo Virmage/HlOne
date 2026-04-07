@@ -49,7 +49,7 @@ export function LiquidationHeatmapPanel({ data, onSelectToken }: LiquidationHeat
             onClick={() => { setSelectedCoin(d.coin); onSelectToken(d.coin); }}
             className={`px-2 py-0.5 text-[10px] rounded whitespace-nowrap transition-colors ${
               d.coin === activeCoin
-                ? "bg-[var(--hl-green)] text-black font-medium"
+                ? "bg-[var(--hl-accent)] text-black font-medium"
                 : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
             }`}
           >

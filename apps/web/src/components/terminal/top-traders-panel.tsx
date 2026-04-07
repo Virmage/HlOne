@@ -37,7 +37,7 @@ export function TopTradersPanel({ traders, onSelectTrader }: TopTradersPanelProp
                       {t.displayName}
                     </span>
                     {t.isSharp && (
-                      <span className="text-[8px] px-1 py-0 rounded bg-[var(--hl-green)] text-[var(--background)] font-bold">
+                      <span className="text-[8px] px-1 py-0 rounded bg-[var(--hl-accent)] text-[var(--background)] font-bold">
                         S
                       </span>
                     )}

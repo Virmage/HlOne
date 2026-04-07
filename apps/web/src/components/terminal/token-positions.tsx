@@ -52,7 +52,7 @@ export function TokenPositions({ positions, onCopy, onFade }: TokenPositionsProp
                   {pos.side.toUpperCase()}
                 </span>
                 {pos.isSharp && (
-                  <span className="text-[8px] px-1 py-0 rounded bg-[var(--hl-green)] text-[var(--background)] font-bold">
+                  <span className="text-[8px] px-1 py-0 rounded bg-[var(--hl-accent)] text-[var(--background)] font-bold">
                     S
                   </span>
                 )}
@@ -76,7 +76,7 @@ export function TokenPositions({ positions, onCopy, onFade }: TokenPositionsProp
               {onCopy && (
                 <button
                   onClick={() => onCopy(pos.address)}
-                  className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-[var(--hl-green)] text-[var(--background)]"
+                  className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-[var(--hl-accent)] text-[var(--background)]"
                 >
                   Copy
                 </button>

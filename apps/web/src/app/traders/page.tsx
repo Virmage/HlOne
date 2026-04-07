@@ -67,7 +67,7 @@ export default function TradersPage() {
             placeholder="Search by name or address..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-[280px] rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] pl-9 pr-3 text-[13px] text-[var(--hl-text)] placeholder:text-[var(--hl-muted)] outline-none focus:border-[var(--hl-green-dim)] transition-colors"
+            className="h-9 w-[280px] rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] pl-9 pr-3 text-[13px] text-[var(--hl-text)] placeholder:text-[var(--hl-muted)] outline-none focus:border-[var(--hl-accent-dim)] transition-colors"
           />
         </div>
       </div>

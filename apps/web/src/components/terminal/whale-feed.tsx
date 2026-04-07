@@ -69,7 +69,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
                 <div className="flex items-center gap-1.5 text-[12px]">
                   <button
                     onClick={(e) => { e.stopPropagation(); onSelectTrader?.(alert.whaleAddress); }}
-                    className="font-medium text-[var(--foreground)] truncate max-w-[100px] hover:text-[var(--hl-green)] hover:underline transition-colors"
+                    className="font-medium text-[var(--foreground)] truncate max-w-[100px] hover:text-[var(--hl-accent)] hover:underline transition-colors"
                   >
                     {alert.whaleName}
                   </button>
@@ -79,7 +79,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
                   )}
                   <button
                     onClick={() => onSelectToken(alert.coin)}
-                    className="font-medium text-[var(--foreground)] hover:text-[var(--hl-green)] transition-colors"
+                    className="font-medium text-[var(--foreground)] hover:text-[var(--hl-accent)] transition-colors"
                   >
                     {alert.coin.includes(":") ? alert.coin.split(":")[1] : alert.coin}
                   </button>
@@ -108,7 +108,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
                 {onCopy && (
                   <button
                     onClick={() => onCopy(alert.whaleAddress)}
-                    className="px-2 py-0.5 rounded text-[10px] font-medium bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
+                    className="px-2 py-0.5 rounded text-[10px] font-medium bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110"
                   >
                     Copy Trader
                   </button>

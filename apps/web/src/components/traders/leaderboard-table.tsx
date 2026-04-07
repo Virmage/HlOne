@@ -113,7 +113,7 @@ export function LeaderboardTable({
                     {trader.displayName || shortenAddress(trader.address, 6)}
                   </span>
                   {trader.isSharp && (
-                    <span className="text-[8px] px-1 py-0 rounded bg-[var(--hl-green)] text-[var(--background)] font-bold">
+                    <span className="text-[8px] px-1 py-0 rounded bg-[var(--hl-accent)] text-[var(--background)] font-bold">
                       SHARP
                     </span>
                   )}
@@ -142,7 +142,7 @@ export function LeaderboardTable({
                     e.stopPropagation();
                     onCopyTrader(trader.address);
                   }}
-                  className="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity px-3 py-1 rounded text-[12px] font-medium bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
+                  className="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity px-3 py-1 rounded text-[12px] font-medium bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110"
                 >
                   Copy
                 </button>

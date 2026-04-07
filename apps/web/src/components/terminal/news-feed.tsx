@@ -53,7 +53,7 @@ export function NewsFeed({ news, onSelectToken }: NewsFeedProps) {
                   href={post.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[11px] text-[var(--foreground)] hover:text-[var(--hl-green)] leading-tight line-clamp-2"
+                  className="text-[11px] text-[var(--foreground)] hover:text-[var(--hl-accent)] leading-tight line-clamp-2"
                 >
                   {post.title}
                 </a>

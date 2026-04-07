@@ -363,14 +363,14 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
             {/* Track background */}
             <div className="absolute inset-x-0 h-[2px] bg-[var(--hl-border)] rounded" style={{ top: "50%", transform: "translateY(-50%)" }} />
             {/* Filled portion */}
-            <div className="absolute h-[2px] bg-[var(--hl-green)] rounded" style={{ top: "50%", transform: "translateY(-50%)", left: 0, width: `${sizePercent}%` }} />
+            <div className="absolute h-[2px] bg-[var(--hl-accent)] rounded" style={{ top: "50%", transform: "translateY(-50%)", left: 0, width: `${sizePercent}%` }} />
             {/* Dot stops */}
             {[0, 25, 50, 75, 100].map(pct => (
               <button
                 key={pct}
                 onClick={() => handleSizeSlider(pct)}
                 className="absolute w-2 h-2 rounded-full transition-colors -translate-x-1/2"
-                style={{ left: `${pct}%`, backgroundColor: sizePercent >= pct ? "var(--hl-green)" : "var(--hl-border)" }}
+                style={{ left: `${pct}%`, backgroundColor: sizePercent >= pct ? "var(--hl-accent)" : "var(--hl-border)" }}
               />
             ))}
             {/* Draggable thumb */}
@@ -385,7 +385,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
             />
             {/* Visual thumb */}
             <div
-              className="absolute w-3.5 h-3.5 rounded-full border-2 border-[var(--hl-green)] bg-[var(--background)] -translate-x-1/2 pointer-events-none"
+              className="absolute w-3.5 h-3.5 rounded-full border-2 border-[var(--hl-accent)] bg-[var(--background)] -translate-x-1/2 pointer-events-none"
               style={{ left: `${sizePercent}%` }}
             />
           </div>
@@ -426,7 +426,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         <label className="flex items-center gap-2 cursor-pointer">
           <div
             className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-              reduceOnly ? "bg-[var(--hl-green)] border-[var(--hl-green)]" : "border-[var(--hl-border)] bg-transparent"
+              reduceOnly ? "bg-[var(--hl-accent)] border-[var(--hl-accent)]" : "border-[var(--hl-border)] bg-transparent"
             }`}
             onClick={() => setReduceOnly(!reduceOnly)}
           >
@@ -444,7 +444,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
           <label className="flex items-center gap-2 cursor-pointer">
             <div
               className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                showTpSl ? "bg-[var(--hl-green)] border-[var(--hl-green)]" : "border-[var(--hl-border)] bg-transparent"
+                showTpSl ? "bg-[var(--hl-accent)] border-[var(--hl-accent)]" : "border-[var(--hl-border)] bg-transparent"
               }`}
               onClick={() => setShowTpSl(!showTpSl)}
             >
@@ -539,7 +539,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
           </button>
         ) : (
           <button
-            className="w-full py-2.5 rounded font-semibold text-[13px] bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110 transition-colors"
+            className="w-full py-2.5 rounded font-semibold text-[13px] bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 transition-colors"
             onClick={() => {
               // Trigger wallet connect via RainbowKit
               document.querySelector<HTMLButtonElement>('[data-testid="rk-connect-button"]')?.click();
@@ -580,7 +580,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
                 max={maxLev}
                 value={parseInt(levInput) || leverage}
                 onChange={e => setLevInput(e.target.value)}
-                className="w-full accent-[var(--hl-green)]"
+                className="w-full accent-[var(--hl-accent)]"
               />
               <div className="flex justify-between text-[9px] text-[var(--hl-muted)] mt-0.5">
                 <span>1x</span>
@@ -600,7 +600,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
                 value={levInput}
                 onChange={e => setLevInput(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && confirmLeverage()}
-                className="w-[60px] px-2 py-1.5 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[13px] text-center text-[var(--foreground)] tabular-nums outline-none focus:border-[var(--hl-green)]"
+                className="w-[60px] px-2 py-1.5 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[13px] text-center text-[var(--foreground)] tabular-nums outline-none focus:border-[var(--hl-accent)]"
                 autoFocus
               />
               <span className="text-[13px] text-[var(--hl-muted)]">x</span>
@@ -609,7 +609,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
             {/* Confirm button */}
             <button
               onClick={confirmLeverage}
-              className="w-full mt-4 py-2.5 rounded font-semibold text-[13px] bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110 transition-colors"
+              className="w-full mt-4 py-2.5 rounded font-semibold text-[13px] bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 transition-colors"
             >
               Confirm
             </button>

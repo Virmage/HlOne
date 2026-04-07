@@ -19,13 +19,13 @@ export function WalletButton() {
                 onClick={openAccountModal}
                 className="h-7 px-4 rounded-[10px] text-[11px] font-medium border border-[var(--hl-border)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] text-[var(--foreground)] transition-colors flex items-center gap-1.5"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--hl-green)]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--hl-accent)]" />
                 {account.displayName}
               </button>
             ) : (
               <button
                 onClick={openConnectModal}
-                className="h-7 px-4 rounded-[10px] text-[11px] font-semibold bg-[var(--hl-accent,var(--hl-green))] text-[var(--background)] hover:opacity-90 transition-opacity"
+                className="h-7 px-4 rounded-[10px] text-[11px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:opacity-90 transition-opacity"
               >
                 Connect
               </button>

@@ -16,6 +16,7 @@
   --hl-muted: #3a5058;
   --hl-text: #6a8a94;
   --hl-accent: #00f0ff;
+  --hl-accent-dim: #00b8c7;
   /* Heatmap intensity: cyan (low) → bright cyan (high) */
   --hl-heat-low: 0, 120, 140;
   --hl-heat-high: 0, 240, 255;
@@ -36,6 +37,7 @@
   --hl-muted: #9a9488;
   --hl-text: #605c52;
   --hl-accent: #3a3830;
+  --hl-accent-dim: #5a574c;
   /* Heatmap intensity */
   --hl-heat-low: 140, 160, 130;
   --hl-heat-high: 58, 56, 48;

@@ -275,7 +275,7 @@ function RateTable({
           rel="noopener noreferrer"
           className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors cursor-pointer"
         >
-          <span className="font-medium text-[var(--foreground)] w-14 truncate hover:text-[var(--hl-green)] transition-colors">
+          <span className="font-medium text-[var(--foreground)] w-14 truncate hover:text-[var(--hl-accent)] transition-colors">
             {r.asset}
           </span>
           <span className="flex-1 text-right tabular-nums text-[var(--hl-green)]">
@@ -381,7 +381,7 @@ export function LendingRatesPanel() {
             href="https://www.usefelix.xyz/vanilla/lend"
             target="_blank"
             rel="noopener noreferrer"
-            className="block mt-2 px-2 text-[10px] text-[var(--hl-green)] hover:underline"
+            className="block mt-2 px-2 text-[10px] text-[var(--hl-accent)] hover:underline"
           >
             Lend on Felix &rarr;
           </a>
@@ -399,7 +399,7 @@ export function LendingRatesPanel() {
             href="https://app.hyperlend.finance"
             target="_blank"
             rel="noopener noreferrer"
-            className="block mt-2 px-2 text-[10px] text-[var(--hl-green)] hover:underline"
+            className="block mt-2 px-2 text-[10px] text-[var(--hl-accent)] hover:underline"
           >
             Lend on HyperLend &rarr;
           </a>

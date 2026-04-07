@@ -299,7 +299,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
                     onClick={() => setFilter(f)}
                     className={`px-3 py-1 text-[11px] font-medium rounded transition-colors flex-shrink-0 ${
                       f === filter
-                        ? "bg-[var(--hl-green)] text-black"
+                        ? "bg-[var(--hl-accent)] text-black"
                         : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
                     }`}
                   >
@@ -337,7 +337,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
                     }`}
                   >
                     <span className="text-left font-medium text-[var(--foreground)] flex items-center gap-1.5">
-                      {t.coin === coin && <span className="text-[var(--hl-green)]">●</span>}
+                      {t.coin === coin && <span className="text-[var(--hl-accent)]">●</span>}
                       {t.displayName || (t.coin.includes(":") ? t.coin.split(":")[1] : t.coin)}
                       {t.maxLeverage > 1 && (
                         <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)]">{t.maxLeverage}x</span>
@@ -450,7 +450,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
           {/* Cross / Cursor — deselect all drawing tools (TV style) */}
           <button
             onClick={() => { setDrawingTool("none"); setPendingDrawing(null); }}
-            className={`p-1 rounded transition-colors ${drawingTool === "none" ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            className={`p-1 rounded transition-colors ${drawingTool === "none" ? "bg-[var(--hl-surface)] text-[var(--hl-accent)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
             title="Crosshair — view chart"
           >
             <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -464,7 +464,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
           {/* Trend Line — diagonal line with endpoint circles (TV style) */}
           <button
             onClick={() => { setDrawingTool(drawingTool === "trendline" ? "none" : "trendline"); setPendingDrawing(null); }}
-            className={`p-1 rounded transition-colors ${drawingTool === "trendline" ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            className={`p-1 rounded transition-colors ${drawingTool === "trendline" ? "bg-[var(--hl-surface)] text-[var(--hl-accent)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
             title="Trend Line"
           >
             <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -477,7 +477,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
           {/* Horizontal Line — dashed line spanning full width (TV style) */}
           <button
             onClick={() => { setDrawingTool(drawingTool === "hline" ? "none" : "hline"); setPendingDrawing(null); }}
-            className={`p-1 rounded transition-colors ${drawingTool === "hline" ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            className={`p-1 rounded transition-colors ${drawingTool === "hline" ? "bg-[var(--hl-surface)] text-[var(--hl-accent)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
             title="Horizontal Line"
           >
             <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -489,7 +489,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
           {/* Ray — line with one endpoint circle and arrow tip (TV style) */}
           <button
             onClick={() => { setDrawingTool(drawingTool === "ray" ? "none" : "ray"); setPendingDrawing(null); }}
-            className={`p-1 rounded transition-colors ${drawingTool === "ray" ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            className={`p-1 rounded transition-colors ${drawingTool === "ray" ? "bg-[var(--hl-surface)] text-[var(--hl-accent)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
             title="Ray"
           >
             <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -504,7 +504,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
           {/* Magnet / Snap to candle — horseshoe magnet (TV style) */}
           <button
             onClick={() => setMagnetMode(prev => !prev)}
-            className={`p-1 rounded transition-colors ${magnetMode ? "bg-[var(--hl-surface)] text-[var(--hl-green)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            className={`p-1 rounded transition-colors ${magnetMode ? "bg-[var(--hl-surface)] text-[var(--hl-accent)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
             title={magnetMode ? "Magnet On — snapping to candle OHLC" : "Magnet Off — click to enable snap"}
           >
             <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">

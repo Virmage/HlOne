@@ -224,7 +224,7 @@ export function TraderDetailPanel({ address, onClose, onCopy }: TraderDetailPane
           </TabsContent>
         </Tabs>
 
-        <Button className="w-full bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110" onClick={() => onCopy(address)}>
+        <Button className="w-full bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110" onClick={() => onCopy(address)}>
           Copy This Trader
         </Button>
       </CardContent>

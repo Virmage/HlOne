@@ -1,31 +1,78 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useTerminal } from "@/hooks/use-terminal";
 import { TickerBar } from "@/components/terminal/ticker-bar";
-import { SharpFlowTable } from "@/components/terminal/sharp-flow-table";
-import { WhaleFeed } from "@/components/terminal/whale-feed";
 import { MarketPulse } from "@/components/terminal/market-pulse";
-import { SignalsPanel } from "@/components/terminal/signals-panel";
 import { PriceChart } from "@/components/terminal/price-chart";
 import { TradingPanel } from "@/components/terminal/trading-panel";
 import { OrderBook } from "@/components/terminal/order-book";
-import { TokenDrawer } from "@/components/terminal/token-drawer";
-import { NewsFeed } from "@/components/terminal/news-feed";
-import { SocialPanel } from "@/components/terminal/social-panel";
-import { FundingLeaderboardPanel } from "@/components/terminal/funding-leaderboard";
-import { LargeTradeTape } from "@/components/terminal/large-trade-tape";
 import { MacroBar } from "@/components/terminal/macro-bar";
-import { LendingRatesPanel } from "@/components/terminal/lending-rates-panel";
-import { PositionConcentrationPanel } from "@/components/terminal/position-concentration";
 import { PositionsPanel } from "@/components/terminal/positions-panel";
-import { TraderDetailPanel } from "@/components/traders/trader-detail-panel";
-import { OptionsChainModal } from "@/components/terminal/hype-options";
-import { InlineOptionsChain } from "@/components/terminal/inline-options-chain";
 import type { SelectedOption } from "@/components/terminal/inline-options-chain";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
+/* ── PanelSkeleton: placeholder while lazy panels load ────────────────────── */
+function PanelSkeleton() {
+  return <div className="h-[200px] animate-pulse bg-[var(--hl-surface)]" />;
+}
+
+/* ── Below-fold panels (lazy, code-split) ─────────────────────────────────── */
+const SharpFlowTable = dynamic(
+  () => import("@/components/terminal/sharp-flow-table").then(m => ({ default: m.SharpFlowTable })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const WhaleFeed = dynamic(
+  () => import("@/components/terminal/whale-feed").then(m => ({ default: m.WhaleFeed })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const SignalsPanel = dynamic(
+  () => import("@/components/terminal/signals-panel").then(m => ({ default: m.SignalsPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const NewsFeed = dynamic(
+  () => import("@/components/terminal/news-feed").then(m => ({ default: m.NewsFeed })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const SocialPanel = dynamic(
+  () => import("@/components/terminal/social-panel").then(m => ({ default: m.SocialPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const FundingLeaderboardPanel = dynamic(
+  () => import("@/components/terminal/funding-leaderboard").then(m => ({ default: m.FundingLeaderboardPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const LargeTradeTape = dynamic(
+  () => import("@/components/terminal/large-trade-tape").then(m => ({ default: m.LargeTradeTape })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const LendingRatesPanel = dynamic(
+  () => import("@/components/terminal/lending-rates-panel").then(m => ({ default: m.LendingRatesPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const PositionConcentrationPanel = dynamic(
+  () => import("@/components/terminal/position-concentration").then(m => ({ default: m.PositionConcentrationPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+
+/* ── Modals & drawers (lazy, only needed on interaction) ──────────────────── */
+const TokenDrawer = dynamic(
+  () => import("@/components/terminal/token-drawer").then(m => ({ default: m.TokenDrawer })),
+  { ssr: false }
+);
+const TraderDetailPanel = dynamic(
+  () => import("@/components/traders/trader-detail-panel").then(m => ({ default: m.TraderDetailPanel })),
+  { ssr: false }
+);
+const OptionsChainModal = dynamic(
+  () => import("@/components/terminal/hype-options").then(m => ({ default: m.OptionsChainModal })),
+  { ssr: false }
+);
+const InlineOptionsChain = dynamic(
+  () => import("@/components/terminal/inline-options-chain").then(m => ({ default: m.InlineOptionsChain })),
+  { ssr: false }
+);
 const CopyDialog = dynamic(
   () => import("@/components/traders/copy-dialog").then(mod => ({ default: mod.CopyDialog })),
   { ssr: false }
@@ -41,6 +88,20 @@ export default function HomePage() {
   const [optionsChainCoin, setOptionsChainCoin] = useState<string | null>(null);
   const [tradingMode, setTradingMode] = useState<"perp" | "options">("perp");
   const [selectedOption, setSelectedOption] = useState<SelectedOption | null>(null);
+
+  // Defer below-fold grid rendering until the main thread is idle
+  const [showBelow, setShowBelow] = useState(false);
+  useEffect(() => {
+    if (!data) return;
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const id = (window as unknown as { requestIdleCallback: (cb: () => void) => number }).requestIdleCallback(() => setShowBelow(true));
+      return () => (window as unknown as { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(id);
+    } else {
+      // Fallback for Safari / older browsers
+      const t = setTimeout(() => setShowBelow(true), 100);
+      return () => clearTimeout(t);
+    }
+  }, [data]);
 
   // When a token is selected from any panel, update chart
   const handleSelectToken = (coin: string) => {
@@ -151,85 +212,90 @@ export default function HomePage() {
         <PositionsPanel onSelectToken={handleSelectToken} />
       </div>
 
-      {/* Sharps vs Squares + Funding Arb + Signals — 3 columns */}
-      <SignalsPanel
-        signals={data?.signals || []}
-        fundingOpps={data?.fundingOpps || []}
-        callout={data?.callout || null}
-        onSelectToken={handleSelectToken}
-      />
-
-      {/* Mobile: App coming soon */}
-      <div className="md:hidden border-t border-[var(--hl-border)] py-12 px-4 text-center">
-        <div className="text-[var(--hl-muted)] text-[14px] font-medium mb-1">App coming soon.</div>
-        <div className="text-[var(--hl-muted)] text-[11px] opacity-60">Full dashboard available on desktop</div>
-      </div>
-
-      {/* Main Grid — desktop only, seamless divider layout */}
-      <div className="hidden md:grid grid-cols-1 lg:grid-cols-2">
-        {/* Left: Sharp Flow */}
-        <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
-          <SharpFlowTable
-            flows={data?.sharpFlow || []}
+      {/* Below-fold content — deferred until main thread is idle */}
+      {showBelow && (
+        <>
+          {/* Sharps vs Squares + Funding Arb + Signals — 3 columns */}
+          <SignalsPanel
+            signals={data?.signals || []}
+            fundingOpps={data?.fundingOpps || []}
+            callout={data?.callout || null}
             onSelectToken={handleSelectToken}
           />
-        </div>
 
-        {/* Right: Whale Feed */}
-        <div className="p-3 border-b border-[var(--hl-border)]">
-          <WhaleFeed
-            alerts={data?.whaleAlerts || []}
-            onSelectToken={handleSelectToken}
-            onSelectTrader={setSelectedTrader}
-            onCopy={setCopyTrader}
-          />
-        </div>
+          {/* Mobile: App coming soon */}
+          <div className="md:hidden border-t border-[var(--hl-border)] py-12 px-4 text-center">
+            <div className="text-[var(--hl-muted)] text-[14px] font-medium mb-1">App coming soon.</div>
+            <div className="text-[var(--hl-muted)] text-[11px] opacity-60">Full dashboard available on desktop</div>
+          </div>
 
-        {/* News Feed */}
-        <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
-          <NewsFeed
-            news={data?.news || []}
-            onSelectToken={handleSelectToken}
-          />
-        </div>
+          {/* Main Grid — desktop only, seamless divider layout */}
+          <div className="hidden md:grid grid-cols-1 lg:grid-cols-2">
+            {/* Left: Sharp Flow */}
+            <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
+              <SharpFlowTable
+                flows={data?.sharpFlow || []}
+                onSelectToken={handleSelectToken}
+              />
+            </div>
 
-        {/* Social Sentiment */}
-        <div className="p-3 border-b border-[var(--hl-border)]">
-          <SocialPanel
-            social={data?.social || []}
-            onSelectToken={handleSelectToken}
-          />
-        </div>
+            {/* Right: Whale Feed */}
+            <div className="p-3 border-b border-[var(--hl-border)]">
+              <WhaleFeed
+                alerts={data?.whaleAlerts || []}
+                onSelectToken={handleSelectToken}
+                onSelectTrader={setSelectedTrader}
+                onCopy={setCopyTrader}
+              />
+            </div>
 
-        {/* Funding Leaderboard */}
-        <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
-          <FundingLeaderboardPanel
-            funding={data?.funding || { topPositive: [], topNegative: [] }}
-            onSelectToken={handleSelectToken}
-          />
-        </div>
+            {/* News Feed */}
+            <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
+              <NewsFeed
+                news={data?.news || []}
+                onSelectToken={handleSelectToken}
+              />
+            </div>
 
-        {/* Large Trade Tape */}
-        <div className="p-3 border-b border-[var(--hl-border)]">
-          <LargeTradeTape
-            trades={data?.largeTrades || []}
-            onSelectToken={handleSelectToken}
-          />
-        </div>
+            {/* Social Sentiment */}
+            <div className="p-3 border-b border-[var(--hl-border)]">
+              <SocialPanel
+                social={data?.social || []}
+                onSelectToken={handleSelectToken}
+              />
+            </div>
 
-        {/* Lending & Borrowing Rates */}
-        <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
-          <LendingRatesPanel />
-        </div>
+            {/* Funding Leaderboard */}
+            <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
+              <FundingLeaderboardPanel
+                funding={data?.funding || { topPositive: [], topNegative: [] }}
+                onSelectToken={handleSelectToken}
+              />
+            </div>
 
-        {/* Position Concentration */}
-        <div className="p-3 border-b border-[var(--hl-border)]">
-          <PositionConcentrationPanel
-            data={data?.positionConcentration || []}
-            onSelectToken={handleSelectToken}
-          />
-        </div>
-      </div>
+            {/* Large Trade Tape */}
+            <div className="p-3 border-b border-[var(--hl-border)]">
+              <LargeTradeTape
+                trades={data?.largeTrades || []}
+                onSelectToken={handleSelectToken}
+              />
+            </div>
+
+            {/* Lending & Borrowing Rates */}
+            <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
+              <LendingRatesPanel />
+            </div>
+
+            {/* Position Concentration */}
+            <div className="p-3 border-b border-[var(--hl-border)]">
+              <PositionConcentrationPanel
+                data={data?.positionConcentration || []}
+                onSelectToken={handleSelectToken}
+              />
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Token Drawer Slide-in */}
       {selectedToken && (

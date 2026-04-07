@@ -40,14 +40,14 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
   const totalOI = totalCallOI + totalPutOI;
 
   return (
-    <div className="overflow-hidden border-b border-[var(--hl-border)] bg-[var(--hl-surface)]">
-      <div ref={trackRef} className="flex" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
+    <div className="overflow-hidden border-b border-[var(--hl-border)]">
+      <div ref={trackRef} className="flex py-1.5 px-2 gap-1.5" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
-          <div key={copy} className="flex items-center shrink-0" aria-hidden={copy === 1}>
+          <div key={copy} className="flex items-center shrink-0 gap-1.5" aria-hidden={copy === 1}>
             {/* Aggregate Options OI */}
             {totalOI > 0 && (
-              <div className="flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] text-[11px]">
-                <span className="text-[var(--hl-muted)] text-[10px] font-medium">Options OI</span>
+              <div className="ticker-chip">
+                <span className="text-[var(--hl-muted)] font-medium">Options OI</span>
                 <span className="tabular-nums text-[var(--foreground)]">{formatOI(totalOI)}</span>
                 <span className="text-[var(--hl-green)] tabular-nums text-[10px]">C:{formatOI(totalCallOI)}</span>
                 <span className="text-[var(--hl-red)] tabular-nums text-[10px]">P:{formatOI(totalPutOI)}</span>
@@ -73,9 +73,7 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
                 <button
                   key={`${copy}-${coin}`}
                   onClick={() => isDerive && onOpenOptions ? onOpenOptions(coin) : onSelectToken(coin)}
-                  className={`flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] transition-colors text-[11px] ${
-                    isDerive ? "hover:bg-[rgba(168,85,247,0.08)]" : "hover:bg-[var(--hl-surface-hover)]"
-                  }`}
+                  className="ticker-chip cursor-pointer"
                 >
                   <span className={`font-semibold ${isDerive ? "text-purple-400" : "text-[var(--foreground)]"}`}>{coin}</span>
                   {isDerive && <span className="text-[8px] px-1 rounded bg-purple-500/15 text-purple-400/70">Derive</span>}
@@ -119,7 +117,7 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
             })}
 
             {/* Market Regime */}
-            <div className={`flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] ${regimeStyle.bg}`}>
+            <div className={`ticker-chip ${regimeStyle.bg}`}>
               <span className={`font-bold text-[12px] tracking-wide ${regimeStyle.text}`}>
                 {regimeStyle.label}
               </span>
@@ -142,7 +140,7 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
 
             {/* Market Correlation */}
             {avgCorrelation !== null && avgCorrelation !== undefined && (
-              <div className="flex items-center gap-1.5 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] text-[11px]">
+              <div className="ticker-chip">
                 <span className="text-[var(--hl-muted)] text-[10px]">Corr</span>
                 <span className={`font-bold tabular-nums ${
                   avgCorrelation > 0.6 ? "text-[var(--hl-red)]" : avgCorrelation > 0.3 ? "text-orange-400" : "text-[var(--hl-green)]"

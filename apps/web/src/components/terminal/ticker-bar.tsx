@@ -36,7 +36,7 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
             {/* USDC flows indicator */}
             <div className="ticker-chip">
               <span className="text-[var(--hl-muted)] font-medium">USDC Flow</span>
-              <span className="text-[var(--hl-green)] tabular-nums font-medium">
+              <span className="text-[var(--hl-accent)] tabular-nums font-medium">
                 {formatFlow(totalVolume)}/24h
               </span>
               <span className="text-[var(--hl-muted)] tabular-nums text-[10px]">
