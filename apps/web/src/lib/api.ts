@@ -228,13 +228,13 @@ export interface TokenOverview {
   oraclePx: number;
   premium: number;
   maxLeverage: number;
-  score: CpycatScore | null;
+  score: HLOneScore | null;
   isSpot?: boolean;
   dex?: string;       // HIP-3 builder dex (xyz, flx, etc.)
   category?: string;  // stocks, indices, commodities, fx, pre-ipo, sectors
 }
 
-export interface CpycatScore {
+export interface HLOneScore {
   coin: string;
   score: number;
   signal: "strong_buy" | "buy" | "neutral" | "sell" | "strong_sell";
@@ -581,7 +581,7 @@ export interface BookWall {
 export interface TokenDetail {
   coin: string;
   overview: TokenOverview | null;
-  score: CpycatScore | null;
+  score: HLOneScore | null;
   sharpPositions: TraderPosition[];
   bookAnalysis: {
     coin: string;

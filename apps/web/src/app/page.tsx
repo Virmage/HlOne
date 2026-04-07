@@ -165,10 +165,10 @@ export default function HomePage() {
         <div className="text-[var(--hl-muted)] text-[11px] opacity-60">Full dashboard available on desktop</div>
       </div>
 
-      {/* Main Grid — desktop only */}
-      <div className="hidden md:grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-px bg-[var(--hl-border)]">
+      {/* Main Grid — desktop only, seamless divider layout */}
+      <div className="hidden md:grid grid-cols-1 lg:grid-cols-2">
         {/* Left: Sharp Flow */}
-        <div className="bg-[var(--background)] p-2">
+        <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
           <SharpFlowTable
             flows={data?.sharpFlow || []}
             onSelectToken={handleSelectToken}
@@ -176,7 +176,7 @@ export default function HomePage() {
         </div>
 
         {/* Right: Whale Feed */}
-        <div className="bg-[var(--background)] p-2">
+        <div className="p-3 border-b border-[var(--hl-border)]">
           <WhaleFeed
             alerts={data?.whaleAlerts || []}
             onSelectToken={handleSelectToken}
@@ -186,7 +186,7 @@ export default function HomePage() {
         </div>
 
         {/* News Feed */}
-        <div className="bg-[var(--background)] p-2">
+        <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
           <NewsFeed
             news={data?.news || []}
             onSelectToken={handleSelectToken}
@@ -194,7 +194,7 @@ export default function HomePage() {
         </div>
 
         {/* Social Sentiment */}
-        <div className="bg-[var(--background)] p-2">
+        <div className="p-3 border-b border-[var(--hl-border)]">
           <SocialPanel
             social={data?.social || []}
             onSelectToken={handleSelectToken}
@@ -202,7 +202,7 @@ export default function HomePage() {
         </div>
 
         {/* Funding Leaderboard */}
-        <div className="bg-[var(--background)] p-2">
+        <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
           <FundingLeaderboardPanel
             funding={data?.funding || { topPositive: [], topNegative: [] }}
             onSelectToken={handleSelectToken}
@@ -210,7 +210,7 @@ export default function HomePage() {
         </div>
 
         {/* Large Trade Tape */}
-        <div className="bg-[var(--background)] p-2">
+        <div className="p-3 border-b border-[var(--hl-border)]">
           <LargeTradeTape
             trades={data?.largeTrades || []}
             onSelectToken={handleSelectToken}
@@ -218,12 +218,12 @@ export default function HomePage() {
         </div>
 
         {/* Lending & Borrowing Rates */}
-        <div className="bg-[var(--background)] p-2">
+        <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
           <LendingRatesPanel />
         </div>
 
         {/* Position Concentration */}
-        <div className="bg-[var(--background)] p-2">
+        <div className="p-3 border-b border-[var(--hl-border)]">
           <PositionConcentrationPanel
             data={data?.positionConcentration || []}
             onSelectToken={handleSelectToken}

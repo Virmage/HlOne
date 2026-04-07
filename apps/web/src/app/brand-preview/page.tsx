@@ -163,7 +163,7 @@ function TerminalPreview({ theme, mode }: { theme: typeof themes[0]; mode: "dark
         <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
           <span style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="2.5"><path d="M7 17L17 7M7 7l10 10"/></svg>
-            CPYCAT
+            HLOne
           </span>
           <span style={{ fontSize: 12, color: c.fg, fontWeight: 500 }}>Terminal</span>
           <span style={{ fontSize: 12, color: c.muted }}>Traders</span>
@@ -267,7 +267,7 @@ function TerminalPreview({ theme, mode }: { theme: typeof themes[0]; mode: "dark
 export default function BrandPreview() {
   return (
     <div style={{ background: "#0a0a0a", minHeight: "100vh", padding: 24, fontFamily: "system-ui, -apple-system, sans-serif" }}>
-      <h1 style={{ color: "#fff", fontSize: 24, fontWeight: 700, marginBottom: 8 }}>CPYCAT Brand Color Preview — Round 3</h1>
+      <h1 style={{ color: "#fff", fontSize: 24, fontWeight: 700, marginBottom: 8 }}>HLOne Brand Color Preview — Round 3</h1>
       <p style={{ color: "#888", fontSize: 13, marginBottom: 32 }}>⭐ = kept from previous rounds. Neon Cyan dark mode paired with 6 different light modes.</p>
 
       {themes.map((theme, i) => (

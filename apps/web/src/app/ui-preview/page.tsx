@@ -45,7 +45,7 @@ function OptionA() {
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontWeight: 700, fontSize: 15, color: c.fg, display: "flex", alignItems: "center", gap: 6 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="2.5"><path d="M7 17L17 7M7 7l10 10"/></svg>
-            CPYCAT
+            HLOne
           </span>
           <div style={{ display: "flex", gap: 2, marginLeft: 16, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 3 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: c.fg, padding: "5px 14px", borderRadius: 8, background: "rgba(0,240,255,0.08)" }}>Terminal</span>
@@ -126,7 +126,7 @@ function OptionB() {
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontWeight: 700, fontSize: 16, color: c.fg, display: "flex", alignItems: "center", gap: 6, letterSpacing: "-0.02em" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="2.5"><path d="M7 17L17 7M7 7l10 10"/></svg>
-            CPYCAT
+            HLOne
           </span>
           <div style={{ display: "flex", gap: 2, marginLeft: 20, background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: 3 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: c.fg, padding: "6px 16px", borderRadius: 10, background: "rgba(0,240,255,0.07)" }}>Terminal</span>
@@ -211,7 +211,7 @@ function OptionC() {
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontWeight: 700, fontSize: 15, color: c.fg, display: "flex", alignItems: "center", gap: 6 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="2.5"><path d="M7 17L17 7M7 7l10 10"/></svg>
-            CPYCAT
+            HLOne
           </span>
           <div style={{ display: "flex", gap: 2, marginLeft: 12, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 3 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: c.fg, padding: "5px 14px", borderRadius: 8, background: "rgba(0,240,255,0.08)" }}>Terminal</span>
@@ -293,7 +293,7 @@ function OptionD() {
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontWeight: 700, fontSize: 15, color: c.fg, display: "flex", alignItems: "center", gap: 6 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="2.5"><path d="M7 17L17 7M7 7l10 10"/></svg>
-            CPYCAT
+            HLOne
           </span>
           <div style={{ display: "flex", gap: 16, marginLeft: 20 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: c.fg, borderBottom: `2px solid ${c.accent}`, paddingBottom: 2 }}>Terminal</span>
@@ -368,7 +368,7 @@ export default function UIPreviewPage() {
 
   return (
     <div style={{ background: "#030606", minHeight: "100vh", padding: 24, fontFamily: "system-ui, -apple-system, sans-serif" }}>
-      <h1 style={{ color: "#e4f0f4", fontSize: 24, fontWeight: 700, marginBottom: 4 }}>CPYCAT UI Design — No Box-in-Box</h1>
+      <h1 style={{ color: "#e4f0f4", fontSize: 24, fontWeight: 700, marginBottom: 4 }}>HLOne UI Design — No Box-in-Box</h1>
       <p style={{ color: "#6a8a94", fontSize: 13, marginBottom: 36 }}>All curved. No nested card borders. Sections flow together.</p>
 
       {options.map((opt, i) => (

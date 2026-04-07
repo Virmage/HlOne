@@ -38,7 +38,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
             <p><span className="text-[var(--foreground)] font-medium">Sharps</span> = top profitable traders ranked by 30-day ROI with accounts &gt;$10K.</p>
             <p><span className="text-[var(--foreground)] font-medium">Squares</span> = rest of the market (retail).</p>
             <p><span className="text-yellow-400 font-medium">⚡ Divergence</span> = sharps and squares strongly disagree on direction — potential edge. Higher score = stronger disagreement with more liquidity.</p>
-            <p><span className="text-[var(--foreground)] font-medium">Score</span> = CPYCAT composite (sharp conviction + whale flow + social + momentum).</p>
+            <p><span className="text-[var(--foreground)] font-medium">Score</span> = HLOne composite (sharp conviction + whale flow + social + momentum).</p>
           </div>
         )}
       </div>

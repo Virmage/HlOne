@@ -12,7 +12,7 @@ const WalletButton = dynamic(
   {
     ssr: false,
     loading: () => (
-      <button className="h-7 px-3 rounded-md text-[11px] font-medium bg-[var(--hl-green)] text-[var(--background)]">
+      <button className="h-7 px-4 rounded-[10px] text-[11px] font-semibold bg-[var(--hl-accent,var(--hl-green))] text-[var(--background)]">
         Connect
       </button>
     ),
@@ -31,7 +31,7 @@ function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      className="flex items-center justify-center w-7 h-7 rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] transition-colors"
+      className="flex items-center justify-center w-7 h-7 rounded-lg border border-[var(--hl-border)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] transition-colors"
       title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
     >
       {theme === "dark" ? (
@@ -61,23 +61,24 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--hl-border)] bg-[var(--hl-nav)]">
       <div className="flex h-10 items-center justify-between px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3 sm:gap-6">
+        <div className="flex items-center gap-3 sm:gap-5">
           <Link href="/" className="flex items-center gap-1.5 shrink-0">
             <svg width="20" height="14" viewBox="0 0 24 16" fill="none">
-              <path d="M0 0C4 0 8 3.5 12 8C8 12.5 4 16 0 16C4 12 4 4 0 0Z" fill="var(--hl-green)" />
-              <path d="M24 0C20 0 16 3.5 12 8C16 12.5 20 16 24 16C20 12 20 4 24 0Z" fill="var(--hl-green)" />
+              <path d="M0 0C4 0 8 3.5 12 8C8 12.5 4 16 0 16C4 12 4 4 0 0Z" fill="var(--hl-accent, var(--hl-green))" />
+              <path d="M24 0C20 0 16 3.5 12 8C16 12.5 20 16 24 16C20 12 20 4 24 0Z" fill="var(--hl-accent, var(--hl-green))" />
             </svg>
             <span className="text-[13px] font-semibold text-[var(--foreground)]">
               HLOne
             </span>
           </Link>
-          <nav className="flex items-center gap-0">
+          <nav className="nav-pills">
             {navItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
+                data-active={pathname === item.href || pathname?.startsWith(item.href + "/")}
                 className={cn(
-                  "px-1.5 sm:px-2.5 py-1 text-[11px] sm:text-[12px] font-medium transition-colors rounded",
+                  "transition-colors",
                   pathname === item.href || pathname?.startsWith(item.href + "/")
                     ? "text-[var(--foreground)]"
                     : "text-[var(--hl-muted)] hover:text-[var(--hl-text)]"

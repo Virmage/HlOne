@@ -1,9 +1,9 @@
 "use client";
 
-import type { CpycatScore } from "@/lib/api";
+import type { HLOneScore } from "@/lib/api";
 
 interface TokenScoreCardProps {
-  score: CpycatScore;
+  score: HLOneScore;
 }
 
 const SIGNAL_LABELS: Record<string, { label: string; color: string }> = {

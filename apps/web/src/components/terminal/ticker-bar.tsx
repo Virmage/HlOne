@@ -29,12 +29,12 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
   const items = tokens.slice(0, 25);
 
   return (
-    <div className="overflow-hidden border-b border-[var(--hl-border)] bg-[var(--hl-surface)]">
-      <div ref={trackRef} className="flex" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
+    <div className="overflow-hidden border-b border-[var(--hl-border)]">
+      <div ref={trackRef} className="flex py-1.5 px-2 gap-1.5" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
-          <div key={copy} className="flex shrink-0" aria-hidden={copy === 1}>
+          <div key={copy} className="flex shrink-0 gap-1.5" aria-hidden={copy === 1}>
             {/* USDC flows indicator */}
-            <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] whitespace-nowrap border-r border-[var(--hl-border)]">
+            <div className="ticker-chip">
               <span className="text-[var(--hl-muted)] font-medium">USDC Flow</span>
               <span className="text-[var(--hl-green)] tabular-nums font-medium">
                 {formatFlow(totalVolume)}/24h
@@ -42,7 +42,6 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
               <span className="text-[var(--hl-muted)] tabular-nums text-[10px]">
                 OI:{formatFlow(totalOI)}
               </span>
-              <span className="text-[var(--hl-border)]">|</span>
             </div>
             {items.map((t) => {
               const isPositive = t.change24h >= 0;
@@ -57,13 +56,13 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
                 <button
                   key={`${copy}-${t.coin}`}
                   onClick={() => onSelectToken(t.displayName || t.coin)}
-                  className="flex items-center gap-2 px-4 py-1.5 text-[11px] hover:bg-[var(--hl-surface-hover)] transition-colors whitespace-nowrap"
+                  className="ticker-chip cursor-pointer"
                 >
-                  <span className="font-medium text-[var(--hl-text)]">{t.displayName || (t.coin.includes(":") ? t.coin.split(":")[1] : t.coin)}</span>
-                  <span className="text-[var(--foreground)] tabular-nums" style={{ minWidth: "60px" }}>
+                  <span className="font-semibold text-[var(--foreground)]">{t.displayName || (t.coin.includes(":") ? t.coin.split(":")[1] : t.coin)}</span>
+                  <span className="text-[var(--hl-text)] tabular-nums" style={{ minWidth: "60px" }}>
                     ${t.price >= 1 ? t.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : t.price.toPrecision(4)}
                   </span>
-                  <span className={`tabular-nums ${isPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`} style={{ minWidth: "55px" }}>
+                  <span className={`tabular-nums font-medium ${isPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`} style={{ minWidth: "55px" }}>
                     {isPositive ? "+" : ""}{t.change24h.toFixed(2)}%
                   </span>
                   {opts && opts.dvol > 0 && (
@@ -74,7 +73,6 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
                   {t.score && (
                     <span className={`w-1.5 h-1.5 rounded-full ${scoreColor}`} title={`HLOne: ${t.score.score}`} />
                   )}
-                  <span className="text-[var(--hl-border)]">|</span>
                 </button>
               );
             })}

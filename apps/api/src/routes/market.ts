@@ -1,5 +1,5 @@
 /**
- * Market intelligence API routes — powers the CPYCAT terminal.
+ * Market intelligence API routes — powers the HLOne terminal.
  */
 
 import type { FastifyPluginAsync } from "fastify";
@@ -500,7 +500,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
 
   /**
    * GET /api/market/scores
-   * All CPYCAT scores.
+   * All HLOne scores.
    */
   app.get("/scores", async () => {
     const scores = getTokenScoresCached();

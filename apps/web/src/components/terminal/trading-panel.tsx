@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import type { TokenOverview, CpycatScore } from "@/lib/api";
+import type { TokenOverview, HLOneScore } from "@/lib/api";
 import type { PlaceOrderResult } from "@/lib/hl-exchange";
 import { BUILDER_FEE_PERCENT, BUILDER_FEE_DISPLAY } from "@/lib/hl-exchange";
 import { useSafeAccount } from "@/hooks/use-safe-account";
@@ -11,7 +11,7 @@ import type { SelectedOption } from "./inline-options-chain";
 interface TradingPanelProps {
   coin: string;
   overview: TokenOverview | null;
-  score: CpycatScore | null;
+  score: HLOneScore | null;
   onOpenOptionsChain?: (coin: string) => void;
   tradingMode?: "perp" | "options";
   onTradingModeChange?: (mode: "perp" | "options") => void;

@@ -1,5 +1,5 @@
 /**
- * CPYCAT Score — composite signal per token (0-100).
+ * HLOne Score — composite signal per token (0-100).
  * Combines: sharp conviction, whale accumulation, price trend, funding regime.
  * Social layer added in Sprint 4.
  */
@@ -11,7 +11,7 @@ import { getFundingHistory } from "./hyperliquid.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export interface CpycatScore {
+export interface HLOneScore {
   coin: string;
   score: number; // 0-100
   signal: "strong_buy" | "buy" | "neutral" | "sell" | "strong_sell";
@@ -29,7 +29,7 @@ export interface CpycatScore {
 
 // ─── Cache ───────────────────────────────────────────────────────────────────
 
-let scoreCache: { scores: Map<string, CpycatScore>; fetchedAt: number } | null = null;
+let scoreCache: { scores: Map<string, HLOneScore>; fetchedAt: number } | null = null;
 const SCORE_TTL = 5 * 60_000; // 5 minutes
 
 // ─── Score computation ───────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ function computeFundingRegime(fundingRate: number): number {
   // Extreme positive funding = contrarian short signal (low score)
   // Extreme negative funding = contrarian long signal (high score for contrarians)
   // Near zero = neutral
-  // For CPYCAT, we interpret: negative funding = bullish (shorts paying longs)
+  // For HLOne, we interpret: negative funding = bullish (shorts paying longs)
   const annualized = fundingRate * 24 * 365 * 100;
   if (annualized < -20) return 90; // very negative funding = bullish
   if (annualized < -5) return 70;
@@ -101,7 +101,7 @@ function computeFundingRegime(fundingRate: number): number {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export async function getTokenScores(): Promise<Map<string, CpycatScore>> {
+export async function getTokenScores(): Promise<Map<string, HLOneScore>> {
   if (scoreCache && Date.now() - scoreCache.fetchedAt < SCORE_TTL) {
     return scoreCache.scores;
   }
@@ -112,7 +112,7 @@ export async function getTokenScores(): Promise<Map<string, CpycatScore>> {
   ]);
 
   const overviewMap = new Map(overviews.map(o => [o.coin, o]));
-  const scores = new Map<string, CpycatScore>();
+  const scores = new Map<string, HLOneScore>();
 
   for (const flow of smartMoney.flow) {
     const overview = overviewMap.get(flow.coin);
@@ -133,7 +133,7 @@ export async function getTokenScores(): Promise<Map<string, CpycatScore>> {
       social * 0.10
     );
 
-    let signal: CpycatScore["signal"] = "neutral";
+    let signal: HLOneScore["signal"] = "neutral";
     if (score >= 75) signal = "strong_buy";
     else if (score >= 60) signal = "buy";
     else if (score <= 25) signal = "strong_sell";
@@ -161,11 +161,11 @@ export async function getTokenScores(): Promise<Map<string, CpycatScore>> {
 }
 
 /** Return cached scores immediately, or empty map. Never triggers a fetch. */
-export function getTokenScoresCached(): Map<string, CpycatScore> {
+export function getTokenScoresCached(): Map<string, HLOneScore> {
   return scoreCache?.scores || new Map();
 }
 
-export async function getTokenScore(coin: string): Promise<CpycatScore | null> {
+export async function getTokenScore(coin: string): Promise<HLOneScore | null> {
   const scores = await getTokenScores();
   return scores.get(coin) || null;
 }
