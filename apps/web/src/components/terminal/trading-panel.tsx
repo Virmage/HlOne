@@ -404,23 +404,21 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
           </div>
         </div>
 
-        {/* Notional + margin display */}
-        {sizeNum > 0 && (
-          <div className="text-[10px] text-[var(--hl-muted)] space-y-0.5">
-            <div className="flex justify-between">
-              <span>Notional</span>
-              <span className="text-[var(--foreground)] tabular-nums">${notional.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Margin</span>
-              <span className="text-[var(--foreground)] tabular-nums">${margin.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Fees (0.035% + {BUILDER_FEE_DISPLAY})</span>
-              <span className="text-[var(--foreground)] tabular-nums">${(notional * (0.00035 + BUILDER_FEE_PERCENT)).toFixed(2)}</span>
-            </div>
+        {/* Notional + margin display — always visible to prevent layout shift */}
+        <div className="text-[10px] text-[var(--hl-muted)] space-y-0.5">
+          <div className="flex justify-between">
+            <span>Notional</span>
+            <span className="text-[var(--foreground)] tabular-nums">${notional > 0 ? notional.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0.00"}</span>
           </div>
-        )}
+          <div className="flex justify-between">
+            <span>Margin</span>
+            <span className="text-[var(--foreground)] tabular-nums">${margin > 0 ? margin.toFixed(2) : "0.00"}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Fees (0.035% + {BUILDER_FEE_DISPLAY})</span>
+            <span className="text-[var(--foreground)] tabular-nums">${notional > 0 ? (notional * (0.00035 + BUILDER_FEE_PERCENT)).toFixed(2) : "0.00"}</span>
+          </div>
+        </div>
 
         {/* Reduce Only */}
         <label className="flex items-center gap-2 cursor-pointer">
