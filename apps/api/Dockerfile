@@ -1,4 +1,5 @@
 FROM node:20-slim AS base
+ARG CACHE_BUST=20260407a
 
 # Install dependencies — all workspace deps go to root node_modules
 FROM base AS deps
@@ -12,6 +13,7 @@ RUN npm ci --workspace=packages/db --workspace=apps/api --include-workspace-root
 # Build
 FROM base AS builder
 WORKDIR /app
+ARG CACHE_BUST=20260407a
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # If zod isn't hoisted, ensure it's available for tsc
@@ -41,7 +43,7 @@ RUN node -e "\
   delete pkg.workspaces; \
   delete pkg.scripts; \
   require('fs').writeFileSync('/app/package.json', JSON.stringify(pkg, null, 2));"
-RUN echo "deploy-v7" > /tmp/.build-id
+RUN echo "deploy-v8" > /tmp/.build-id
 
 # Verify runner has all required files
 RUN ls -la apps/api/dist/index.js && echo "1. API dist OK"
