@@ -30,7 +30,7 @@ export function PositionConcentrationPanel({ data, onSelectToken }: PositionConc
 
   return (
     <div>
-      <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
+      <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">
         Position Concentration
       </h2>
       <div className="space-y-0">

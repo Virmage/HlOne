@@ -29,7 +29,7 @@ export function TokenScoreCard({ score }: TokenScoreCardProps) {
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px] font-medium text-[var(--hl-muted)] uppercase tracking-wider">HLOne Score</span>
         <div className="flex items-center gap-2">
-          <span className={`text-[16px] font-bold tabular-nums ${sig.color}`}>{score.score}</span>
+          <span className={`text-[16px] font-bold tabular-nums ${score.score >= 70 ? "text-[var(--hl-accent)]" : sig.color}`} style={score.score >= 70 ? { textShadow: "0 0 8px var(--hl-accent)" } : undefined}>{score.score}</span>
           <span className={`text-[11px] font-medium ${sig.color}`}>{sig.label}</span>
         </div>
       </div>

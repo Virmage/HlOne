@@ -28,7 +28,7 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 lg:gap-px bg-[var(--hl-border)]">
         {/* Sharps vs Squares */}
         <div className="bg-[var(--background)] p-2">
-          <h3 className="text-[10px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-1.5 px-1">
+          <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">
             Sharps vs Squares
           </h3>
           <div className="space-y-0.5">
@@ -55,7 +55,7 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
 
         {/* Funding Opportunities */}
         <div className="bg-[var(--background)] p-2">
-          <h3 className="text-[10px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-1.5 px-1">
+          <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">
             Funding Arbitrage
           </h3>
           <div className="space-y-0.5">
@@ -83,7 +83,7 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
 
         {/* Trading Signals */}
         <div className="bg-[var(--background)] p-2">
-          <h3 className="text-[10px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-1.5 px-1">
+          <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">
             Signals
           </h3>
           <div className="space-y-0.5">

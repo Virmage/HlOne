@@ -132,28 +132,43 @@ async function signL1Action(
   action: Record<string, unknown>,
   nonce: number,
 ): Promise<`0x${string}`> {
-  // Hyperliquid uses a "phantom agent" approach for L1 actions
-  // The action is hashed into the nonce field of the phantom agent message
-  const actionHash = await hashAction(action, nonce);
-
-  const signature = await walletClient.signTypedData({
-    account: address,
-    domain: EIP712_DOMAIN,
-    types: PHANTOM_AGENT_TYPE,
-    primaryType: "HyperliquidTransaction:Approve",
+  // Hyperliquid uses chainId 1337 (HL L1) for order signing, but viem rejects
+  // domain chainId mismatches vs the connected chain. We bypass this by using
+  // the raw eth_signTypedData_v4 JSON-RPC method directly.
+  const typedData = {
+    types: {
+      EIP712Domain: [
+        { name: "name", type: "string" },
+        { name: "version", type: "string" },
+        { name: "chainId", type: "uint256" },
+        { name: "verifyingContract", type: "address" },
+      ],
+      "HyperliquidTransaction:Approve": [
+        { name: "hyppieLiquidChain", type: "string" },
+        { name: "isMainNet", type: "bool" },
+        { name: "nonce", type: "uint64" },
+      ],
+    },
+    primaryType: "HyperliquidTransaction:Approve" as const,
+    domain: {
+      name: "Exchange",
+      version: "1",
+      chainId: "0x539", // 1337 in hex
+      verifyingContract: "0x0000000000000000000000000000000000000000",
+    },
     message: {
       hyppieLiquidChain: "Mainnet",
       isMainNet: true,
-      nonce: BigInt(actionHash),
+      nonce: `0x${BigInt(nonce).toString(16)}`,
     },
+  };
+
+  const signature = await walletClient.request({
+    method: "eth_signTypedData_v4",
+    params: [address as `0x${string}`, JSON.stringify(typedData)],
   });
 
-  return signature;
-}
-
-async function hashAction(action: Record<string, unknown>, nonce: number): Promise<number> {
-  // Simple nonce — HL accepts timestamp-based nonces
-  return nonce;
+  return signature as `0x${string}`;
 }
 
 // ─── Submit to exchange ──────────────────────────────────────────────────────
@@ -488,14 +503,68 @@ export async function approveBuilderFee(
     const action = {
       type: "approveBuilderFee",
       hyperliquidChain: "Mainnet",
+      signatureChainId: "0x66eee",
       maxFeeRate: "0.02%",
       builder: BUILDER_ADDRESS,
       nonce,
     };
 
-    const signature = await signL1Action(walletClient, address, action, nonce);
-    const result = await submitToExchange(action, nonce, signature);
+    // approveBuilderFee uses HyperliquidSignTransaction domain (chainId 421614)
+    // NOT the phantom agent path used by orders. We use raw eth_signTypedData_v4
+    // to avoid viem's chainId validation.
+    const typedData = {
+      types: {
+        EIP712Domain: [
+          { name: "name", type: "string" },
+          { name: "version", type: "string" },
+          { name: "chainId", type: "uint256" },
+          { name: "verifyingContract", type: "address" },
+        ],
+        "HyperliquidTransaction:ApproveBuilderFee": [
+          { name: "hyperliquidChain", type: "string" },
+          { name: "maxFeeRate", type: "string" },
+          { name: "builder", type: "address" },
+          { name: "nonce", type: "uint64" },
+        ],
+      },
+      primaryType: "HyperliquidTransaction:ApproveBuilderFee" as const,
+      domain: {
+        name: "HyperliquidSignTransaction",
+        version: "1",
+        chainId: "0x66eee", // 421614 in hex (Arbitrum Sepolia)
+        verifyingContract: "0x0000000000000000000000000000000000000000",
+      },
+      message: {
+        hyperliquidChain: "Mainnet",
+        maxFeeRate: "0.02%",
+        builder: BUILDER_ADDRESS,
+        nonce: `0x${BigInt(nonce).toString(16)}`,
+      },
+    };
 
+    const signature = await walletClient.request({
+      method: "eth_signTypedData_v4",
+      params: [address as `0x${string}`, JSON.stringify(typedData)],
+    });
+
+    // Split signature into r, s, v
+    const sig = signature as string;
+    const r = sig.slice(0, 66);
+    const s = `0x${sig.slice(66, 130)}`;
+    const v = parseInt(sig.slice(130, 132), 16);
+
+    const res = await fetch(`${HL_API}/exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        nonce,
+        signature: { r, s, v },
+        vaultAddress: null,
+      }),
+    });
+
+    const result = await res.json();
     return { success: (result as { status?: string }).status === "ok" };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "Unknown error" };

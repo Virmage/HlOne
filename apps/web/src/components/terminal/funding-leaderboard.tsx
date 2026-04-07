@@ -27,7 +27,7 @@ export function FundingLeaderboardPanel({ funding, onSelectToken }: FundingLeade
 
   return (
     <div>
-      <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
+      <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">
         Funding Rates
       </h2>
       <div className="grid grid-cols-2 gap-px bg-[var(--hl-border)]">

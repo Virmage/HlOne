@@ -14,7 +14,9 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { shortenAddress } from "@/lib/utils";
 import { startCopy, getBuilderFee, checkBuilderApproval, type BuilderFeeInfo } from "@/lib/api";
-import { useAccount, useSignTypedData } from "wagmi";
+import { useAccount } from "wagmi";
+import { getWalletClient } from "@wagmi/core";
+import { config } from "@/config/wagmi";
 
 interface CopyDialogProps {
   open: boolean;
@@ -39,7 +41,6 @@ export function CopyDialog({
   const [feeApproved, setFeeApproved] = useState<boolean | null>(null);
   const [approvingFee, setApprovingFee] = useState(false);
   const { connector } = useAccount();
-  const { signTypedDataAsync } = useSignTypedData();
 
   useEffect(() => {
     if (open && walletAddress) {
@@ -64,16 +65,19 @@ export function CopyDialog({
       };
 
       // ── EIP-712 signing for ApproveBuilderFee ─────────────────────
-      // Uses HyperliquidSignTransaction domain with fixed chainId 421614
-      // (Arbitrum Sepolia) which won't conflict with the connected chain.
-      const signature = await signTypedDataAsync({
-        domain: {
-          name: "HyperliquidSignTransaction",
-          version: "1",
-          chainId: 421614,
-          verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
-        },
+      // Uses raw eth_signTypedData_v4 to bypass viem's chainId validation.
+      // HyperliquidSignTransaction domain with chainId 421614 (Arbitrum Sepolia).
+      const walletClient = await getWalletClient(config);
+      if (!walletClient) throw new Error("No wallet connected");
+
+      const typedData = {
         types: {
+          EIP712Domain: [
+            { name: "name", type: "string" },
+            { name: "version", type: "string" },
+            { name: "chainId", type: "uint256" },
+            { name: "verifyingContract", type: "address" },
+          ],
           "HyperliquidTransaction:ApproveBuilderFee": [
             { name: "hyperliquidChain", type: "string" },
             { name: "maxFeeRate", type: "string" },
@@ -81,30 +85,42 @@ export function CopyDialog({
             { name: "nonce", type: "uint64" },
           ],
         },
-        primaryType: "HyperliquidTransaction:ApproveBuilderFee",
+        primaryType: "HyperliquidTransaction:ApproveBuilderFee" as const,
+        domain: {
+          name: "HyperliquidSignTransaction",
+          version: "1",
+          chainId: "0x66eee",
+          verifyingContract: "0x0000000000000000000000000000000000000000",
+        },
         message: {
           hyperliquidChain: "Mainnet",
           maxFeeRate,
-          builder: builderFee.builder as `0x${string}`,
-          nonce: BigInt(nonce),
+          builder: builderFee.builder,
+          nonce: `0x${BigInt(nonce).toString(16)}`,
         },
+      };
+
+      const signature = await walletClient.request({
+        method: "eth_signTypedData_v4",
+        params: [walletAddress as `0x${string}`, JSON.stringify(typedData)],
       });
 
       // Split signature into r, s, v components
-      const r = signature.slice(0, 66);
-      const s = `0x${signature.slice(66, 130)}`;
-      const v = parseInt(signature.slice(130, 132), 16);
+      const sig = signature as string;
+      const r = sig.slice(0, 66);
+      const s = `0x${sig.slice(66, 130)}`;
+      const v = parseInt(sig.slice(130, 132), 16);
 
       // Submit to Hyperliquid exchange
+      const actionWithChainId = { ...action, signatureChainId: "0x66eee" };
       const res = await fetch("https://api.hyperliquid.xyz/exchange", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action,
+          action: actionWithChainId,
           nonce,
           signature: { r, s, v },
           vaultAddress: null,
-          signatureChainId: "0x66eee",
         }),
       });
       const data = await res.json();
@@ -240,7 +256,7 @@ export function CopyDialog({
               </p>
             )}
 
-            <Button className="w-full" onClick={handleSubmit} disabled={submitting || (builderFee?.builder ? feeApproved === false : false)}>
+            <Button className="w-full bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110" onClick={handleSubmit} disabled={submitting || (builderFee?.builder ? feeApproved === false : false)}>
               {submitting ? "Starting..." : "Start Copying"}
             </Button>
           </div>

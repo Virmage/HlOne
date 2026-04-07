@@ -21,8 +21,8 @@ export function SocialPanel({ social, onSelectToken }: SocialPanelProps) {
 
   return (
     <div>
-      <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider mb-2 px-1">
-        Social Sentiment <span className="text-[10px] font-normal">LunarCrush</span>
+      <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">
+        Social Sentiment <span className="text-[10px] font-normal text-[var(--hl-muted)]">LunarCrush</span>
       </h2>
       <div className="overflow-y-auto scroll-on-hover max-h-[220px]">
         <table className="w-full text-[11px]">
