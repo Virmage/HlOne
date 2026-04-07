@@ -144,7 +144,9 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       ]);
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) { setClosing(null); return; }
-      const result = await exchange.closePosition(walletClient, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
+      const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      if (agentResult.error) { setActionResult({ coin: pos.coin, msg: agentResult.error, ok: false }); setClosing(null); return; }
+      const result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
       setActionResult({ coin: pos.coin, msg: result.success ? "Closed" : (result.error || "Failed"), ok: result.success });
       if (result.success) fetchPositions();
     } catch (err) {
@@ -164,7 +166,9 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       ]);
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) { setSubmitting(false); return; }
-      const result = await exchange.placeTriggerOrder(walletClient, address as `0x${string}`, {
+      const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      if (agentResult.error) { setActionResult({ coin: pos.coin, msg: agentResult.error, ok: false }); setSubmitting(false); return; }
+      const result = await exchange.placeTriggerOrder(agentResult.agentKey, address as `0x${string}`, {
         asset: pos.coin, isLong: pos.side === "long", size: Math.abs(pos.size),
         triggerPrice: parseFloat(triggerPrice), type: tpSlMode.type,
       });

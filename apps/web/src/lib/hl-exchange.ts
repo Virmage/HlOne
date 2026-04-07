@@ -1,15 +1,16 @@
 /**
  * Hyperliquid Exchange — client-side order signing and submission.
  *
- * Users sign orders with their wallet (MetaMask/WalletConnect) using EIP-712.
- * Orders are submitted directly to HL's /exchange endpoint.
+ * Uses the "agent wallet" pattern:
+ * 1. First trade: generate a local keypair, MetaMask signs approveAgent (chainId 42161)
+ * 2. All subsequent trades: sign locally with the agent key (no MetaMask popup)
  *
- * This is for DIRECT trading from the terminal — NOT copy trading
- * (which uses server-side agent wallets in the worker).
+ * This bypasses MetaMask's chainId validation for L1 actions (which require 1337).
  */
 
 import type { WalletClient } from "viem";
 import { keccak256 } from "viem";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { encode as msgpackEncode } from "@msgpack/msgpack";
 import { getAccount } from "@wagmi/core";
 import { config } from "@/config/wagmi";
@@ -17,32 +18,155 @@ import { config } from "@/config/wagmi";
 const HL_API = "https://api.hyperliquid.xyz";
 
 // ─── Builder fee config ─────────────────────────────────────────────────────
-// 2 bps (0.02%) — industry standard for trading terminals (Dreamcash, Tread.fi)
-// Fee unit: tenths of a basis point → 20 = 2 bps = 0.02%
 export const BUILDER_ADDRESS = "0xbB0f753321e2B5FD29Bd1d14b532f5B54959ae63";
 export const BUILDER_FEE = 20; // 2 bps in tenths-of-bps
-export const BUILDER_FEE_PERCENT = 0.0002; // 0.02% as decimal
-export const BUILDER_FEE_DISPLAY = "0.02%"; // for UI
+export const BUILDER_FEE_PERCENT = 0.0002;
+export const BUILDER_FEE_DISPLAY = "0.02%";
 
-// ─── Phantom agent helpers ──────────────────────────────────────────────────
-// L1 actions (orders, leverage, cancel) use the phantom agent approach:
-// 1. Msgpack-encode the action → append nonce (uint64 BE) → append vault marker
-// 2. Keccak256 hash → connectionId
-// 3. Sign EIP-712 Agent { source, connectionId } with domain chainId 1337
+// ─── Agent wallet management ────────────────────────────────────────────────
+// Agent wallets are local keypairs authorized by the user's main wallet.
+// They sign L1 actions locally (no MetaMask popup, no chainId validation).
+
+const AGENT_STORAGE_PREFIX = "hlone-agent-";
+
+function getStoredAgent(userAddress: string): `0x${string}` | null {
+  try {
+    const key = localStorage.getItem(`${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`);
+    if (key && key.startsWith("0x") && key.length === 66) return key as `0x${string}`;
+  } catch {}
+  return null;
+}
+
+function storeAgent(userAddress: string, privateKey: `0x${string}`): void {
+  try {
+    localStorage.setItem(`${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`, privateKey);
+  } catch {}
+}
+
+async function approveAgentOnChain(
+  walletClient: WalletClient,
+  userAddress: string,
+  agentAddress: string,
+): Promise<{ success: boolean; error?: string }> {
+  const nonce = Date.now();
+
+  const action = {
+    type: "approveAgent",
+    hyperliquidChain: "Mainnet",
+    signatureChainId: "0xa4b1",
+    agentAddress: agentAddress,
+    agentName: "HLOne",
+    nonce,
+  };
+
+  const typedData = {
+    types: {
+      EIP712Domain: [
+        { name: "name", type: "string" },
+        { name: "version", type: "string" },
+        { name: "chainId", type: "uint256" },
+        { name: "verifyingContract", type: "address" },
+      ],
+      "HyperliquidTransaction:ApproveAgent": [
+        { name: "hyperliquidChain", type: "string" },
+        { name: "agentAddress", type: "address" },
+        { name: "agentName", type: "string" },
+        { name: "nonce", type: "uint64" },
+      ],
+    },
+    primaryType: "HyperliquidTransaction:ApproveAgent" as const,
+    domain: {
+      name: "HyperliquidSignTransaction",
+      version: "1",
+      chainId: 42161, // Arbitrum mainnet — MetaMask accepts this
+      verifyingContract: "0x0000000000000000000000000000000000000000",
+    },
+    message: {
+      hyperliquidChain: "Mainnet",
+      agentAddress: agentAddress,
+      agentName: "HLOne",
+      nonce: nonce,
+    },
+  };
+
+  console.log("[approveAgent] Requesting MetaMask signature...");
+  const signature = await rawSignTypedData(walletClient, userAddress, typedData);
+  console.log("[approveAgent] Got signature:", signature.slice(0, 10) + "...");
+
+  // Split signature into r, s, v
+  const r = signature.slice(0, 66);
+  const s = `0x${signature.slice(66, 130)}`;
+  const v = parseInt(signature.slice(130, 132), 16);
+
+  const res = await fetch(`${HL_API}/exchange`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action,
+      nonce,
+      signature: { r, s, v },
+      vaultAddress: null,
+    }),
+  });
+
+  const result = await res.json();
+  console.log("[approveAgent] API response:", JSON.stringify(result));
+
+  if ((result as { status?: string }).status === "ok") {
+    return { success: true };
+  }
+  const apiErr = (result as { response?: string }).response
+    || (result as { error?: string }).error
+    || JSON.stringify(result);
+  return { success: false, error: `Agent approval API: ${apiErr}` };
+}
+
+/**
+ * Get or create an agent wallet for the user.
+ * First call triggers a MetaMask popup to approve the agent.
+ * Subsequent calls return the stored agent key instantly.
+ */
+export async function ensureAgent(
+  walletClient: WalletClient,
+  userAddress: `0x${string}`,
+): Promise<{ agentKey: `0x${string}`; error?: string }> {
+  // Check if we already have an agent
+  const stored = getStoredAgent(userAddress);
+  if (stored) {
+    console.log("[agent] Using stored agent for", userAddress.slice(0, 8) + "...");
+    return { agentKey: stored };
+  }
+
+  // Generate new agent keypair
+  console.log("[agent] Generating new agent wallet...");
+  const agentKey = generatePrivateKey();
+  const agentAccount = privateKeyToAccount(agentKey);
+  console.log("[agent] Agent address:", agentAccount.address);
+
+  // Approve agent on-chain (MetaMask popup — one time only)
+  const result = await approveAgentOnChain(walletClient, userAddress, agentAccount.address);
+  if (!result.success) {
+    return { agentKey: "0x" as `0x${string}`, error: result.error };
+  }
+
+  // Store for future use
+  storeAgent(userAddress, agentKey);
+  console.log("[agent] Agent approved and stored");
+  return { agentKey };
+}
+
+// ─── Phantom agent hash ─────────────────────────────────────────────────────
 
 function actionHash(
   action: Record<string, unknown>,
   nonce: number,
   vaultAddress: string | null = null,
 ): `0x${string}` {
-  // 1. Msgpack encode (field order must match Python SDK)
   const actionBytes = msgpackEncode(action);
 
-  // 2. Nonce as uint64 big-endian
   const nonceBytes = new Uint8Array(8);
   new DataView(nonceBytes.buffer).setBigUint64(0, BigInt(nonce));
 
-  // 3. Vault marker: 0x00 if no vault, 0x01 + 20-byte address if vault
   let vaultBytes: Uint8Array;
   if (!vaultAddress) {
     vaultBytes = new Uint8Array([0x00]);
@@ -57,13 +181,11 @@ function actionHash(
     vaultBytes.set(addrBytes, 1);
   }
 
-  // 4. Concatenate
   const total = new Uint8Array(actionBytes.length + nonceBytes.length + vaultBytes.length);
   total.set(actionBytes, 0);
   total.set(nonceBytes, actionBytes.length);
   total.set(vaultBytes, actionBytes.length + nonceBytes.length);
 
-  // 5. Keccak256
   return keccak256(total);
 }
 
@@ -114,7 +236,6 @@ function roundSize(size: number, szDecimals: number): number {
 }
 
 function roundPrice(price: number): number {
-  // Prices: 5 significant figures
   return parseFloat(price.toPrecision(5));
 }
 
@@ -137,13 +258,13 @@ async function getMidPrice(asset: string): Promise<number> {
 export interface PlaceOrderParams {
   asset: string;
   isBuy: boolean;
-  size: number;          // in asset units (e.g. 0.01 BTC)
+  size: number;
   orderType: "market" | "limit";
-  limitPrice?: number;   // required for limit orders
+  limitPrice?: number;
   reduceOnly?: boolean;
-  slippageBps?: number;  // for market orders, default 50 (0.5%)
-  tpPrice?: number;      // take profit trigger price
-  slPrice?: number;      // stop loss trigger price
+  slippageBps?: number;
+  tpPrice?: number;
+  slPrice?: number;
 }
 
 export interface PlaceOrderResult {
@@ -154,23 +275,16 @@ export interface PlaceOrderResult {
   error?: string;
 }
 
-// ─── Raw signing — bypass viem entirely ─────────────────────────────────────
-// viem validates domain chainId against the connected chain (Arbitrum 42161),
-// but Hyperliquid uses custom chainIds (1337 for orders, 421614 for fee approvals).
-// Solution: get the raw EIP-1193 provider from the wagmi connector, which gives
-// us direct access to MetaMask/Rabby without any viem middleware.
+// ─── Raw signing for user-signed actions (MetaMask) ─────────────────────────
+// Used for approveAgent and approveBuilderFee (chainId 42161, MetaMask accepts)
 
 type EIP1193Provider = { request: (args: { method: string; params: unknown[] }) => Promise<unknown> };
 
 async function getRawProvider(): Promise<EIP1193Provider> {
-  console.log("[signing] Getting raw provider...");
   const account = getAccount(config);
-  console.log("[signing] Account status:", account.status, "connector:", account.connector?.name ?? "none");
-
   if (account.connector) {
     try {
       const provider = await account.connector.getProvider();
-      console.log("[signing] Provider type:", typeof provider, "has request:", typeof (provider as Record<string, unknown>)?.request);
       if (provider && typeof (provider as Record<string, unknown>).request === "function") {
         return provider as EIP1193Provider;
       }
@@ -178,25 +292,20 @@ async function getRawProvider(): Promise<EIP1193Provider> {
       console.warn("[signing] connector.getProvider() failed:", err);
     }
   }
-
-  // Fallback: window.ethereum
   if (typeof window !== "undefined" && (window as unknown as { ethereum?: EIP1193Provider }).ethereum) {
-    console.log("[signing] Using window.ethereum fallback");
     return (window as unknown as { ethereum: EIP1193Provider }).ethereum;
   }
-
   throw new Error("No wallet provider found — is your wallet connected?");
 }
 
 async function rawSignTypedData(
-  _walletClient: WalletClient, // kept for API compat, not used
+  _walletClient: WalletClient,
   address: string,
   typedData: Record<string, unknown>,
 ): Promise<string> {
   const provider = await getRawProvider();
   const dataStr = JSON.stringify(typedData);
   console.log("[signing] Requesting eth_signTypedData_v4 for", address.slice(0, 8) + "...");
-  console.log("[signing] Domain:", JSON.stringify((typedData as { domain?: unknown }).domain));
 
   const sig = await withTimeout(
     provider.request({
@@ -210,7 +319,6 @@ async function rawSignTypedData(
   if (typeof sig !== "string" || !sig.startsWith("0x")) {
     throw new Error(`Invalid signature returned: ${String(sig).slice(0, 20)}`);
   }
-  console.log("[signing] Signature OK:", sig.slice(0, 10) + "...");
   return sig;
 }
 
@@ -235,45 +343,38 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ]);
 }
 
-// ─── EIP-712 signing (phantom agent) ────────────────────────────────────────
+// ─── L1 signing with agent key (local, no MetaMask) ─────────────────────────
 
 async function signL1Action(
-  walletClient: WalletClient,
-  address: `0x${string}`,
+  agentKey: `0x${string}`,
   action: Record<string, unknown>,
   nonce: number,
 ): Promise<`0x${string}`> {
   const connectionId = actionHash(action, nonce);
-  console.log("[signL1Action] connectionId:", connectionId);
+  const account = privateKeyToAccount(agentKey);
 
-  const typedData = {
+  const signature = await account.signTypedData({
+    domain: {
+      name: "Exchange",
+      version: "1",
+      chainId: 1337,
+      verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+    },
     types: {
-      EIP712Domain: [
-        { name: "name", type: "string" },
-        { name: "version", type: "string" },
-        { name: "chainId", type: "uint256" },
-        { name: "verifyingContract", type: "address" },
-      ],
       Agent: [
         { name: "source", type: "string" },
         { name: "connectionId", type: "bytes32" },
       ],
     },
-    primaryType: "Agent" as const,
-    domain: {
-      name: "Exchange",
-      version: "1",
-      chainId: 1337,
-      verifyingContract: "0x0000000000000000000000000000000000000000",
-    },
+    primaryType: "Agent",
     message: {
-      source: "a", // "a" = mainnet, "b" = testnet
+      source: "a",
       connectionId,
     },
-  };
+  });
 
-  const signature = await rawSignTypedData(walletClient, address, typedData);
-  return signature as `0x${string}`;
+  console.log("[signL1Action] Signed locally with agent, connectionId:", connectionId.slice(0, 10) + "...");
+  return signature;
 }
 
 // ─── Submit to exchange ──────────────────────────────────────────────────────
@@ -305,7 +406,7 @@ async function submitToExchange(
 // ─── Set leverage ────────────────────────────────────────────────────────────
 
 export async function setLeverage(
-  walletClient: WalletClient,
+  agentKey: `0x${string}`,
   address: `0x${string}`,
   asset: string,
   leverage: number,
@@ -322,7 +423,7 @@ export async function setLeverage(
       leverage,
     };
 
-    const signature = await signL1Action(walletClient, address, action, nonce);
+    const signature = await signL1Action(agentKey, action, nonce);
     const result = await submitToExchange(action, nonce, signature);
 
     return { success: (result as { status?: string }).status === "ok" };
@@ -334,7 +435,7 @@ export async function setLeverage(
 // ─── Place order (main function) ─────────────────────────────────────────────
 
 export async function placeOrder(
-  walletClient: WalletClient,
+  agentKey: `0x${string}`,
   address: `0x${string}`,
   params: PlaceOrderParams,
 ): Promise<PlaceOrderResult> {
@@ -345,7 +446,6 @@ export async function placeOrder(
 
     let limitPrice: number;
     if (params.orderType === "market") {
-      // For market orders, use mid price + slippage as limit
       const midPrice = await getMidPrice(params.asset);
       const slippage = (params.slippageBps ?? 50) / 10000;
       limitPrice = params.isBuy
@@ -359,7 +459,6 @@ export async function placeOrder(
     const size = roundSize(params.size, szDecimals);
     if (size <= 0) throw new Error("Size must be positive");
 
-    // Build order wire
     const orderWire = {
       a: assetIndex,
       b: params.isBuy,
@@ -367,8 +466,8 @@ export async function placeOrder(
       s: floatToWire(size),
       r: params.reduceOnly ?? false,
       t: params.orderType === "market"
-        ? { limit: { tif: "Ioc" } }  // IOC for market orders
-        : { limit: { tif: "Gtc" } }, // GTC for limit orders
+        ? { limit: { tif: "Ioc" } }
+        : { limit: { tif: "Gtc" } },
     };
 
     const action: Record<string, unknown> = {
@@ -381,7 +480,7 @@ export async function placeOrder(
       },
     };
 
-    const signature = await signL1Action(walletClient, address, action, nonce);
+    const signature = await signL1Action(agentKey, action, nonce);
     const result = await submitToExchange(action, nonce, signature) as {
       status?: string;
       response?: {
@@ -426,17 +525,16 @@ export async function placeOrder(
 // ─── Close position (market) ─────────────────────────────────────────────────
 
 export async function closePosition(
-  walletClient: WalletClient,
+  agentKey: `0x${string}`,
   address: `0x${string}`,
   asset: string,
-  size: number,       // absolute size to close
-  isLong: boolean,    // current position side
-  slippageBps = 100,  // 1% default slippage for closes
+  size: number,
+  isLong: boolean,
+  slippageBps = 100,
 ): Promise<PlaceOrderResult> {
-  // Close = opposite side + reduceOnly
-  return placeOrder(walletClient, address, {
+  return placeOrder(agentKey, address, {
     asset,
-    isBuy: !isLong,        // flip side to close
+    isBuy: !isLong,
     size: Math.abs(size),
     orderType: "market",
     reduceOnly: true,
@@ -448,14 +546,14 @@ export async function closePosition(
 
 export interface TriggerOrderParams {
   asset: string;
-  isLong: boolean;       // current position side
-  size: number;          // size to close
-  triggerPrice: number;  // trigger price
-  type: "tp" | "sl";    // take profit or stop loss
+  isLong: boolean;
+  size: number;
+  triggerPrice: number;
+  type: "tp" | "sl";
 }
 
 export async function placeTriggerOrder(
-  walletClient: WalletClient,
+  agentKey: `0x${string}`,
   address: `0x${string}`,
   params: TriggerOrderParams,
 ): Promise<PlaceOrderResult> {
@@ -467,28 +565,15 @@ export async function placeTriggerOrder(
     const size = roundSize(Math.abs(params.size), szDecimals);
     if (size <= 0) throw new Error("Size must be positive");
 
-    // TP/SL: close the position when trigger price is hit
-    // For a long position: TP triggers above, SL triggers below
-    // For a short position: TP triggers below, SL triggers above
-    const isTpForLong = params.type === "tp" && params.isLong;
-    const isSlForLong = params.type === "sl" && params.isLong;
-    const isTpForShort = params.type === "tp" && !params.isLong;
-    const isSlForShort = params.type === "sl" && !params.isLong;
-
-    // tpsl flag: true if this is a take-profit (close when price moves favorably)
     const tpsl = params.type === "tp" ? "tp" : "sl";
-
-    // Trigger condition:
-    // TP long / SL short → trigger when mark price >= triggerPrice
-    // SL long / TP short → trigger when mark price <= triggerPrice
     const isMarket = true;
 
     const orderWire = {
       a: assetIndex,
-      b: !params.isLong,  // close = opposite side
+      b: !params.isLong,
       p: floatToWire(roundPrice(params.triggerPrice)),
       s: floatToWire(size),
-      r: true,            // reduceOnly
+      r: true,
       t: {
         trigger: {
           triggerPx: floatToWire(roundPrice(params.triggerPrice)),
@@ -508,7 +593,7 @@ export async function placeTriggerOrder(
       },
     };
 
-    const signature = await signL1Action(walletClient, address, action, nonce);
+    const signature = await signL1Action(agentKey, action, nonce);
     const result = await submitToExchange(action, nonce, signature) as {
       status?: string;
       response?: {
@@ -549,7 +634,7 @@ export async function placeTriggerOrder(
 // ─── Cancel order ────────────────────────────────────────────────────────────
 
 export async function cancelOrder(
-  walletClient: WalletClient,
+  agentKey: `0x${string}`,
   address: `0x${string}`,
   asset: string,
   orderId: number,
@@ -563,7 +648,7 @@ export async function cancelOrder(
       cancels: [{ a: assetIndex, o: orderId }],
     };
 
-    const signature = await signL1Action(walletClient, address, action, nonce);
+    const signature = await signL1Action(agentKey, action, nonce);
     const result = await submitToExchange(action, nonce, signature);
 
     return { success: (result as { status?: string }).status === "ok" };
@@ -588,15 +673,13 @@ export async function checkBuilderApproval(
       }),
     });
     const maxFee = await res.json();
-    // maxFee is the max approved fee rate as a number (in bps)
-    // If > 0, user has approved; check it covers our fee
     return typeof maxFee === "number" && maxFee >= BUILDER_FEE;
   } catch {
     return false;
   }
 }
 
-// ─── Approve builder fee ─────────────────────────────────────────────────────
+// ─── Approve builder fee (MetaMask, one-time) ───────────────────────────────
 
 export async function approveBuilderFee(
   walletClient: WalletClient,
@@ -605,8 +688,6 @@ export async function approveBuilderFee(
   try {
     const nonce = Date.now();
 
-    // Mainnet uses Arbitrum chainId 42161 (0xa4b1)
-    // Testnet would use 421614 (0x66eee)
     const action = {
       type: "approveBuilderFee",
       hyperliquidChain: "Mainnet",
@@ -635,7 +716,7 @@ export async function approveBuilderFee(
       domain: {
         name: "HyperliquidSignTransaction",
         version: "1",
-        chainId: 42161, // Arbitrum mainnet — must match wallet's active chain
+        chainId: 42161,
         verifyingContract: "0x0000000000000000000000000000000000000000",
       },
       message: {
@@ -648,26 +729,20 @@ export async function approveBuilderFee(
 
     console.log("[approveBuilderFee] Requesting signature...");
     const signature = await rawSignTypedData(walletClient, address, typedData);
-    console.log("[approveBuilderFee] Got signature:", signature.slice(0, 10) + "...");
 
-    // Split signature into r, s, v
-    const sig = signature;
-    const r = sig.slice(0, 66);
-    const s = `0x${sig.slice(66, 130)}`;
-    const v = parseInt(sig.slice(130, 132), 16);
-
-    const body = {
-      action,
-      nonce,
-      signature: { r, s, v },
-      vaultAddress: null,
-    };
-    console.log("[approveBuilderFee] Submitting to exchange:", JSON.stringify(body).slice(0, 200));
+    const r = signature.slice(0, 66);
+    const s = `0x${signature.slice(66, 130)}`;
+    const v = parseInt(signature.slice(130, 132), 16);
 
     const res = await fetch(`${HL_API}/exchange`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        action,
+        nonce,
+        signature: { r, s, v },
+        vaultAddress: null,
+      }),
     });
 
     const result = await res.json();
@@ -675,16 +750,12 @@ export async function approveBuilderFee(
     if ((result as { status?: string }).status === "ok") {
       return { success: true };
     }
-    // API returned an error — extract the message
     const apiErr = (result as { response?: string }).response
       || (result as { error?: string }).error
       || JSON.stringify(result);
     return { success: false, error: `API: ${apiErr}` };
   } catch (err) {
-    const msg = err instanceof Error ? err.message
-      : typeof err === "string" ? err
-      : JSON.stringify(err);
     console.error("[approveBuilderFee] Error:", err);
-    return { success: false, error: msg || "Unknown signing error — check console" };
+    return { success: false, error: extractError(err) };
   }
 }

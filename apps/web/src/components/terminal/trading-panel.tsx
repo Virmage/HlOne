@@ -141,6 +141,17 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
       }
       console.log("[trade] Wallet client OK, address:", address);
 
+      // Step 1: Ensure agent wallet (one-time MetaMask approval)
+      console.log("[trade] Ensuring agent wallet...");
+      const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      if (agentResult.error) {
+        setLastResult({ success: false, error: `Agent setup: ${agentResult.error}` });
+        setSubmitting(false);
+        return;
+      }
+      const agentKey = agentResult.agentKey;
+
+      // Step 2: Builder fee approval (MetaMask, one-time)
       if (!builderApproved) {
         console.log("[trade] Checking builder fee approval...");
         const alreadyApproved = await exchange.checkBuilderApproval(address as string);
@@ -158,9 +169,10 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         }
       }
 
+      // Step 3: Set leverage (signed locally with agent key — no popup)
       if (!leverageSet) {
         console.log(`[trade] Setting leverage to ${leverage}x (${marginMode})...`);
-        const levResult = await exchange.setLeverage(walletClient, address as `0x${string}`, coin, leverage, marginMode === "cross");
+        const levResult = await exchange.setLeverage(agentKey, address as `0x${string}`, coin, leverage, marginMode === "cross");
         if (!levResult.success) {
           setLastResult({ success: false, error: `Leverage: ${levResult.error}` });
           setSubmitting(false);
@@ -169,9 +181,10 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         setLeverageSet(true);
       }
 
+      // Step 4: Place order (signed locally with agent key — no popup)
       console.log("[trade] Placing order...");
       const orderStart = Date.now();
-      const result = await exchange.placeOrder(walletClient, address as `0x${string}`, {
+      const result = await exchange.placeOrder(agentKey, address as `0x${string}`, {
         asset: coin,
         isBuy: side === "long",
         size: sizeNum,
