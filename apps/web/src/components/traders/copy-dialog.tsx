@@ -15,6 +15,9 @@ import { Slider } from "@/components/ui/slider";
 import { shortenAddress } from "@/lib/utils";
 import { startCopy, getBuilderFee, checkBuilderApproval, type BuilderFeeInfo } from "@/lib/api";
 import { useAccount } from "wagmi";
+import { approveBuilderFee as hlApproveBuilderFee } from "@/lib/hl-exchange";
+import { getWalletClient } from "@wagmi/core";
+import { config } from "@/config/wagmi";
 
 interface CopyDialogProps {
   open: boolean;
@@ -51,81 +54,15 @@ export function CopyDialog({
     if (!walletAddress || !builderFee) return;
     setApprovingFee(true);
     try {
-      const nonce = Date.now();
-      // fee is raw HL units (e.g. 20). Convert: fee/10 = bps, bps/100 = percent.
-      const maxFeeRate = `${(builderFee.fee / 10 / 100).toFixed(4)}%`;
-      const action = {
-        type: "approveBuilderFee",
-        hyperliquidChain: "Mainnet",
-        maxFeeRate,
-        builder: builderFee.builder,
-        nonce,
-      };
+      // Use shared signing function from hl-exchange (handles transport/provider fallback)
+      const walletClient = await getWalletClient(config);
+      if (!walletClient) throw new Error("Wallet not connected");
 
-      // ── EIP-712 signing for ApproveBuilderFee ─────────────────────
-      // Uses window.ethereum directly to completely bypass viem's chainId validation.
-      // HyperliquidSignTransaction domain with chainId 421614 (Arbitrum Sepolia).
-      const ethereum = (window as unknown as { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
-      if (!ethereum) throw new Error("No wallet provider found");
-
-      const typedData = {
-        types: {
-          EIP712Domain: [
-            { name: "name", type: "string" },
-            { name: "version", type: "string" },
-            { name: "chainId", type: "uint256" },
-            { name: "verifyingContract", type: "address" },
-          ],
-          "HyperliquidTransaction:ApproveBuilderFee": [
-            { name: "hyperliquidChain", type: "string" },
-            { name: "maxFeeRate", type: "string" },
-            { name: "builder", type: "address" },
-            { name: "nonce", type: "uint64" },
-          ],
-        },
-        primaryType: "HyperliquidTransaction:ApproveBuilderFee" as const,
-        domain: {
-          name: "HyperliquidSignTransaction",
-          version: "1",
-          chainId: "0x66eee",
-          verifyingContract: "0x0000000000000000000000000000000000000000",
-        },
-        message: {
-          hyperliquidChain: "Mainnet",
-          maxFeeRate,
-          builder: builderFee.builder,
-          nonce: `0x${BigInt(nonce).toString(16)}`,
-        },
-      };
-
-      const signature = await ethereum.request({
-        method: "eth_signTypedData_v4",
-        params: [walletAddress, JSON.stringify(typedData)],
-      });
-
-      // Split signature into r, s, v components
-      const sig = signature as string;
-      const r = sig.slice(0, 66);
-      const s = `0x${sig.slice(66, 130)}`;
-      const v = parseInt(sig.slice(130, 132), 16);
-
-      // Submit to Hyperliquid exchange
-      const actionWithChainId = { ...action, signatureChainId: "0x66eee" };
-      const res = await fetch("https://api.hyperliquid.xyz/exchange", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: actionWithChainId,
-          nonce,
-          signature: { r, s, v },
-          vaultAddress: null,
-        }),
-      });
-      const data = await res.json();
-      if (data.status === "ok") {
+      const result = await hlApproveBuilderFee(walletClient, walletAddress as `0x${string}`);
+      if (result.success) {
         setFeeApproved(true);
       } else {
-        setResult(`Fee approval failed: ${JSON.stringify(data)}`);
+        setResult(`Fee approval failed: ${result.error}`);
       }
     } catch (err) {
       setResult(`Fee approval error: ${err instanceof Error ? err.message : "Failed"}`);

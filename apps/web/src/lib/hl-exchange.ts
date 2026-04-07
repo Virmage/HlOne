@@ -124,23 +124,58 @@ export interface PlaceOrderResult {
   error?: string;
 }
 
-// ─── Raw EIP-1193 provider access ───────────────────────────────────────────
+// ─── Raw signing — bypass viem chainId validation ───────────────────────────
 // viem's walletClient.request() validates domain chainId against the connected
-// chain — which breaks Hyperliquid signing (chainId 1337 for orders, 421614 for
-// fee approvals). We bypass viem entirely by sending eth_signTypedData_v4
-// directly to the wallet's EIP-1193 provider.
+// chain. Rabby's window.ethereum proxy may also intercept/hang.
+// Solution: use walletClient.transport.request() which calls the raw EIP-1193
+// provider directly, skipping viem's client middleware.
 
-interface EIP1193Provider {
-  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+async function rawSignTypedData(
+  walletClient: WalletClient,
+  address: string,
+  typedData: Record<string, unknown>,
+): Promise<string> {
+  const params = [address, JSON.stringify(typedData)];
+
+  // Strategy 1: walletClient's raw transport (bypasses viem middleware)
+  try {
+    const transport = walletClient.transport as { request?: (args: { method: string; params: unknown[] }) => Promise<unknown> };
+    if (transport?.request) {
+      const sig = await withTimeout(
+        transport.request({ method: "eth_signTypedData_v4", params }),
+        30_000, "Signing"
+      );
+      if (typeof sig === "string" && sig.startsWith("0x")) return sig;
+    }
+  } catch (err) {
+    console.warn("[signing] transport.request failed:", (err as Error).message);
+  }
+
+  // Strategy 2: window.ethereum directly
+  try {
+    const w = typeof window !== "undefined" ? (window as unknown as { ethereum?: { request: (args: { method: string; params: unknown[] }) => Promise<unknown> } }) : {};
+    if (w.ethereum) {
+      const sig = await withTimeout(
+        w.ethereum.request({ method: "eth_signTypedData_v4", params }),
+        30_000, "Signing"
+      );
+      if (typeof sig === "string" && sig.startsWith("0x")) return sig;
+    }
+  } catch (err) {
+    console.warn("[signing] window.ethereum failed:", (err as Error).message);
+  }
+
+  // Strategy 3: walletClient.request (may fail with chainId mismatch)
+  const sig = await withTimeout(
+    walletClient.request({
+      method: "eth_signTypedData_v4",
+      params: [address as `0x${string}`, JSON.stringify(typedData)],
+    }),
+    30_000, "Signing"
+  );
+  return sig as string;
 }
 
-function getRawProvider(): EIP1193Provider {
-  const w = typeof window !== "undefined" ? (window as unknown as { ethereum?: EIP1193Provider }) : {};
-  if (!w.ethereum) throw new Error("No wallet provider found. Please install MetaMask or another wallet.");
-  return w.ethereum;
-}
-
-// Wrap signing with a timeout to prevent infinite "Signing..." state
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
     promise,
@@ -186,35 +221,8 @@ async function signL1Action(
     },
   };
 
-  // Try window.ethereum first (bypasses viem chainId check), fall back to walletClient
-  try {
-    const provider = getRawProvider();
-    const signature = await withTimeout(
-      provider.request({
-        method: "eth_signTypedData_v4",
-        params: [address, JSON.stringify(typedData)],
-      }),
-      60_000,
-      "Order signing"
-    );
-    return signature as `0x${string}`;
-  } catch (err) {
-    console.warn("[hl-exchange] window.ethereum signing failed, trying walletClient:", (err as Error).message);
-    // Fallback: use walletClient.request (may fail with chainId mismatch but worth trying)
-    try {
-      const signature = await withTimeout(
-        walletClient.request({
-          method: "eth_signTypedData_v4",
-          params: [address, JSON.stringify(typedData)],
-        }),
-        60_000,
-        "Order signing (fallback)"
-      );
-      return signature as `0x${string}`;
-    } catch (fallbackErr) {
-      throw new Error(`Signing failed: ${(err as Error).message}`);
-    }
-  }
+  const signature = await rawSignTypedData(walletClient, address, typedData);
+  return signature as `0x${string}`;
 }
 
 // ─── Submit to exchange ──────────────────────────────────────────────────────
@@ -588,18 +596,10 @@ export async function approveBuilderFee(
       },
     };
 
-    const provider = getRawProvider();
-    const signature = await withTimeout(
-      provider.request({
-        method: "eth_signTypedData_v4",
-        params: [address, JSON.stringify(typedData)],
-      }),
-      60_000,
-      "Fee approval signing"
-    );
+    const signature = await rawSignTypedData(walletClient, address, typedData);
 
     // Split signature into r, s, v
-    const sig = signature as string;
+    const sig = signature;
     const r = sig.slice(0, 66);
     const s = `0x${sig.slice(66, 130)}`;
     const v = parseInt(sig.slice(130, 132), 16);
