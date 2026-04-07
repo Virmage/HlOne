@@ -16,7 +16,7 @@ function formatFlow(value: number): string {
 }
 
 export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProps) {
-  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(60, false);
+  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(120, false);
 
   if (!tokens.length) return null;
 

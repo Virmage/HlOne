@@ -665,6 +665,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [mouseY, setMouseY] = useState<number | null>(null); // raw SVG Y for free crosshair
+  const [countdown, setCountdown] = useState(""); // candle close countdown
   const [visibleCount, setVisibleCount] = useState(60);
   const [offset, setOffset] = useState(0); // 0 = latest candles visible at right edge
   const [priceZoom, setPriceZoom] = useState(1); // 1 = auto-fit, >1 = zoomed in
@@ -894,8 +895,29 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     return oiTop + (1 - (val - oiMin) / (oiMax - oiMin)) * oiH;
   };
 
-  // Map top trader fills to candle indices for chart dots
+  // Candle duration + countdown timer
   const candleDuration = data.length > 1 ? data[1].time - data[0].time : 3600_000;
+
+  useEffect(() => {
+    if (!data.length) return;
+    const lastCandle = data[data.length - 1];
+    const closeTime = lastCandle.time + candleDuration;
+
+    const tick = () => {
+      const remaining = closeTime - Date.now();
+      if (remaining <= 0) { setCountdown("00:00"); return; }
+      const h = Math.floor(remaining / 3600_000);
+      const m = Math.floor((remaining % 3600_000) / 60_000);
+      const s = Math.floor((remaining % 60_000) / 1000);
+      if (h > 0) setCountdown(`${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
+      else setCountdown(`${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [data.length > 0 ? data[data.length - 1].time : 0, candleDuration]);
+
+  // Map top trader fills to candle indices for chart dots
   // Visible time range
   const visibleStart = data[0].time;
   const visibleEnd = data[data.length - 1].time + candleDuration;
@@ -1013,7 +1035,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             );
           })}
 
-          {/* Current price line */}
+          {/* Current price line + countdown */}
           {currentPrice && currentPrice >= domainMin && currentPrice <= domainMax && (
             <g>
               <line
@@ -1024,6 +1046,15 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
               <text x={W - MR + 4} y={priceY(currentPrice) + 4} fill="black" fontSize={11} fontWeight="bold" fontFamily="monospace">
                 {formatPrice(currentPrice)}
               </text>
+              {/* Candle close countdown */}
+              {countdown && (
+                <>
+                  <rect x={W - MR} y={priceY(currentPrice) + 10} width={MR - 2} height={14} rx={2} fill="var(--hl-surface)" stroke="var(--hl-border)" strokeWidth={0.5} />
+                  <text x={W - MR + 4} y={priceY(currentPrice) + 21} fill="var(--hl-muted)" fontSize={9} fontFamily="monospace">
+                    {countdown}
+                  </text>
+                </>
+              )}
             </g>
           )}
 
