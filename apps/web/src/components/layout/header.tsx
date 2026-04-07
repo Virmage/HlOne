@@ -58,6 +58,9 @@ function ThemeToggle() {
 export function Header() {
   const pathname = usePathname();
 
+  // Hide header on landing page
+  if (pathname === "/landing") return null;
+
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--hl-border)] bg-[var(--hl-nav)]">
       <div className="flex h-10 items-center justify-between px-4 sm:px-6 lg:px-8">
