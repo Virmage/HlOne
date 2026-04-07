@@ -56,7 +56,7 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
               return (
                 <button
                   key={`${copy}-${t.coin}`}
-                  onClick={() => onSelectToken(t.coin)}
+                  onClick={() => onSelectToken(t.displayName || t.coin)}
                   className="flex items-center gap-2 px-4 py-1.5 text-[11px] hover:bg-[var(--hl-surface-hover)] transition-colors whitespace-nowrap"
                 >
                   <span className="font-medium text-[var(--hl-text)]">{t.displayName || (t.coin.includes(":") ? t.coin.split(":")[1] : t.coin)}</span>

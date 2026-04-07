@@ -152,6 +152,28 @@ export async function getCachedSpotTokens() {
   }); // dedupe
 }
 
+/**
+ * Resolve a display name (e.g. "WATER") to the Hyperliquid API identifier
+ * (e.g. "@155" for spot pairs). Returns the input unchanged if no mapping found.
+ */
+export function resolveSpotName(displayName: string): string {
+  const spots = spotCache?.data;
+  if (!spots) return displayName;
+  const match = spots.find(s => s.name === displayName);
+  return match ? match.pair : displayName;
+}
+
+/**
+ * Resolve a raw pair (e.g. "@155") to its display name (e.g. "WATER").
+ * Returns the input unchanged if no mapping found.
+ */
+export function resolveSpotPair(pair: string): string {
+  const spots = spotCache?.data;
+  if (!spots) return pair;
+  const match = spots.find(s => s.pair === pair);
+  return match ? match.name : pair;
+}
+
 // ─── HIP-3 Builder Perps ────────────────────────────────────────────────────
 
 // Categorize HIP-3 assets by name

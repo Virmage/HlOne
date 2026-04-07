@@ -3,7 +3,7 @@
  */
 
 import type { FastifyPluginAsync } from "fastify";
-import { getTokenOverviews, analyzeBook, getCachedAssetCtxs } from "../services/market-data.js";
+import { getTokenOverviews, analyzeBook, getCachedAssetCtxs, resolveSpotName } from "../services/market-data.js";
 import { getSmartMoneyCached } from "../services/smart-money.js";
 import { getWhaleAlerts, getHotTokens, getWhaleAlertsForCoin, getHistoricalWhaleEvents } from "../services/whale-tracker.js";
 import { getTokenScoresCached } from "../services/scoring.js";
@@ -299,7 +299,9 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { coin: string }; Querystring: { interval?: string } }>(
     "/token/:coin",
     async (req) => {
-      const coin = decodeURIComponent(req.params.coin);
+      const rawCoin = decodeURIComponent(req.params.coin);
+      // Resolve display names (e.g. "WATER") to Hyperliquid pair identifiers (e.g. "@155")
+      const coin = resolveSpotName(rawCoin);
       const interval = (req.query.interval as string) || "1h";
       const now = Date.now();
 

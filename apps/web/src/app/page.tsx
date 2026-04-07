@@ -52,7 +52,7 @@ export default function HomePage() {
     setSelectedToken(coin);
   };
 
-  const chartOverview = data?.tokens?.find(t => t.coin === chartCoin) ?? null;
+  const chartOverview = data?.tokens?.find(t => t.coin === chartCoin || t.displayName === chartCoin) ?? null;
 
   if (loading && !data) {
     return (
