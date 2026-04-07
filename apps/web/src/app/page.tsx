@@ -6,7 +6,6 @@ import { useTerminal } from "@/hooks/use-terminal";
 import { TickerBar } from "@/components/terminal/ticker-bar";
 import { SharpFlowTable } from "@/components/terminal/sharp-flow-table";
 import { WhaleFeed } from "@/components/terminal/whale-feed";
-import { TopTradersPanel } from "@/components/terminal/top-traders-panel";
 import { MarketPulse } from "@/components/terminal/market-pulse";
 import { SignalsPanel } from "@/components/terminal/signals-panel";
 import { PriceChart } from "@/components/terminal/price-chart";
@@ -18,9 +17,6 @@ import { SocialPanel } from "@/components/terminal/social-panel";
 import { FundingLeaderboardPanel } from "@/components/terminal/funding-leaderboard";
 import { LargeTradeTape } from "@/components/terminal/large-trade-tape";
 import { MacroBar } from "@/components/terminal/macro-bar";
-import { OIPanel } from "@/components/terminal/oi-panel";
-import { LiquidationHeatmapPanel } from "@/components/terminal/liquidation-heatmap";
-import { CorrelationMatrixPanel } from "@/components/terminal/correlation-matrix";
 import { LendingRatesPanel } from "@/components/terminal/lending-rates-panel";
 import { PositionConcentrationPanel } from "@/components/terminal/position-concentration";
 import { PositionsPanel } from "@/components/terminal/positions-panel";
@@ -102,6 +98,7 @@ export default function HomePage() {
           options={data?.options || {}}
           onSelectToken={handleSelectToken}
           onOpenOptions={(coin: string) => setOptionsChainCoin(coin)}
+          avgCorrelation={data?.correlationMatrix?.avgCorrelation ?? null}
         />
       </div>
 
@@ -216,38 +213,6 @@ export default function HomePage() {
         <div className="bg-[var(--background)] p-2">
           <LargeTradeTape
             trades={data?.largeTrades || []}
-            onSelectToken={handleSelectToken}
-          />
-        </div>
-
-        {/* Open Interest Leaderboard */}
-        <div className="bg-[var(--background)] p-2">
-          <OIPanel
-            tokens={data?.tokens || []}
-            onSelectToken={handleSelectToken}
-          />
-        </div>
-
-        {/* Top Traders */}
-        <div className="bg-[var(--background)] p-2">
-          <TopTradersPanel
-            traders={data?.topTraders || []}
-            onSelectTrader={setSelectedTrader}
-          />
-        </div>
-
-        {/* Liquidation Heatmap */}
-        <div className="bg-[var(--background)] p-2">
-          <LiquidationHeatmapPanel
-            data={data?.liquidationHeatmap || []}
-            onSelectToken={handleSelectToken}
-          />
-        </div>
-
-        {/* Correlation Matrix */}
-        <div className="bg-[var(--background)] p-2">
-          <CorrelationMatrixPanel
-            data={data?.correlationMatrix || null}
             onSelectToken={handleSelectToken}
           />
         </div>

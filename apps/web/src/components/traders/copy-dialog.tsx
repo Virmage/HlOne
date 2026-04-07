@@ -135,6 +135,13 @@ export function CopyDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {/* Important callout */}
+        <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2">
+          <p className="text-[11px] text-yellow-400 font-medium">
+            Copy trading will mirror all <span className="font-bold">new trades from now on</span>. It will not copy any existing or previous positions held by this trader.
+          </p>
+        </div>
+
         {!walletAddress ? (
           <p className="text-sm text-yellow-400">Connect your wallet first to start copying.</p>
         ) : (

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { SharpFlow } from "@/lib/api";
 import { pnlColor } from "@/lib/utils";
 
@@ -9,6 +10,7 @@ interface SharpFlowTableProps {
 }
 
 export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
+  const [showInfo, setShowInfo] = useState(false);
   if (!flows.length) {
     return (
       <div className="flex h-40 items-center justify-center text-[var(--hl-muted)] text-[13px]">
@@ -19,16 +21,26 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
 
   return (
     <div className="max-h-[320px] flex flex-col">
-      <div className="flex items-center gap-2 mb-2 px-1 shrink-0">
-        <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider">
-          Sharp Flow
-        </h2>
-        <span
-          className="text-[10px] text-[var(--hl-muted)] cursor-help"
-          title="Sharps = top profitable traders (by 30d ROI). Squares = rest of market. ⚡ = sharps and squares strongly disagree — potential opportunity. Ordered by divergence score (conviction × liquidity)."
-        >
-          ⓘ
-        </span>
+      <div className="mb-2 px-1 shrink-0">
+        <div className="flex items-center gap-2">
+          <h2 className="text-[13px] font-medium text-[var(--hl-muted)] uppercase tracking-wider">
+            Sharp Flow
+          </h2>
+          <button
+            onClick={() => setShowInfo(!showInfo)}
+            className="text-[10px] text-[var(--hl-muted)] hover:text-[var(--foreground)] transition-colors"
+          >
+            ⓘ
+          </button>
+        </div>
+        {showInfo && (
+          <div className="mt-1.5 rounded border border-[var(--hl-border)] bg-[var(--hl-surface)] px-2.5 py-2 text-[10px] text-[var(--hl-text)] leading-relaxed space-y-1">
+            <p><span className="text-[var(--foreground)] font-medium">Sharps</span> = top profitable traders ranked by 30-day ROI with accounts &gt;$10K.</p>
+            <p><span className="text-[var(--foreground)] font-medium">Squares</span> = rest of the market (retail).</p>
+            <p><span className="text-yellow-400 font-medium">⚡ Divergence</span> = sharps and squares strongly disagree on direction — potential edge. Higher score = stronger disagreement with more liquidity.</p>
+            <p><span className="text-[var(--foreground)] font-medium">Score</span> = CPYCAT composite (sharp conviction + whale flow + social + momentum).</p>
+          </div>
+        )}
       </div>
       <div className="overflow-x-auto overflow-y-auto scroll-on-hover flex-1">
         <table className="w-full text-[12px] min-w-[420px]">

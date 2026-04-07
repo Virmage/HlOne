@@ -8,7 +8,6 @@ interface WhaleFeedProps {
   onSelectToken: (coin: string) => void;
   onSelectTrader?: (address: string) => void;
   onCopy?: (address: string) => void;
-  onFade?: (address: string) => void;
 }
 
 const EVENT_LABELS: Record<string, { label: string; color: string }> = {
@@ -34,7 +33,7 @@ function timeAgo(ts: number): string {
   return `${Math.floor(diff / 86400_000)}d ago`;
 }
 
-export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy, onFade }: WhaleFeedProps) {
+export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: WhaleFeedProps) {
   if (!alerts.length) {
     return (
       <div className="flex h-40 items-center justify-center text-[var(--hl-muted)] text-[13px]">
@@ -111,15 +110,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy, onFad
                     onClick={() => onCopy(alert.whaleAddress)}
                     className="px-2 py-0.5 rounded text-[10px] font-medium bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
                   >
-                    Copy
-                  </button>
-                )}
-                {onFade && (
-                  <button
-                    onClick={() => onFade(alert.whaleAddress)}
-                    className="px-2 py-0.5 rounded text-[10px] font-medium bg-[var(--hl-red)] text-white hover:brightness-110"
-                  >
-                    Fade
+                    Copy Trader
                   </button>
                 )}
               </div>

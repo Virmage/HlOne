@@ -211,16 +211,29 @@ async function fetchHyperLend(): Promise<AssetRate[]> {
 
 /* ── Sub-components ────────────────────────────────────────────────── */
 
+function assetUrl(asset: string, protocol: "felix" | "hyperlend"): string {
+  if (protocol === "felix") {
+    // Felix lending page — links to specific vault/market
+    const assetSlug = asset.toLowerCase() === "hype" ? "whype" : asset.toLowerCase();
+    return `https://www.usefelix.xyz/vanilla/lend?asset=${assetSlug}`;
+  }
+  // HyperLend — links to specific market
+  const assetSlug = asset.toLowerCase() === "hype" ? "whype" : asset.toLowerCase();
+  return `https://app.hyperlend.finance/reserve-overview/?underlyingAsset=${assetSlug}`;
+}
+
 function RateTable({
   rates,
   loading,
   error,
   felixStyle,
+  protocol,
 }: {
   rates: AssetRate[];
   loading: boolean;
   error: string | null;
-  felixStyle: boolean; // Felix APYs are 0-1 decimals; HyperLend are already %
+  felixStyle: boolean;
+  protocol: "felix" | "hyperlend";
 }) {
   if (loading) {
     return (
@@ -255,11 +268,14 @@ function RateTable({
         <span className="flex-1 text-right">Borrow APY</span>
       </div>
       {rates.map((r, i) => (
-        <div
+        <a
           key={`${r.asset}-${i}`}
-          className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors"
+          href={assetUrl(r.asset, protocol)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors cursor-pointer"
         >
-          <span className="font-medium text-[var(--foreground)] w-14 truncate">
+          <span className="font-medium text-[var(--foreground)] w-14 truncate hover:text-[var(--hl-green)] transition-colors">
             {r.asset}
           </span>
           <span className="flex-1 text-right tabular-nums text-[var(--hl-green)]">
@@ -268,7 +284,8 @@ function RateTable({
           <span className="flex-1 text-right tabular-nums text-[var(--hl-red)]">
             {felixStyle ? fmtApy(r.borrowApy) : fmtApyRaw(r.borrowApy)}
           </span>
-        </div>
+          <span className="text-[var(--hl-muted)] text-[9px] ml-1">↗</span>
+        </a>
       ))}
     </div>
   );
@@ -358,6 +375,7 @@ export function LendingRatesPanel() {
             loading={felixLoading}
             error={felixError}
             felixStyle={true}
+            protocol="felix"
           />
           <a
             href="https://www.usefelix.xyz/vanilla/lend"
@@ -375,6 +393,7 @@ export function LendingRatesPanel() {
             loading={hlLoading}
             error={hlError}
             felixStyle={false}
+            protocol="hyperlend"
           />
           <a
             href="https://app.hyperlend.finance"

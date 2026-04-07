@@ -11,6 +11,7 @@ interface MarketPulseProps {
   options: Record<string, OptionsSnapshot>;
   onSelectToken: (coin: string) => void;
   onOpenOptions?: (coin: string) => void;
+  avgCorrelation?: number | null;
 }
 
 const REGIME_STYLES: Record<string, { text: string; label: string; bg: string }> = {
@@ -28,7 +29,7 @@ function formatOI(val: number): string {
   return `$${(val / 1e3).toFixed(0)}K`;
 }
 
-export function MarketPulse({ regime, options, onSelectToken, onOpenOptions }: MarketPulseProps) {
+export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avgCorrelation }: MarketPulseProps) {
   const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(90, false, false);
   const regimeStyle = regime ? REGIME_STYLES[regime.regime] || REGIME_STYLES.chop : REGIME_STYLES.chop;
   const optionCoins = Object.keys(options);
@@ -117,7 +118,7 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions }: M
               );
             })}
 
-            {/* Market Regime — at end so it scrolls in from right */}
+            {/* Market Regime */}
             <div className={`flex items-center gap-2 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] ${regimeStyle.bg}`}>
               <span className={`font-bold text-[12px] tracking-wide ${regimeStyle.text}`}>
                 {regimeStyle.label}
@@ -138,6 +139,21 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions }: M
                 </span>
               )}
             </div>
+
+            {/* Market Correlation */}
+            {avgCorrelation !== null && avgCorrelation !== undefined && (
+              <div className="flex items-center gap-1.5 flex-shrink-0 px-3 py-1.5 border-r border-[var(--hl-border)] text-[11px]">
+                <span className="text-[var(--hl-muted)] text-[10px]">Corr</span>
+                <span className={`font-bold tabular-nums ${
+                  avgCorrelation > 0.6 ? "text-[var(--hl-red)]" : avgCorrelation > 0.3 ? "text-orange-400" : "text-[var(--hl-green)]"
+                }`}>
+                  {avgCorrelation.toFixed(2)}
+                </span>
+                <span className="text-[var(--hl-muted)] text-[10px] whitespace-nowrap">
+                  {avgCorrelation > 0.6 ? "High" : avgCorrelation > 0.3 ? "Moderate" : "Low"}
+                </span>
+              </div>
+            )}
           </div>
         ))}
       </div>
