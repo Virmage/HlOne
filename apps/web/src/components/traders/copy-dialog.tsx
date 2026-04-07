@@ -14,7 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { shortenAddress } from "@/lib/utils";
 import { startCopy, getBuilderFee, checkBuilderApproval, type BuilderFeeInfo } from "@/lib/api";
-import { useSignTypedData } from "wagmi";
+import { useSignTypedData, useSwitchChain, useChainId } from "wagmi";
+import { hyperliquidL1 } from "@/config/wagmi";
 
 interface CopyDialogProps {
   open: boolean;
@@ -39,6 +40,8 @@ export function CopyDialog({
   const [feeApproved, setFeeApproved] = useState<boolean | null>(null);
   const [approvingFee, setApprovingFee] = useState(false);
   const { signTypedDataAsync } = useSignTypedData();
+  const { switchChainAsync } = useSwitchChain();
+  const currentChainId = useChainId();
 
   useEffect(() => {
     if (open && walletAddress) {
@@ -50,7 +53,13 @@ export function CopyDialog({
   const handleApproveFee = async () => {
     if (!walletAddress || !builderFee) return;
     setApprovingFee(true);
+    const previousChainId = currentChainId;
     try {
+      // Switch to Hyperliquid L1 (chainId 1337) — required for EIP-712 domain match
+      if (currentChainId !== hyperliquidL1.id) {
+        await switchChainAsync({ chainId: hyperliquidL1.id });
+      }
+
       // Sign the ApproveBuilderFee action via Hyperliquid's exchange endpoint
       const nonce = Date.now();
       const action = {
@@ -100,6 +109,12 @@ export function CopyDialog({
     } catch (err) {
       setResult(`Fee approval error: ${err instanceof Error ? err.message : "Failed"}`);
     } finally {
+      // Switch back to Arbitrum so deposits/other operations still work
+      try {
+        if (previousChainId !== hyperliquidL1.id) {
+          await switchChainAsync({ chainId: previousChainId });
+        }
+      } catch { /* best effort */ }
       setApprovingFee(false);
     }
   };

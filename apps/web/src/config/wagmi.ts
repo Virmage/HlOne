@@ -1,11 +1,25 @@
 import { createConfig, createStorage, http } from "wagmi";
 import { arbitrum } from "wagmi/chains";
+import { defineChain } from "viem";
 import { connectorsForWallets } from "@rainbow-me/rainbowkit";
 import {
   metaMaskWallet,
   rainbowWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
+
+// Hyperliquid L1 chain — required for EIP-712 signing (chainId 1337)
+export const hyperliquidL1 = defineChain({
+  id: 1337,
+  name: "Hyperliquid L1",
+  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 6 },
+  rpcUrls: {
+    default: { http: ["https://api.hyperliquid.xyz/evm"] },
+  },
+  blockExplorers: {
+    default: { name: "Hyperliquid", url: "https://app.hyperliquid.xyz" },
+  },
+});
 
 // Safe storage that never touches localStorage directly — avoids crashes
 // in sandboxed browsers where localStorage.getItem is not a function.
@@ -57,9 +71,10 @@ const connectors = connectorsForWallets(
 
 export const config = createConfig({
   connectors,
-  chains: [arbitrum],
+  chains: [arbitrum, hyperliquidL1],
   transports: {
     [arbitrum.id]: http(),
+    [hyperliquidL1.id]: http("https://api.hyperliquid.xyz/evm"),
   },
   storage: createStorage({ storage: safeStorage }),
   ssr: true,
