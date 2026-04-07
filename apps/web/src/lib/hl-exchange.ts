@@ -9,6 +9,8 @@
  */
 
 import type { WalletClient } from "viem";
+import { keccak256 } from "viem";
+import { encode as msgpackEncode } from "@msgpack/msgpack";
 import { getAccount } from "@wagmi/core";
 import { config } from "@/config/wagmi";
 
@@ -22,22 +24,48 @@ export const BUILDER_FEE = 20; // 2 bps in tenths-of-bps
 export const BUILDER_FEE_PERCENT = 0.0002; // 0.02% as decimal
 export const BUILDER_FEE_DISPLAY = "0.02%"; // for UI
 
-// Hyperliquid uses custom EIP-712 domain (chain 1337 = HL L1)
-const EIP712_DOMAIN = {
-  name: "Exchange",
-  version: "1",
-  chainId: 1337,
-  verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
-} as const;
+// ─── Phantom agent helpers ──────────────────────────────────────────────────
+// L1 actions (orders, leverage, cancel) use the phantom agent approach:
+// 1. Msgpack-encode the action → append nonce (uint64 BE) → append vault marker
+// 2. Keccak256 hash → connectionId
+// 3. Sign EIP-712 Agent { source, connectionId } with domain chainId 1337
 
-// Phantom agent type — used for signing orders from the user's own wallet
-const PHANTOM_AGENT_TYPE = {
-  "HyperliquidTransaction:Approve": [
-    { name: "hyppieLiquidChain", type: "string" },
-    { name: "isMainNet", type: "bool" },
-    { name: "nonce", type: "uint64" },
-  ],
-} as const;
+function actionHash(
+  action: Record<string, unknown>,
+  nonce: number,
+  vaultAddress: string | null = null,
+): `0x${string}` {
+  // 1. Msgpack encode (field order must match Python SDK)
+  const actionBytes = msgpackEncode(action);
+
+  // 2. Nonce as uint64 big-endian
+  const nonceBytes = new Uint8Array(8);
+  new DataView(nonceBytes.buffer).setBigUint64(0, BigInt(nonce));
+
+  // 3. Vault marker: 0x00 if no vault, 0x01 + 20-byte address if vault
+  let vaultBytes: Uint8Array;
+  if (!vaultAddress) {
+    vaultBytes = new Uint8Array([0x00]);
+  } else {
+    const addrHex = vaultAddress.toLowerCase().replace("0x", "");
+    const addrBytes = new Uint8Array(20);
+    for (let i = 0; i < 20; i++) {
+      addrBytes[i] = parseInt(addrHex.slice(i * 2, i * 2 + 2), 16);
+    }
+    vaultBytes = new Uint8Array(21);
+    vaultBytes[0] = 0x01;
+    vaultBytes.set(addrBytes, 1);
+  }
+
+  // 4. Concatenate
+  const total = new Uint8Array(actionBytes.length + nonceBytes.length + vaultBytes.length);
+  total.set(actionBytes, 0);
+  total.set(nonceBytes, actionBytes.length);
+  total.set(vaultBytes, actionBytes.length + nonceBytes.length);
+
+  // 5. Keccak256
+  return keccak256(total);
+}
 
 // ─── Asset index mapping ─────────────────────────────────────────────────────
 
@@ -186,6 +214,18 @@ async function rawSignTypedData(
   return sig;
 }
 
+function extractError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const obj = err as Record<string, unknown>;
+    if (obj.message) return String(obj.message);
+    if (obj.shortMessage) return String(obj.shortMessage);
+    return JSON.stringify(err);
+  }
+  return "Unknown error — check browser console";
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
     promise,
@@ -195,7 +235,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ]);
 }
 
-// ─── EIP-712 signing ─────────────────────────────────────────────────────────
+// ─── EIP-712 signing (phantom agent) ────────────────────────────────────────
 
 async function signL1Action(
   walletClient: WalletClient,
@@ -203,6 +243,9 @@ async function signL1Action(
   action: Record<string, unknown>,
   nonce: number,
 ): Promise<`0x${string}`> {
+  const connectionId = actionHash(action, nonce);
+  console.log("[signL1Action] connectionId:", connectionId);
+
   const typedData = {
     types: {
       EIP712Domain: [
@@ -211,13 +254,12 @@ async function signL1Action(
         { name: "chainId", type: "uint256" },
         { name: "verifyingContract", type: "address" },
       ],
-      "HyperliquidTransaction:Approve": [
-        { name: "hyppieLiquidChain", type: "string" },
-        { name: "isMainNet", type: "bool" },
-        { name: "nonce", type: "uint64" },
+      Agent: [
+        { name: "source", type: "string" },
+        { name: "connectionId", type: "bytes32" },
       ],
     },
-    primaryType: "HyperliquidTransaction:Approve" as const,
+    primaryType: "Agent" as const,
     domain: {
       name: "Exchange",
       version: "1",
@@ -225,9 +267,8 @@ async function signL1Action(
       verifyingContract: "0x0000000000000000000000000000000000000000",
     },
     message: {
-      hyppieLiquidChain: "Mainnet",
-      isMainNet: true,
-      nonce: nonce,
+      source: "a", // "a" = mainnet, "b" = testnet
+      connectionId,
     },
   };
 
@@ -286,7 +327,7 @@ export async function setLeverage(
 
     return { success: (result as { status?: string }).status === "ok" };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+    return { success: false, error: extractError(err) };
   }
 }
 
@@ -335,7 +376,7 @@ export async function placeOrder(
       orders: [orderWire],
       grouping: "na",
       builder: {
-        b: BUILDER_ADDRESS,
+        b: BUILDER_ADDRESS.toLowerCase(),
         f: BUILDER_FEE,
       },
     };
@@ -377,7 +418,7 @@ export async function placeOrder(
   } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : "Unknown error",
+      error: extractError(err),
     };
   }
 }
@@ -462,7 +503,7 @@ export async function placeTriggerOrder(
       orders: [orderWire],
       grouping: "na",
       builder: {
-        b: BUILDER_ADDRESS,
+        b: BUILDER_ADDRESS.toLowerCase(),
         f: BUILDER_FEE,
       },
     };
@@ -500,7 +541,7 @@ export async function placeTriggerOrder(
   } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : "Unknown error",
+      error: extractError(err),
     };
   }
 }
@@ -527,7 +568,7 @@ export async function cancelOrder(
 
     return { success: (result as { status?: string }).status === "ok" };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+    return { success: false, error: extractError(err) };
   }
 }
 
