@@ -61,10 +61,8 @@ async function approveAgentOnChain(
   agentAddress: string,
 ): Promise<{ success: boolean; error?: string }> {
   const nonce = Date.now();
-  // Use checksummed address from viem — EIP-712 "address" type checksums anyway
   const agentAddr = agentAddress;
 
-  // Named agent — include agentName in both EIP-712 signing and POST body
   const action = {
     type: "approveAgent",
     hyperliquidChain: "Mainnet",
@@ -74,14 +72,18 @@ async function approveAgentOnChain(
     nonce,
   };
 
-  const typedData = {
+  // Use viem's signTypedData — handles wallet compatibility natively
+  console.log("[approveAgent] Requesting signature for agent:", agentAddr.slice(0, 10) + "...", "user:", userAddress.slice(0, 10) + "...");
+
+  const signature = await walletClient.signTypedData({
+    account: userAddress as `0x${string}`,
+    domain: {
+      name: "HyperliquidSignTransaction",
+      version: "1",
+      chainId: 42161,
+      verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+    },
     types: {
-      EIP712Domain: [
-        { name: "name", type: "string" },
-        { name: "version", type: "string" },
-        { name: "chainId", type: "uint256" },
-        { name: "verifyingContract", type: "address" },
-      ],
       "HyperliquidTransaction:ApproveAgent": [
         { name: "hyperliquidChain", type: "string" },
         { name: "agentAddress", type: "address" },
@@ -89,24 +91,16 @@ async function approveAgentOnChain(
         { name: "nonce", type: "uint64" },
       ],
     },
-    primaryType: "HyperliquidTransaction:ApproveAgent" as const,
-    domain: {
-      name: "HyperliquidSignTransaction",
-      version: "1",
-      chainId: 42161,
-      verifyingContract: "0x0000000000000000000000000000000000000000",
-    },
+    primaryType: "HyperliquidTransaction:ApproveAgent",
     message: {
       hyperliquidChain: "Mainnet",
-      agentAddress: agentAddr,
+      agentAddress: agentAddr as `0x${string}`,
       agentName: "HLOne",
-      nonce: nonce,
+      nonce: BigInt(nonce),
     },
-  };
+  });
 
-  console.log("[approveAgent] Requesting MetaMask signature for agent:", agentAddr.slice(0, 10) + "...", "user:", userAddress.slice(0, 10) + "...");
-  const signature = await rawSignTypedData(walletClient, userAddress, typedData);
-  console.log("[approveAgent] Got signature, v raw:", parseInt(signature.slice(130, 132), 16));
+  console.log("[approveAgent] Got signature:", signature.slice(0, 12) + "...");
 
   const r = signature.slice(0, 66);
   const s = `0x${signature.slice(66, 130)}`;
@@ -800,14 +794,16 @@ export async function approveBuilderFee(
       nonce,
     };
 
-    const typedData = {
+    console.log("[approveBuilderFee] Requesting signature...");
+    const signature = await walletClient.signTypedData({
+      account: address,
+      domain: {
+        name: "HyperliquidSignTransaction",
+        version: "1",
+        chainId: 42161,
+        verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+      },
       types: {
-        EIP712Domain: [
-          { name: "name", type: "string" },
-          { name: "version", type: "string" },
-          { name: "chainId", type: "uint256" },
-          { name: "verifyingContract", type: "address" },
-        ],
         "HyperliquidTransaction:ApproveBuilderFee": [
           { name: "hyperliquidChain", type: "string" },
           { name: "maxFeeRate", type: "string" },
@@ -815,23 +811,14 @@ export async function approveBuilderFee(
           { name: "nonce", type: "uint64" },
         ],
       },
-      primaryType: "HyperliquidTransaction:ApproveBuilderFee" as const,
-      domain: {
-        name: "HyperliquidSignTransaction",
-        version: "1",
-        chainId: 42161,
-        verifyingContract: "0x0000000000000000000000000000000000000000",
-      },
+      primaryType: "HyperliquidTransaction:ApproveBuilderFee",
       message: {
         hyperliquidChain: "Mainnet",
         maxFeeRate: "0.02%",
-        builder: BUILDER_ADDRESS,
-        nonce: nonce,
+        builder: BUILDER_ADDRESS as `0x${string}`,
+        nonce: BigInt(nonce),
       },
-    };
-
-    console.log("[approveBuilderFee] Requesting signature...");
-    const signature = await rawSignTypedData(walletClient, address, typedData);
+    });
 
     const r = signature.slice(0, 66);
     const s = `0x${signature.slice(66, 130)}`;
