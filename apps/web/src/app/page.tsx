@@ -237,7 +237,7 @@ export default function HomePage() {
           </>
         )}
         {/* Trading Panel — full width on mobile, fixed on desktop */}
-        <div className="w-full md:w-[260px] flex-shrink-0 h-auto md:h-[400px] overflow-y-auto">
+        <div className="w-full md:w-[260px] flex-shrink-0 h-auto md:h-[400px] overflow-hidden">
           <TradingPanel
             coin={chartCoin}
             overview={chartOverview}
