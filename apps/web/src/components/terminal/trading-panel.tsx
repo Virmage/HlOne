@@ -250,7 +250,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
   }, [coinHasOptions]);
 
   return (
-    <div className="flex flex-col h-full bg-[var(--background)]">
+    <div className="flex flex-col h-full border-l border-[var(--hl-border)] bg-[var(--background)]">
       {/* Perps / Options tab bar — always visible at top, styled like header nav */}
       {coinHasOptions && (
         <div className="flex items-center border-b border-[var(--hl-border)] shrink-0">

@@ -62,11 +62,13 @@ function AccountDisplay() {
   const pnl = info.unrealizedPnl;
   return (
     <div className="hidden sm:flex items-center gap-2.5 text-[11px] tabular-nums mr-1">
-      <span className="text-[var(--hl-accent)] font-medium">
-        ${info.accountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+      <span className="text-[var(--hl-accent)]">
+        <span className="text-[var(--hl-muted)] font-normal">Acct:</span>{" "}
+        <span className="font-medium">${info.accountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
       </span>
       <span className={pnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}>
-        {pnl >= 0 ? "+" : ""}{pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+        <span className="text-[var(--hl-muted)] font-normal">uPnL:</span>{" "}
+        {pnl >= 0 ? "+" : ""}${pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
       </span>
     </div>
   );
