@@ -7,6 +7,8 @@ import { useSafeAccount } from "@/hooks/use-safe-account";
 function friendlyError(msg: string | undefined): string {
   if (!msg) return "Failed";
   if (msg === "STALE_AGENT") return "Session expired — approve wallet popup to retry";
+  if (msg.toLowerCase().includes("does not exist")) return "Session expired — approve wallet popup to retry";
+  if (msg.includes("429")) return "Rate limited — please wait a moment and retry";
   return msg;
 }
 
@@ -182,7 +184,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       setActionResult({ coin: pos.coin, msg: result.success ? "Closed" : friendlyError(result.error), ok: result.success });
       if (result.success) fetchPositions();
     } catch (err) {
-      setActionResult({ coin: pos.coin, msg: (err as Error).message, ok: false });
+      setActionResult({ coin: pos.coin, msg: friendlyError((err as Error).message), ok: false });
     } finally {
       setClosing(null);
     }
@@ -217,7 +219,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       setActionResult({ coin: pos.coin, msg: result.success ? `${tpSlMode.type.toUpperCase()} set at $${triggerPrice}` : friendlyError(result.error), ok: result.success });
       if (result.success) { setTpSlMode(null); setTriggerPrice(""); }
     } catch (err) {
-      setActionResult({ coin: pos.coin, msg: (err as Error).message, ok: false });
+      setActionResult({ coin: pos.coin, msg: friendlyError((err as Error).message), ok: false });
     } finally {
       setSubmitting(false);
     }
@@ -250,7 +252,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       setActionResult({ coin: "ALL", msg: `Closed ${closed}/${positions.length} positions`, ok: closed > 0 });
       if (closed > 0) fetchPositions();
     } catch (err) {
-      setActionResult({ coin: "ALL", msg: (err as Error).message, ok: false });
+      setActionResult({ coin: "ALL", msg: friendlyError((err as Error).message), ok: false });
     } finally {
       setClosingAll(false);
     }

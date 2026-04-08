@@ -94,7 +94,7 @@ function LoadingScreen() {
     return () => globalThis.clearInterval(t);
   }, []);
   return (
-    <div className="flex h-[80vh] items-center justify-center">
+    <div className="fixed inset-0 flex items-center justify-center bg-[var(--background)] z-50">
       <div className="text-center">
         <div
           key={idx}
