@@ -64,14 +64,21 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   const [actionResult, setActionResult] = useState<{ coin: string; msg: string; ok: boolean } | null>(null);
   const [closingAll, setClosingAll] = useState(false);
   const hasFetchedRef = useRef(false);
+  const posCountRef = useRef(0);
+
+  // Keep ref in sync with state
+  useEffect(() => { posCountRef.current = positions.length; }, [positions]);
 
   const fetchPositions = useCallback(async () => {
     if (!address) return;
     if (!hasFetchedRef.current) setLoading(true);
     try {
       const data = await getUserPositions(address);
-      // Only update if we got valid data — never clear positions on transient errors
       if (data && Array.isArray(data.positions)) {
+        // If backend returned empty but we already have positions, skip update (likely HL API hiccup)
+        if (data.positions.length === 0 && posCountRef.current > 0 && data.account === null) {
+          return;
+        }
         setPositions(data.positions);
         setAccount(data.account);
         setOpenOrders(data.openOrders || []);
@@ -131,7 +138,11 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   useEffect(() => {
     if (!isConnected || !address) return;
     fetchPositions();
-    const interval = setInterval(fetchPositions, 15_000);
+    const interval = setInterval(() => {
+      // Skip polling when tab is hidden — avoids stale/failed fetches
+      if (document.hidden) return;
+      fetchPositions();
+    }, 15_000);
     return () => clearInterval(interval);
   }, [isConnected, address, fetchPositions]);
 

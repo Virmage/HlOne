@@ -156,6 +156,9 @@ export async function ensureAgent(
     return { agentKey: "0x" as `0x${string}`, error: result.error };
   }
 
+  // Brief delay for HL to register the new agent before we use it
+  await new Promise(r => setTimeout(r, 1500));
+
   // Store for future use
   storeAgent(userAddress, agentKey);
   console.log("[agent] Agent approved and stored");
@@ -420,18 +423,19 @@ async function submitToExchange(
 
   if (!res.ok) {
     const text = await res.text();
-    // Detect stale/unrecognized agent wallet
-    if (text.includes("does not exist") || text.includes("not found")) {
+    // Detect stale/unrecognized agent wallet — must be agent-specific, not generic "not found"
+    const lower = text.toLowerCase();
+    if (lower.includes("wallet does not exist") || lower.includes("agent does not exist") || lower.includes("unknown wallet") || lower.includes("user does not exist")) {
       throw new StaleAgentError(`Exchange API error: ${res.status} ${text}`);
     }
     throw new Error(`Exchange API error: ${res.status} ${text}`);
   }
 
   const result = await res.json();
-  // Also check for "does not exist" in response body
-  const responseStr = typeof result.response === "string" ? result.response : "";
-  if (responseStr.includes("does not exist") || responseStr.includes("not found")) {
-    throw new StaleAgentError(responseStr);
+  // Also check for agent-specific errors in response body
+  const responseStr = typeof result.response === "string" ? result.response.toLowerCase() : "";
+  if (responseStr.includes("wallet does not exist") || responseStr.includes("agent does not exist") || responseStr.includes("unknown wallet") || responseStr.includes("user does not exist")) {
+    throw new StaleAgentError(typeof result.response === "string" ? result.response : responseStr);
   }
 
   return result;

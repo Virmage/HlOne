@@ -90,7 +90,7 @@ const LOADING_LINES = [
 function LoadingScreen() {
   const [idx, setIdx] = useState(0);
   useEffect(() => {
-    const t = globalThis.setInterval(() => setIdx(i => (i + 1) % LOADING_LINES.length), 2200);
+    const t = globalThis.setInterval(() => setIdx(i => (i + 1) % LOADING_LINES.length), 1600);
     return () => globalThis.clearInterval(t);
   }, []);
   return (
@@ -98,7 +98,7 @@ function LoadingScreen() {
       <div className="text-center">
         <div
           key={idx}
-          className="text-[var(--hl-muted)] text-[14px] animate-fade-in"
+          className="text-[var(--hl-accent)] text-[14px] animate-fade-in"
         >
           {LOADING_LINES[idx]}
         </div>
