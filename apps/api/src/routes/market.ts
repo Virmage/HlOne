@@ -432,7 +432,17 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       liquidationClusters.sort((a, b) => a.price - b.price);
 
       // OI candles from in-memory tracker
-      const oiCandles = getOICandlesForInterval(coin, interval);
+      // Match OI candle count to price candle lookback
+      const oiCountMap: Record<string, number> = {
+        "5m": 576,   // 2 days of 5m
+        "15m": 480,  // 5 days of 15m
+        "1h": 336,   // 14 days of 1h
+        "4h": 180,   // 30 days of 4h
+        "1d": 365,
+        "1w": 156,
+        "1M": 60,
+      };
+      const oiCandles = getOICandlesForInterval(coin, interval, oiCountMap[interval] || 200);
 
       // Top trader fills for chart markers
       const topTraderFillsRaw = getTopTraderFills(coin, candleSince);

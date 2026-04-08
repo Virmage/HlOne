@@ -193,8 +193,8 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
 
   // Heatmap toggle — persist preference
   const [showHeatmap, setShowHeatmap] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return localStorage.getItem("hlone_heatmap") !== "off";
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("hlone_heatmap") === "on";
   });
 
   // Load drawings when coin changes
