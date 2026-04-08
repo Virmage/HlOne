@@ -2,6 +2,25 @@
 
 import { Component, type ReactNode } from "react";
 
+const API_URL = typeof window !== "undefined" && process.env.NODE_ENV === "production"
+  ? "" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001");
+
+export function reportClientError(error: Error, component: string, stack?: string | null) {
+  try {
+    fetch(`${API_URL}/api/market/client-error`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: error.message,
+        stack: stack || error.stack?.slice(0, 1000),
+        component,
+        url: typeof window !== "undefined" ? window.location.href : "",
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+      }),
+    }).catch(() => {}); // fire and forget
+  } catch {} // never let reporting itself crash
+}
+
 interface Props {
   children: ReactNode;
 }
@@ -23,6 +42,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: { componentStack?: string | null }) {
     console.error("[ErrorBoundary] Caught render error:", error, info.componentStack);
+    reportClientError(error, "ErrorBoundary", info.componentStack);
   }
 
   render() {

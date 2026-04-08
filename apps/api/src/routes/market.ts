@@ -745,6 +745,20 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
+   * POST /api/market/client-error
+   * Frontend error reports — shows in Railway logs so we can debug remotely.
+   */
+  app.post("/client-error", async (req) => {
+    const body = req.body as { message?: string; stack?: string; component?: string; url?: string; userAgent?: string };
+    const msg = String(body.message || "unknown").slice(0, 500);
+    const stack = String(body.stack || "").slice(0, 1000);
+    const component = String(body.component || "unknown").slice(0, 100);
+    const url = String(body.url || "").slice(0, 200);
+    console.error(`[CLIENT ERROR] ${component}: ${msg}\n  URL: ${url}\n  Stack: ${stack}`);
+    return { ok: true };
+  });
+
+  /**
    * GET /api/market/system-health
    * Comprehensive health check — cache states, background jobs, trade stats.
    */

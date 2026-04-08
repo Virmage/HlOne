@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { reportClientError } from "@/components/layout/error-boundary";
 
 export default function GlobalError({
   error,
@@ -12,8 +13,9 @@ export default function GlobalError({
   const retryCount = useRef(0);
 
   useEffect(() => {
-    // Log the actual error for debugging
+    // Log the actual error for debugging + report to backend
     console.error("[global-error]", error.message, error.stack?.substring(0, 300));
+    reportClientError(error, "GlobalError");
 
     // Cap auto-retries to prevent infinite loops
     if (retryCount.current >= 2) return;

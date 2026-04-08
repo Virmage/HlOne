@@ -24,8 +24,9 @@ export default function RootLayout({
           // Suppress localStorage errors and non-critical wallet errors from crashing the page
           function isLSError(e){return e&&(String(e.message||e).includes('localStorage')||String(e.reason&&e.reason.message||'').includes('localStorage'))}
           function isWalletError(e){var m=String(e&&(e.message||e.reason&&e.reason.message)||'');return m.includes('connector')&&m.includes('not found')||m.includes('WalletConnect')||m.includes('wagmi')}
-          window.addEventListener('error',function(e){if(isLSError(e)||isWalletError(e)){e.stopImmediatePropagation();e.preventDefault();return false}},true);
-          window.addEventListener('unhandledrejection',function(e){if(isLSError(e)||isWalletError(e)){e.stopImmediatePropagation();e.preventDefault();return false}},true);
+          function reportErr(msg,stack,comp){try{fetch('/api/market/client-error',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:String(msg).slice(0,500),stack:String(stack||'').slice(0,1000),component:comp,url:location.href})})}catch(x){}}
+          window.addEventListener('error',function(e){if(isLSError(e)||isWalletError(e)){e.stopImmediatePropagation();e.preventDefault();return false}reportErr(e.message,e.error&&e.error.stack,'window.onerror')},true);
+          window.addEventListener('unhandledrejection',function(e){if(isLSError(e)||isWalletError(e)){e.stopImmediatePropagation();e.preventDefault();return false}var r=e.reason;reportErr(r&&r.message||String(r),r&&r.stack,'unhandledrejection')},true);
           // Periodically remove Next.js error overlay if it appears for localStorage
           setInterval(function(){document.querySelectorAll('nextjs-portal').forEach(function(el){el.remove()})},500);
         ` }} />
