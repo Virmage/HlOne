@@ -210,9 +210,8 @@ export default function HomePage() {
         />
       </div>
 
-      {/* Chart / Options Chain + Trading Panel */}
+      {/* Chart / Options Chain */}
       <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)] overflow-hidden">
-        {/* Main area: Chart or Options Chain */}
         {tradingMode === "options" ? (
           <div className="flex-1 min-w-0 h-[300px] md:h-[400px] overflow-hidden">
             <InlineOptionsChain
@@ -239,8 +238,16 @@ export default function HomePage() {
             </div>
           </>
         )}
-        {/* Trading Panel — full width on mobile, fixed on desktop */}
-        <div className="w-full md:w-[260px] flex-shrink-0 h-auto md:h-[400px] overflow-hidden">
+      </div>
+
+      {/* Positions + Trading Panel */}
+      <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)]">
+        {/* Positions tabs — takes remaining space */}
+        <div className="flex-1 min-w-0 px-2 overflow-hidden">
+          <PositionsPanel onSelectToken={handleSelectToken} />
+        </div>
+        {/* Trading Panel — right side */}
+        <div className="w-full md:w-[280px] flex-shrink-0 border-t md:border-t-0 md:border-l border-[var(--hl-border)] overflow-hidden">
           <TradingPanel
             coin={chartCoin}
             overview={chartOverview}
@@ -252,11 +259,6 @@ export default function HomePage() {
             onClearOption={() => setSelectedOption(null)}
           />
         </div>
-      </div>
-
-      {/* Positions — shows when wallet connected */}
-      <div className="border-b border-[var(--hl-border)] px-2">
-        <PositionsPanel onSelectToken={handleSelectToken} />
       </div>
 
       {/* Below-fold content — deferred until main thread is idle */}

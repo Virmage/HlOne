@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
+import { useAccountInfo } from "@/hooks/use-account-info";
 
 // Lazy-load wallet button to avoid wagmi hooks during SSR
 const WalletButton = dynamic(
@@ -55,6 +56,22 @@ function ThemeToggle() {
   );
 }
 
+function AccountDisplay() {
+  const info = useAccountInfo();
+  if (!info) return null;
+  const pnl = info.unrealizedPnl;
+  return (
+    <div className="hidden sm:flex items-center gap-2.5 text-[11px] tabular-nums mr-1">
+      <span className="text-[var(--hl-accent)] font-medium">
+        ${info.accountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+      </span>
+      <span className={pnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}>
+        {pnl >= 0 ? "+" : ""}{pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+      </span>
+    </div>
+  );
+}
+
 export function Header() {
   const pathname = usePathname();
 
@@ -93,6 +110,7 @@ export function Header() {
           </nav>
         </div>
         <div className="flex items-center gap-2">
+          <AccountDisplay />
           <ThemeToggle />
           <WalletButton />
         </div>

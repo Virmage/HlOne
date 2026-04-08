@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getUserPositions, type UserPosition, type UserAccount } from "@/lib/api";
 import { useSafeAccount } from "@/hooks/use-safe-account";
+import { setAccountInfo } from "@/hooks/use-account-info";
 
 function friendlyError(msg: string | undefined): string {
   if (!msg) return "Failed";
@@ -86,6 +87,9 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
         setAccount(data.account);
         setOpenOrders(data.openOrders || []);
         setTriggerOrders(data.triggerOrders || {});
+        // Publish to global store for header display
+        const uPnl = data.positions.reduce((s: number, p: UserPosition) => s + p.unrealizedPnl, 0);
+        setAccountInfo(data.account ? { accountValue: data.account.accountValue, unrealizedPnl: uPnl } : null);
         setError(null);
       }
       hasFetchedRef.current = true;
@@ -140,7 +144,10 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   }, [address]);
 
   useEffect(() => {
-    if (!isConnected || !address) return;
+    if (!isConnected || !address) {
+      setAccountInfo(null);
+      return;
+    }
     fetchPositions();
     const interval = setInterval(() => {
       // Skip polling when tab is hidden — avoids stale/failed fetches
@@ -374,17 +381,6 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
             )}
           </button>
         ))}
-        {/* Account info — right side */}
-        {account && (
-          <div className="ml-auto flex gap-3 text-[10px] pr-1 shrink-0">
-            <span className="text-[var(--hl-accent)]">
-              Acct: <span className="tabular-nums font-medium">${account.accountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-            </span>
-            <span className={totalPnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}>
-              uPnL: {totalPnl >= 0 ? "+" : ""}${totalPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* Tab content */}
