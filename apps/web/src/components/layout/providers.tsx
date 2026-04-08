@@ -51,23 +51,23 @@ export function Providers({ children }: { children: ReactNode }) {
       });
   }, []);
 
-  const content = (
-    <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
-    </ErrorBoundary>
-  );
-
   if (!WalletStack) {
-    return content;
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ErrorBoundary>
+          {children}
+        </ErrorBoundary>
+      </QueryClientProvider>
+    );
   }
 
   return (
-    <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <WalletStack>{children}</WalletStack>
-      </QueryClientProvider>
-    </ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <WalletStack>
+        <ErrorBoundary>
+          {children}
+        </ErrorBoundary>
+      </WalletStack>
+    </QueryClientProvider>
   );
 }
