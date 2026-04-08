@@ -618,10 +618,15 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         reply.code(400);
         return { error: "Invalid address format" };
       }
-      const [state, orders] = await Promise.all([
+      const [state, orders, midsRaw] = await Promise.all([
         getClearinghouseState(address).catch(() => null),
         getOpenOrders(address).catch(() => []),
+        fetch("https://api.hyperliquid.xyz/info", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "allMids" }),
+        }).then(r => r.json()).catch(() => ({} as Record<string, string>)),
       ]);
+      const mids = midsRaw as Record<string, string>;
 
       if (!state) {
         return { positions: [], account: null, openOrders: [], timestamp: Date.now() };
@@ -661,17 +666,21 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         .map(ap => {
           const p = ap.position;
           const size = parseFloat(p.szi);
+          const midCoin = p.coin.includes(":") ? p.coin.split(":")[1] : p.coin;
           return {
             coin: p.coin,
             side: size > 0 ? "long" as const : "short" as const,
             size: Math.abs(size),
             entryPx: parseFloat(p.entryPx),
+            markPx: parseFloat(mids[midCoin] || mids[p.coin] || "0"),
             positionValue: parseFloat(p.positionValue),
             unrealizedPnl: parseFloat(p.unrealizedPnl),
             leverage: p.leverage?.value ?? 0,
+            leverageType: (p.leverage?.type || "cross") as "cross" | "isolated",
             liquidationPx: p.liquidationPx ? parseFloat(p.liquidationPx) : null,
             marginUsed: parseFloat(p.marginUsed),
             returnOnEquity: parseFloat(p.returnOnEquity || "0"),
+            cumFunding: parseFloat((p as unknown as { cumFunding?: { allTime?: string } }).cumFunding?.allTime || "0"),
           };
         })
         .sort((a, b) => Math.abs(b.positionValue) - Math.abs(a.positionValue));

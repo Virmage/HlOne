@@ -4,6 +4,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getUserPositions, type UserPosition, type UserAccount } from "@/lib/api";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
+function friendlyError(msg: string | undefined): string {
+  if (!msg) return "Failed";
+  if (msg === "STALE_AGENT") return "Session expired — approve wallet popup to retry";
+  return msg;
+}
+
 const HL_API = "https://api.hyperliquid.xyz";
 
 interface PositionsPanelProps {
@@ -56,21 +62,27 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   const [triggerPrice, setTriggerPrice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [actionResult, setActionResult] = useState<{ coin: string; msg: string; ok: boolean } | null>(null);
+  const [closingAll, setClosingAll] = useState(false);
   const hasFetchedRef = useRef(false);
 
   const fetchPositions = useCallback(async () => {
     if (!address) return;
-    // Only show loading on very first fetch — subsequent refreshes keep stale data visible
     if (!hasFetchedRef.current) setLoading(true);
     try {
       const data = await getUserPositions(address);
-      setPositions(data.positions);
-      setAccount(data.account);
-      setOpenOrders(data.openOrders || []);
-      setError(null);
+      // Only update if we got valid data — never clear positions on transient errors
+      if (data && Array.isArray(data.positions)) {
+        setPositions(data.positions);
+        setAccount(data.account);
+        setOpenOrders(data.openOrders || []);
+        setError(null);
+      }
       hasFetchedRef.current = true;
     } catch (err) {
-      setError((err as Error).message);
+      // On error, keep existing positions visible — don't flash to empty
+      if (!hasFetchedRef.current) {
+        setError((err as Error).message);
+      }
     } finally {
       setLoading(false);
     }
@@ -156,7 +168,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
           result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
         }
       }
-      setActionResult({ coin: pos.coin, msg: result.success ? "Closed" : (result.error || "Failed"), ok: result.success });
+      setActionResult({ coin: pos.coin, msg: result.success ? "Closed" : friendlyError(result.error), ok: result.success });
       if (result.success) fetchPositions();
     } catch (err) {
       setActionResult({ coin: pos.coin, msg: (err as Error).message, ok: false });
@@ -191,7 +203,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
           });
         }
       }
-      setActionResult({ coin: pos.coin, msg: result.success ? `${tpSlMode.type.toUpperCase()} set at $${triggerPrice}` : (result.error || "Failed"), ok: result.success });
+      setActionResult({ coin: pos.coin, msg: result.success ? `${tpSlMode.type.toUpperCase()} set at $${triggerPrice}` : friendlyError(result.error), ok: result.success });
       if (result.success) { setTpSlMode(null); setTriggerPrice(""); }
     } catch (err) {
       setActionResult({ coin: pos.coin, msg: (err as Error).message, ok: false });
@@ -199,6 +211,39 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       setSubmitting(false);
     }
   }, [address, tpSlMode, triggerPrice]);
+
+  const handleCloseAll = useCallback(async () => {
+    if (!address || positions.length === 0) return;
+    setClosingAll(true);
+    setActionResult(null);
+    try {
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"), import("@/lib/hl-exchange"), import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) { setClosingAll(false); return; }
+      let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      if (agentResult.error) { setActionResult({ coin: "ALL", msg: agentResult.error, ok: false }); setClosingAll(false); return; }
+
+      let closed = 0;
+      for (const pos of positions) {
+        let result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
+        if (!result.success && result.error === exchange.STALE_AGENT_MSG) {
+          agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+          if (!agentResult.error) {
+            result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
+          }
+        }
+        if (result.success) closed++;
+      }
+      setActionResult({ coin: "ALL", msg: `Closed ${closed}/${positions.length} positions`, ok: closed > 0 });
+      if (closed > 0) fetchPositions();
+    } catch (err) {
+      setActionResult({ coin: "ALL", msg: (err as Error).message, ok: false });
+    } finally {
+      setClosingAll(false);
+    }
+  }, [address, positions, fetchPositions]);
 
   const totalPnl = positions.reduce((s, p) => s + p.unrealizedPnl, 0);
 
@@ -262,7 +307,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
       {/* Tab content */}
       <div className="min-h-[60px]">
-        {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} onSelectToken={onSelectToken} onClose={handleClose} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
+        {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} onSelectToken={onSelectToken} onClose={handleClose} onCloseAll={handleCloseAll} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
         {tab === "balances" && <BalancesTab account={account} />}
         {tab === "orders" && <OpenOrdersTab orders={openOrders} onSelectToken={onSelectToken} />}
         {tab === "twap" && <EmptyTab label="No active TWAP orders" />}
@@ -276,31 +321,51 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
 // ─── Positions Tab ────────────────────────────────────────────────────────────
 
-function PositionsTab({ positions, loading, error, closing, tpSlMode, triggerPrice, submitting, actionResult, onSelectToken, onClose, onTpSlToggle, onTriggerPriceChange, onTpSlSubmit }: {
+function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode, triggerPrice, submitting, actionResult, onSelectToken, onClose, onCloseAll, onTpSlToggle, onTriggerPriceChange, onTpSlSubmit }: {
   positions: UserPosition[]; loading: boolean; error: string | null;
-  closing: string | null; tpSlMode: TpSlMode; triggerPrice: string; submitting: boolean;
+  closing: string | null; closingAll: boolean; tpSlMode: TpSlMode; triggerPrice: string; submitting: boolean;
   actionResult: { coin: string; msg: string; ok: boolean } | null;
   onSelectToken?: (coin: string) => void;
   onClose: (pos: UserPosition) => void;
+  onCloseAll: () => void;
   onTpSlToggle: (coin: string, type: "tp" | "sl") => void;
   onTriggerPriceChange: (v: string) => void;
   onTpSlSubmit: (pos: UserPosition) => void;
 }) {
-  if (positions.length === 0 && loading) return <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">No open positions</div>;
-  if (error) return <div className="text-[10px] text-[var(--hl-red)] text-center py-2">{error}</div>;
+  if (positions.length === 0 && loading) return <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">Loading positions...</div>;
+  if (error && positions.length === 0) return <div className="text-[10px] text-[var(--hl-red)] text-center py-2">{error}</div>;
   if (positions.length === 0) return <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">No open positions</div>;
+
+  const allResult = actionResult?.coin === "ALL" ? actionResult : null;
 
   return (
     <div className="overflow-x-auto">
+      {/* Close All button */}
+      <div className="flex items-center justify-between px-1 py-1">
+        <span className="text-[10px] text-[var(--hl-muted)]">{positions.length} position{positions.length !== 1 ? "s" : ""}</span>
+        <div className="flex items-center gap-2">
+          {allResult && <span className={`text-[9px] ${allResult.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{allResult.msg}</span>}
+          <button
+            onClick={onCloseAll}
+            disabled={closingAll}
+            className="px-2 py-0.5 text-[9px] font-semibold rounded bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.3)] transition-colors disabled:opacity-50"
+          >
+            {closingAll ? "Closing..." : "Close All"}
+          </button>
+        </div>
+      </div>
       <table className="w-full text-[11px]">
         <thead>
           <tr className="text-[var(--hl-muted)] text-[10px] uppercase tracking-wider border-b border-[var(--hl-border)]">
             <th className="text-left py-1 pr-2">Asset</th>
-            <th className="text-left py-1 pr-2">Side</th>
             <th className="text-right py-1 pr-2">Size</th>
+            <th className="text-right py-1 pr-2">Value</th>
             <th className="text-right py-1 pr-2">Entry</th>
-            <th className="text-right py-1 pr-2">uPnL</th>
-            <th className="text-right py-1 pr-2">ROE</th>
+            <th className="text-right py-1 pr-2">Mark</th>
+            <th className="text-right py-1 pr-2">PnL (ROE)</th>
+            <th className="text-right py-1 pr-2">Liq.</th>
+            <th className="text-right py-1 pr-2">Margin</th>
+            <th className="text-right py-1 pr-2">Funding</th>
             <th className="text-right py-1">Actions</th>
           </tr>
         </thead>
@@ -308,26 +373,51 @@ function PositionsTab({ positions, loading, error, closing, tpSlMode, triggerPri
           {positions.map((p) => {
             const displayCoin = p.coin.includes(":") ? p.coin.split(":")[1] : p.coin;
             const pnlColor = p.unrealizedPnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
-            const roeColor = p.returnOnEquity >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
             const isClosing = closing === p.coin;
             const result = actionResult?.coin === p.coin ? actionResult : null;
             const showTpSl = tpSlMode?.coin === p.coin;
+            const roe = (p.returnOnEquity * 100);
+            const fundingColor = p.cumFunding >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
 
             return (
-              <tr key={p.coin} className="border-b border-[var(--hl-border)] border-opacity-30">
-                <td className="py-1.5 pr-2 font-medium text-[var(--foreground)] cursor-pointer hover:underline" onClick={() => onSelectToken?.(p.coin)}>{displayCoin}</td>
+              <tr key={p.coin} className="border-b border-[var(--hl-border)] border-opacity-30 hover:bg-[var(--hl-surface)] transition-colors">
+                {/* Asset + side + leverage */}
                 <td className="py-1.5 pr-2">
-                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${p.side === "long" ? "bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)]" : "bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)]"}`}>
-                    {p.side.toUpperCase()}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-[var(--foreground)] cursor-pointer hover:underline" onClick={() => onSelectToken?.(p.coin)}>{displayCoin}</span>
+                    <span className={`px-1 py-0.5 rounded text-[8px] font-bold ${p.side === "long" ? "bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)]" : "bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)]"}`}>
+                      {p.side === "long" ? "L" : "S"} {p.leverage}x
+                    </span>
+                  </div>
                 </td>
+                {/* Size */}
                 <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">{Math.abs(p.size).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                {/* Value (USDC) */}
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">${p.positionValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                {/* Entry */}
                 <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--hl-muted)]">${p.entryPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-                <td className={`py-1.5 pr-2 text-right tabular-nums font-medium ${pnlColor}`}>{p.unrealizedPnl >= 0 ? "+" : ""}${p.unrealizedPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-                <td className={`py-1.5 pr-2 text-right tabular-nums ${roeColor}`}>{(p.returnOnEquity * 100).toFixed(1)}%</td>
+                {/* Mark */}
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">{p.markPx ? `$${p.markPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</td>
+                {/* PnL (ROE %) */}
+                <td className={`py-1.5 pr-2 text-right tabular-nums font-medium ${pnlColor}`}>
+                  {p.unrealizedPnl >= 0 ? "+" : ""}${p.unrealizedPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  <span className="text-[9px] ml-0.5 opacity-70">({roe >= 0 ? "+" : ""}{roe.toFixed(1)}%)</span>
+                </td>
+                {/* Liq. price */}
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--hl-muted)]">{p.liquidationPx ? `$${p.liquidationPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</td>
+                {/* Margin (type) */}
+                <td className="py-1.5 pr-2 text-right tabular-nums">
+                  <span className="text-[var(--foreground)]">${p.marginUsed.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  <span className="text-[9px] text-[var(--hl-muted)] ml-0.5">{p.leverageType || "cross"}</span>
+                </td>
+                {/* Funding */}
+                <td className={`py-1.5 pr-2 text-right tabular-nums ${fundingColor}`}>
+                  {p.cumFunding !== 0 ? `${p.cumFunding >= 0 ? "+" : ""}$${p.cumFunding.toFixed(2)}` : "—"}
+                </td>
+                {/* Actions */}
                 <td className="py-1.5 text-right">
                   <div className="flex items-center justify-end gap-1">
-                    <button onClick={(e) => { e.stopPropagation(); onClose(p); }} disabled={isClosing} className="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.3)] transition-colors disabled:opacity-50">{isClosing ? "..." : "Close"}</button>
+                    <button onClick={(e) => { e.stopPropagation(); onClose(p); }} disabled={isClosing || closingAll} className="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.3)] transition-colors disabled:opacity-50">{isClosing ? "..." : "Close"}</button>
                     <button onClick={(e) => { e.stopPropagation(); onTpSlToggle(p.coin, "tp"); }} className={`px-1.5 py-0.5 text-[9px] font-semibold rounded transition-colors ${showTpSl && tpSlMode?.type === "tp" ? "bg-[rgba(80,210,193,0.3)] text-[var(--hl-green)]" : "bg-[rgba(80,210,193,0.1)] text-[var(--hl-green)] hover:bg-[rgba(80,210,193,0.2)]"}`}>TP</button>
                     <button onClick={(e) => { e.stopPropagation(); onTpSlToggle(p.coin, "sl"); }} className={`px-1.5 py-0.5 text-[9px] font-semibold rounded transition-colors ${showTpSl && tpSlMode?.type === "sl" ? "bg-[rgba(240,88,88,0.3)] text-[var(--hl-red)]" : "bg-[rgba(240,88,88,0.1)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.2)]"}`}>SL</button>
                   </div>

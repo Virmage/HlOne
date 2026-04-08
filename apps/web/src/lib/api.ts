@@ -680,12 +680,15 @@ export interface UserPosition {
   side: "long" | "short";
   size: number;
   entryPx: number;
+  markPx: number;
   positionValue: number;
   unrealizedPnl: number;
   leverage: number;
+  leverageType: "cross" | "isolated";
   liquidationPx: number | null;
   marginUsed: number;
   returnOnEquity: number;
+  cumFunding: number;
 }
 
 export interface UserAccount {
