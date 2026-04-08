@@ -392,8 +392,79 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
 
   const allResult = actionResult?.coin === "ALL" ? actionResult : null;
 
+  // Find the position for the popup
+  const popupPos = tpSlPopup ? positions.find(p => p.coin === tpSlPopup) : null;
+  const popupDisplayCoin = popupPos ? (popupPos.coin.includes(":") ? popupPos.coin.split(":")[1] : popupPos.coin) : "";
+
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto relative">
+      {/* TP/SL Modal Overlay */}
+      {popupPos && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setTpSlPopup(null)}>
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/40" />
+          {/* Modal */}
+          <div className="relative bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl p-4 w-[280px]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[12px] font-semibold text-[var(--foreground)]">{popupDisplayCoin} — Set TP / SL</span>
+              <button onClick={() => setTpSlPopup(null)} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-[16px] leading-none">&times;</button>
+            </div>
+            {/* Entry / Mark reference */}
+            <div className="flex justify-between text-[10px] text-[var(--hl-muted)] mb-3 pb-2 border-b border-[var(--hl-border)]">
+              <span>Entry: ${popupPos.entryPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+              <span>Mark: {popupPos.markPx ? `$${popupPos.markPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</span>
+              <span className={`font-medium ${popupPos.side === "long" ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{popupPos.side === "long" ? "LONG" : "SHORT"}</span>
+            </div>
+            {/* Take Profit */}
+            <div className="mb-3">
+              <label className="text-[10px] text-[var(--hl-green)] font-semibold uppercase tracking-wider">Take Profit</label>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="text-[11px] text-[var(--hl-muted)]">$</span>
+                <input
+                  type="number"
+                  value={popupTp}
+                  onChange={(e) => setPopupTp(e.target.value)}
+                  placeholder={popupPos.entryPx.toFixed(2)}
+                  className="flex-1 px-2 py-1.5 text-[12px] bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[var(--foreground)] tabular-nums outline-none focus:border-[var(--hl-green)]"
+                />
+                <button
+                  onClick={() => { onTpSlToggle(popupPos.coin, "tp"); onTriggerPriceChange(popupTp); setTimeout(() => onTpSlSubmit(popupPos), 50); }}
+                  disabled={submitting || !popupTp}
+                  className="px-3 py-1.5 text-[10px] font-semibold rounded bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)] hover:bg-[rgba(80,210,193,0.3)] transition-colors disabled:opacity-50"
+                >
+                  {submitting && tpSlMode?.type === "tp" ? "..." : "Set"}
+                </button>
+              </div>
+            </div>
+            {/* Stop Loss */}
+            <div className="mb-2">
+              <label className="text-[10px] text-[var(--hl-red)] font-semibold uppercase tracking-wider">Stop Loss</label>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="text-[11px] text-[var(--hl-muted)]">$</span>
+                <input
+                  type="number"
+                  value={popupSl}
+                  onChange={(e) => setPopupSl(e.target.value)}
+                  placeholder={popupPos.entryPx.toFixed(2)}
+                  className="flex-1 px-2 py-1.5 text-[12px] bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[var(--foreground)] tabular-nums outline-none focus:border-[var(--hl-red)]"
+                />
+                <button
+                  onClick={() => { onTpSlToggle(popupPos.coin, "sl"); onTriggerPriceChange(popupSl); setTimeout(() => onTpSlSubmit(popupPos), 50); }}
+                  disabled={submitting || !popupSl}
+                  className="px-3 py-1.5 text-[10px] font-semibold rounded bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.3)] transition-colors disabled:opacity-50"
+                >
+                  {submitting && tpSlMode?.type === "sl" ? "..." : "Set"}
+                </button>
+              </div>
+            </div>
+            {/* Result message */}
+            {actionResult?.coin === popupPos.coin && (
+              <div className={`text-[10px] mt-2 pt-2 border-t border-[var(--hl-border)] ${actionResult.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{actionResult.msg}</div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Close All button */}
       <div className="flex items-center justify-between px-1 py-1">
         <span className="text-[10px] text-[var(--hl-muted)]">{positions.length} position{positions.length !== 1 ? "s" : ""}</span>
@@ -509,47 +580,7 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
                       &#8645;
                     </button>
                   </div>
-                  {/* TP/SL Popup */}
-                  {showPopup && (
-                    <div className="absolute right-2 top-full mt-1 z-50 bg-[var(--hl-dark)] border border-[var(--hl-border)] rounded-lg shadow-xl p-3 min-w-[220px]" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[11px] font-semibold text-[var(--foreground)]">{displayCoin} TP / SL</span>
-                        <button onClick={() => setTpSlPopup(null)} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-[14px] leading-none">&times;</button>
-                      </div>
-                      {/* Take Profit */}
-                      <div className="mb-2">
-                        <label className="text-[9px] text-[var(--hl-green)] font-medium uppercase tracking-wider">Take Profit</label>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className="text-[10px] text-[var(--hl-muted)]">$</span>
-                          <input type="number" value={popupTp} onChange={(e) => setPopupTp(e.target.value)} placeholder={p.entryPx.toFixed(2)} className="flex-1 px-1.5 py-1 text-[11px] bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[var(--foreground)] tabular-nums outline-none focus:border-[var(--hl-green)]" />
-                          <button
-                            onClick={() => { onTpSlToggle(p.coin, "tp"); onTriggerPriceChange(popupTp); setTimeout(() => onTpSlSubmit(p), 50); }}
-                            disabled={submitting || !popupTp}
-                            className="px-2 py-1 text-[9px] font-semibold rounded bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)] hover:bg-[rgba(80,210,193,0.3)] transition-colors disabled:opacity-50"
-                          >
-                            {submitting && tpSlMode?.type === "tp" ? "..." : "Set"}
-                          </button>
-                        </div>
-                      </div>
-                      {/* Stop Loss */}
-                      <div className="mb-1">
-                        <label className="text-[9px] text-[var(--hl-red)] font-medium uppercase tracking-wider">Stop Loss</label>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className="text-[10px] text-[var(--hl-muted)]">$</span>
-                          <input type="number" value={popupSl} onChange={(e) => setPopupSl(e.target.value)} placeholder={p.entryPx.toFixed(2)} className="flex-1 px-1.5 py-1 text-[11px] bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[var(--foreground)] tabular-nums outline-none focus:border-[var(--hl-red)]" />
-                          <button
-                            onClick={() => { onTpSlToggle(p.coin, "sl"); onTriggerPriceChange(popupSl); setTimeout(() => onTpSlSubmit(p), 50); }}
-                            disabled={submitting || !popupSl}
-                            className="px-2 py-1 text-[9px] font-semibold rounded bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.3)] transition-colors disabled:opacity-50"
-                          >
-                            {submitting && tpSlMode?.type === "sl" ? "..." : "Set"}
-                          </button>
-                        </div>
-                      </div>
-                      {result && <div className={`text-[9px] mt-1 ${result.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{result.msg}</div>}
-                    </div>
-                  )}
-                  {!showPopup && result && <div className={`text-[9px] mt-0.5 ${result.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{result.msg}</div>}
+                  {result && <div className={`text-[9px] mt-0.5 ${result.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{result.msg}</div>}
                 </td>
               </tr>
             );
