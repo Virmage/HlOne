@@ -63,8 +63,16 @@ async function approveAgentOnChain(
   const nonce = Date.now();
   const agentAddr = agentAddress.toLowerCase();
 
-  // Sign with agentName in the EIP-712 data (empty string = unnamed agent)
-  // signatureChainId must match domain chainId; use 42161 (Arbitrum) so MetaMask accepts it
+  // Named agent — include agentName in both EIP-712 signing and POST body
+  const action = {
+    type: "approveAgent",
+    hyperliquidChain: "Mainnet",
+    signatureChainId: "0xa4b1",
+    agentAddress: agentAddr,
+    agentName: "HLOne",
+    nonce,
+  };
+
   const typedData = {
     types: {
       EIP712Domain: [
@@ -90,33 +98,24 @@ async function approveAgentOnChain(
     message: {
       hyperliquidChain: "Mainnet",
       agentAddress: agentAddr,
-      agentName: "",
+      agentName: "HLOne",
       nonce: nonce,
     },
   };
 
-  console.log("[approveAgent] Requesting MetaMask signature for agent:", agentAddr.slice(0, 10) + "...");
+  console.log("[approveAgent] Requesting MetaMask signature for agent:", agentAddr.slice(0, 10) + "...", "user:", userAddress.slice(0, 10) + "...");
   const signature = await rawSignTypedData(walletClient, userAddress, typedData);
-  console.log("[approveAgent] Got signature:", signature.slice(0, 10) + "...");
+  console.log("[approveAgent] Got signature, v raw:", parseInt(signature.slice(130, 132), 16));
 
   const r = signature.slice(0, 66);
   const s = `0x${signature.slice(66, 130)}`;
   const v = normalizeV(parseInt(signature.slice(130, 132), 16));
 
-  // Post action WITHOUT agentName (SDK deletes it for unnamed agents)
-  const postAction = {
-    type: "approveAgent",
-    hyperliquidChain: "Mainnet",
-    signatureChainId: "0xa4b1",
-    agentAddress: agentAddr,
-    nonce,
-  };
-
   const res = await fetch(`${HL_API}/exchange`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      action: postAction,
+      action,
       nonce,
       signature: { r, s, v },
       vaultAddress: null,

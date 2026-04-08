@@ -174,7 +174,13 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) { setClosing(null); return; }
       let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
-      if (agentResult.error) { setActionResult({ coin: pos.coin, msg: agentResult.error, ok: false }); setClosing(null); return; }
+      if (agentResult.error) { setActionResult({ coin: pos.coin, msg: friendlyError(agentResult.error), ok: false }); setClosing(null); return; }
+      // Ensure builder fee approved
+      const builderOk = await exchange.checkBuilderApproval(address);
+      if (!builderOk) {
+        const approveResult = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
+        if (!approveResult.success) { setActionResult({ coin: pos.coin, msg: friendlyError(approveResult.error), ok: false }); setClosing(null); return; }
+      }
       let result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
       // Auto-recover from stale agent
       if (!result.success && result.error === exchange.STALE_AGENT_MSG) {
@@ -202,8 +208,24 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       ]);
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) { setSubmitting(false); return; }
+
+      // Step 1: Ensure agent wallet
       let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
-      if (agentResult.error) { setActionResult({ coin: pos.coin, msg: agentResult.error, ok: false }); setSubmitting(false); return; }
+      if (agentResult.error) { setActionResult({ coin: pos.coin, msg: friendlyError(agentResult.error), ok: false }); setSubmitting(false); return; }
+
+      // Step 2: Check builder fee approval (required for orders with builder fee)
+      const builderOk = await exchange.checkBuilderApproval(address);
+      if (!builderOk) {
+        console.log("[tpsl] Builder fee not approved, requesting approval...");
+        const approveResult = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
+        if (!approveResult.success) {
+          setActionResult({ coin: pos.coin, msg: `Builder fee: ${friendlyError(approveResult.error)}`, ok: false });
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // Step 3: Place trigger order
       let result = await exchange.placeTriggerOrder(agentResult.agentKey, address as `0x${string}`, {
         asset: pos.coin, isLong: pos.side === "long", size: Math.abs(pos.size),
         triggerPrice: parseFloat(triggerPrice), type: tpSlMode.type,
@@ -219,13 +241,13 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
         }
       }
       setActionResult({ coin: pos.coin, msg: result.success ? `${tpSlMode.type.toUpperCase()} set at $${triggerPrice}` : friendlyError(result.error), ok: result.success });
-      if (result.success) { setTpSlMode(null); setTriggerPrice(""); }
+      if (result.success) { setTpSlMode(null); setTriggerPrice(""); fetchPositions(); }
     } catch (err) {
       setActionResult({ coin: pos.coin, msg: friendlyError((err as Error).message), ok: false });
     } finally {
       setSubmitting(false);
     }
-  }, [address, tpSlMode, triggerPrice]);
+  }, [address, tpSlMode, triggerPrice, fetchPositions]);
 
   const handleCloseAll = useCallback(async () => {
     if (!address || positions.length === 0) return;
