@@ -61,7 +61,8 @@ async function approveAgentOnChain(
   agentAddress: string,
 ): Promise<{ success: boolean; error?: string }> {
   const nonce = Date.now();
-  const agentAddr = agentAddress.toLowerCase();
+  // Use checksummed address from viem — EIP-712 "address" type checksums anyway
+  const agentAddr = agentAddress;
 
   // Named agent — include agentName in both EIP-712 signing and POST body
   const action = {
@@ -163,8 +164,19 @@ export async function ensureAgent(
   }
 
   // Wait for HL to register the new agent before we use it
-  console.log("[agent] Approval OK, waiting 3s for propagation...");
-  await new Promise(r => setTimeout(r, 3000));
+  console.log("[agent] Approval OK, waiting 2s for propagation...");
+  await new Promise(r => setTimeout(r, 2000));
+
+  // Verify the agent works by trying a simple leverage set on ETH
+  console.log("[agent] Verifying agent with setLeverage test...");
+  const testResult = await setLeverage(agentKey, userAddress as `0x${string}`, "ETH", 5, true);
+  console.log("[agent] Verification result:", JSON.stringify(testResult));
+  if (!testResult.success && testResult.error === STALE_AGENT_MSG) {
+    console.error("[agent] Agent NOT recognized by HL after approval!");
+    return { agentKey: "0x" as `0x${string}`, error: "Agent approval succeeded but HL doesn't recognize it. Check browser console for details." };
+  }
+  // Even if leverage set fails for other reasons (e.g. no balance), the agent itself is valid
+  console.log("[agent] Agent verified — storing");
 
   // Store for future use
   storeAgent(userAddress, agentKey);
