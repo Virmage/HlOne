@@ -445,15 +445,13 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         "1M": 60,
       };
       let oiCandles = getOICandlesForInterval(coin, interval, oiCountMap[interval] || 200);
-      // Fallback to Coinalyze if local OI data is sparse (< 10 candles)
-      if (oiCandles.length < 10) {
-        try {
-          const coinalyzeOI = await getOICandlesFromCoinalyze(coin, interval, candleSince, now);
-          if (coinalyzeOI.length > oiCandles.length) {
-            oiCandles = coinalyzeOI;
-          }
-        } catch { /* ignore — local data is still usable */ }
-      }
+      // Always try Coinalyze and use whichever source has more data
+      try {
+        const coinalyzeOI = await getOICandlesFromCoinalyze(coin, interval, candleSince, now);
+        if (coinalyzeOI.length > oiCandles.length) {
+          oiCandles = coinalyzeOI;
+        }
+      } catch { /* ignore — local data is still usable */ }
 
       // Top trader fills for chart markers
       const topTraderFillsRaw = getTopTraderFills(coin, candleSince);

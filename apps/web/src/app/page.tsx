@@ -217,7 +217,7 @@ export default function HomePage() {
           {/* Chart / Options Chain */}
           <div className="border-b border-[var(--hl-border)] overflow-hidden">
             {tradingMode === "options" ? (
-              <div className="h-[300px] md:h-[400px] overflow-hidden">
+              <div className="h-[300px] md:h-[510px] overflow-hidden">
                 <InlineOptionsChain
                   coin={chartCoin.includes(":") ? chartCoin.split(":")[1] : chartCoin}
                   onSelectOption={setSelectedOption}
@@ -226,7 +226,7 @@ export default function HomePage() {
                 />
               </div>
             ) : (
-              <div className="h-[300px] md:h-[400px] overflow-hidden">
+              <div className="h-[300px] md:h-[510px] overflow-hidden">
                 <PriceChart
                   coin={chartCoin}
                   tokens={data?.tokens || []}

@@ -364,7 +364,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   }
 
   return (
-    <div className="max-h-[220px] flex flex-col overflow-hidden">
+    <div className="max-h-[110px] flex flex-col overflow-hidden">
       {/* Tab bar */}
       <div className="flex items-center gap-0 overflow-x-auto scrollbar-none border-b border-[var(--hl-border)] flex-shrink-0">
         {TABS.map(t => (
