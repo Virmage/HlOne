@@ -65,6 +65,16 @@ body {
   background: #faf8f5;
 }
 
+/* Kill Next.js error overlay — prevents red bar flash on load */
+nextjs-portal,
+nextjs-portal * {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+
 ::-webkit-scrollbar {
   width: 5px;
 }

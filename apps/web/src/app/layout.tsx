@@ -27,8 +27,9 @@ export default function RootLayout({
           function reportErr(msg,stack,comp){try{fetch('/api/market/client-error',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:String(msg).slice(0,500),stack:String(stack||'').slice(0,1000),component:comp,url:location.href})})}catch(x){}}
           window.addEventListener('error',function(e){if(isLSError(e)||isWalletError(e)){e.stopImmediatePropagation();e.preventDefault();return false}reportErr(e.message,e.error&&e.error.stack,'window.onerror')},true);
           window.addEventListener('unhandledrejection',function(e){if(isLSError(e)||isWalletError(e)){e.stopImmediatePropagation();e.preventDefault();return false}var r=e.reason;reportErr(r&&r.message||String(r),r&&r.stack,'unhandledrejection')},true);
-          // Periodically remove Next.js error overlay if it appears for localStorage
-          setInterval(function(){document.querySelectorAll('nextjs-portal').forEach(function(el){el.remove()})},500);
+          // Aggressively remove Next.js error overlay — it causes a red bar flash
+          (function(){var o=new MutationObserver(function(m){m.forEach(function(r){r.addedNodes.forEach(function(n){if(n.tagName&&n.tagName.toLowerCase()==='nextjs-portal'){n.remove()}})})});o.observe(document.documentElement,{childList:true,subtree:true})})();
+          setInterval(function(){document.querySelectorAll('nextjs-portal').forEach(function(el){el.remove()})},100);
         ` }} />
       </head>
       <body
