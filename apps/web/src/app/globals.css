@@ -36,11 +36,11 @@
   --hl-nav: #fdfcf9;
   --hl-muted: #9a9488;
   --hl-text: #605c52;
-  --hl-accent: #0891b2;
-  --hl-accent-dim: #0e7490;
+  --hl-accent: #0ea5e9;
+  --hl-accent-dim: #0284c7;
   /* Heatmap intensity */
-  --hl-heat-low: 140, 160, 130;
-  --hl-heat-high: 58, 56, 48;
+  --hl-heat-low: 14, 165, 233;
+  --hl-heat-high: 2, 132, 199;
 }
 
 @theme inline {
@@ -200,7 +200,7 @@ input[type="number"] {
   font-weight: 600;
 }
 [data-theme="light"] .nav-pills a[data-active="true"] {
-  background: rgba(58,56,48,0.08);
+  background: rgba(14,165,233,0.08);
 }
 
 /* Ticker pill chip */
