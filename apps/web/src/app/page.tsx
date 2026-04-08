@@ -266,7 +266,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Mobile: Trading Panel full width */}
+        {/* Mobile: Trading Panel full width (only mounted on mobile) */}
         <div className="md:hidden w-full border-t border-[var(--hl-border)]">
           <TradingPanel
             coin={chartCoin}

@@ -246,7 +246,8 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
 
   // Reset to perp mode when switching to coin without options
   useEffect(() => {
-    if (!coinHasOptions) setMode("perp");
+    if (!coinHasOptions) onTradingModeChange?.("perp");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coinHasOptions]);
 
   return (
