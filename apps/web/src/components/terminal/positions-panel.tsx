@@ -65,6 +65,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   const [submitting, setSubmitting] = useState(false);
   const [actionResult, setActionResult] = useState<{ coin: string; msg: string; ok: boolean } | null>(null);
   const [closingAll, setClosingAll] = useState(false);
+  const [triggerOrders, setTriggerOrders] = useState<Record<string, { tp?: string; sl?: string }>>({});
   const hasFetchedRef = useRef(false);
   const posCountRef = useRef(0);
 
@@ -84,6 +85,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
         setPositions(data.positions);
         setAccount(data.account);
         setOpenOrders(data.openOrders || []);
+        setTriggerOrders(data.triggerOrders || {});
         setError(null);
       }
       hasFetchedRef.current = true;
@@ -320,7 +322,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
       {/* Tab content */}
       <div className="min-h-[60px]">
-        {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} onSelectToken={onSelectToken} onClose={handleClose} onCloseAll={handleCloseAll} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
+        {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} triggerOrders={triggerOrders} onSelectToken={onSelectToken} onClose={handleClose} onCloseAll={handleCloseAll} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
         {tab === "balances" && <BalancesTab account={account} />}
         {tab === "orders" && <OpenOrdersTab orders={openOrders} onSelectToken={onSelectToken} />}
         {tab === "twap" && <EmptyTab label="No active TWAP orders" />}
@@ -334,10 +336,11 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
 // ─── Positions Tab ────────────────────────────────────────────────────────────
 
-function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode, triggerPrice, submitting, actionResult, onSelectToken, onClose, onCloseAll, onTpSlToggle, onTriggerPriceChange, onTpSlSubmit }: {
+function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode, triggerPrice, submitting, actionResult, triggerOrders, onSelectToken, onClose, onCloseAll, onTpSlToggle, onTriggerPriceChange, onTpSlSubmit }: {
   positions: UserPosition[]; loading: boolean; error: string | null;
   closing: string | null; closingAll: boolean; tpSlMode: TpSlMode; triggerPrice: string; submitting: boolean;
   actionResult: { coin: string; msg: string; ok: boolean } | null;
+  triggerOrders: Record<string, { tp?: string; sl?: string }>;
   onSelectToken?: (coin: string) => void;
   onClose: (pos: UserPosition) => void;
   onCloseAll: () => void;
@@ -379,6 +382,7 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
             <th className="text-right py-1 pr-2">Liq.</th>
             <th className="text-right py-1 pr-2">Margin</th>
             <th className="text-right py-1 pr-2">Funding</th>
+            <th className="text-right py-1 pr-2">TP / SL</th>
             <th className="text-right py-1">Actions</th>
           </tr>
         </thead>
@@ -431,6 +435,19 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
                 {/* Funding */}
                 <td className={`py-1.5 pr-2 text-right tabular-nums ${fundingColor}`}>
                   {funding !== 0 ? `${funding >= 0 ? "+" : ""}$${funding.toFixed(2)}` : "—"}
+                </td>
+                {/* TP / SL */}
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[10px]">
+                  {(() => {
+                    const trig = triggerOrders[p.coin];
+                    if (!trig?.tp && !trig?.sl) return <span className="text-[var(--hl-muted)]">—</span>;
+                    return (
+                      <div className="flex flex-col items-end gap-0.5">
+                        {trig?.tp && <span className="text-[var(--hl-green)]">TP ${parseFloat(trig.tp).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}
+                        {trig?.sl && <span className="text-[var(--hl-red)]">SL ${parseFloat(trig.sl).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}
+                      </div>
+                    );
+                  })()}
                 </td>
                 {/* Actions */}
                 <td className="py-1.5 text-right">

@@ -702,6 +702,7 @@ export interface UserPositionsData {
   positions: UserPosition[];
   account: UserAccount | null;
   openOrders: { coin: string; side: string; sz: string; limitPx: string; orderType: string }[];
+  triggerOrders?: Record<string, { tp?: string; sl?: string }>;
   timestamp: number;
 }
 

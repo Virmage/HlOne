@@ -61,15 +61,15 @@ async function approveAgentOnChain(
   agentAddress: string,
 ): Promise<{ success: boolean; error?: string }> {
   const nonce = Date.now();
-  // HL docs: lowercase all addresses
   const agentAddr = agentAddress.toLowerCase();
 
-  const action = {
+  // Sign with agentName in the EIP-712 data (empty string = unnamed agent)
+  const signAction = {
     type: "approveAgent",
     hyperliquidChain: "Mainnet",
-    signatureChainId: "0xa4b1",
+    signatureChainId: "0x66eee", // Must match SDK: Arbitrum Sepolia (421614)
     agentAddress: agentAddr,
-    agentName: "HLOne",
+    agentName: "",
     nonce,
   };
 
@@ -92,13 +92,13 @@ async function approveAgentOnChain(
     domain: {
       name: "HyperliquidSignTransaction",
       version: "1",
-      chainId: 42161,
+      chainId: 421614, // Must match signatureChainId (0x66eee)
       verifyingContract: "0x0000000000000000000000000000000000000000",
     },
     message: {
       hyperliquidChain: "Mainnet",
       agentAddress: agentAddr,
-      agentName: "HLOne",
+      agentName: "",
       nonce: nonce,
     },
   };
@@ -107,16 +107,24 @@ async function approveAgentOnChain(
   const signature = await rawSignTypedData(walletClient, userAddress, typedData);
   console.log("[approveAgent] Got signature:", signature.slice(0, 10) + "...");
 
-  // Split signature into r, s, v — normalize v to 27/28
   const r = signature.slice(0, 66);
   const s = `0x${signature.slice(66, 130)}`;
   const v = normalizeV(parseInt(signature.slice(130, 132), 16));
+
+  // Post action WITHOUT agentName (SDK deletes it for unnamed agents)
+  const postAction = {
+    type: "approveAgent",
+    hyperliquidChain: "Mainnet",
+    signatureChainId: "0x66eee",
+    agentAddress: agentAddr,
+    nonce,
+  };
 
   const res = await fetch(`${HL_API}/exchange`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      action,
+      action: postAction,
       nonce,
       signature: { r, s, v },
       vaultAddress: null,
@@ -767,7 +775,7 @@ export async function approveBuilderFee(
     const action = {
       type: "approveBuilderFee",
       hyperliquidChain: "Mainnet",
-      signatureChainId: "0xa4b1",
+      signatureChainId: "0x66eee",
       maxFeeRate: "0.02%",
       builder: BUILDER_ADDRESS,
       nonce,
@@ -792,7 +800,7 @@ export async function approveBuilderFee(
       domain: {
         name: "HyperliquidSignTransaction",
         version: "1",
-        chainId: 42161,
+        chainId: 421614,
         verifyingContract: "0x0000000000000000000000000000000000000000",
       },
       message: {

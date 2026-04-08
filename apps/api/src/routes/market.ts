@@ -618,18 +618,38 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         reply.code(400);
         return { error: "Invalid address format" };
       }
-      const [state, orders, midsRaw] = await Promise.all([
+      const [state, orders, midsRaw, frontendOrders] = await Promise.all([
         getClearinghouseState(address).catch(() => null),
         getOpenOrders(address).catch(() => []),
         fetch("https://api.hyperliquid.xyz/info", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ type: "allMids" }),
         }).then(r => r.json()).catch(() => ({} as Record<string, string>)),
+        // Fetch trigger orders (TP/SL) via frontendOpenOrders
+        fetch("https://api.hyperliquid.xyz/info", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "frontendOpenOrders", user: address }),
+        }).then(r => r.json()).catch(() => []),
       ]);
       const mids = midsRaw as Record<string, string>;
 
+      // Build TP/SL map from trigger orders
+      const tpSlMap: Record<string, { tp?: string; sl?: string }> = {};
+      if (Array.isArray(frontendOrders)) {
+        for (const o of frontendOrders as { coin: string; orderType: string; triggerPx?: string; isTrigger?: boolean; order?: { triggerCondition?: string } }[]) {
+          if (!o.orderType?.startsWith("Stop") && !o.orderType?.startsWith("Take")) continue;
+          const coin = o.coin;
+          if (!tpSlMap[coin]) tpSlMap[coin] = {};
+          if (o.orderType.startsWith("Take")) {
+            tpSlMap[coin].tp = o.triggerPx || "";
+          } else if (o.orderType.startsWith("Stop")) {
+            tpSlMap[coin].sl = o.triggerPx || "";
+          }
+        }
+      }
+
       if (!state) {
-        return { positions: [], account: null, openOrders: [], timestamp: Date.now() };
+        return { positions: [], account: null, openOrders: [], triggerOrders: tpSlMap, timestamp: Date.now() };
       }
 
       const s = state as {
@@ -697,6 +717,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         positions,
         account,
         openOrders: (orders as { coin: string; side: string; sz: string; limitPx: string; orderType: string }[]).slice(0, 50),
+        triggerOrders: tpSlMap,
         timestamp: Date.now(),
       };
     },
