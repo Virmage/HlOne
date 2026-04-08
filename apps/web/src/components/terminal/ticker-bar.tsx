@@ -20,13 +20,27 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
 
   if (!tokens.length) return null;
 
+  // Filter to crypto-only: exclude tradfi perps (xyz:, cash:, flx:, km: prefixes)
+  // and sort by 24h volume for most liquid first
+  const TRADFI_PREFIXES = ["xyz:", "cash:", "flx:", "km:"];
+  const cryptoTokens = tokens
+    .filter(t => {
+      // Exclude any coin with a tradfi prefix
+      if (TRADFI_PREFIXES.some(p => t.coin.startsWith(p))) return false;
+      // Exclude PAXG (tokenized gold) and similar commodity tokens
+      if (t.coin === "PAXG") return false;
+      // Require minimum $1M daily volume
+      return t.volume24h >= 1_000_000;
+    })
+    .sort((a, b) => b.volume24h - a.volume24h);
+
   // Total 24h volume across all tokens = USDC flow proxy
   const totalVolume = tokens.reduce((sum, t) => sum + t.volume24h, 0);
   // Net OI = sum of all open interest (positive = capital deployed)
   const totalOI = tokens.reduce((sum, t) => sum + t.openInterest, 0);
 
-  // Duplicate items for seamless loop
-  const items = tokens.slice(0, 25);
+  // Duplicate items for seamless loop — top 25 crypto by volume
+  const items = cryptoTokens.slice(0, 25);
 
   return (
     <div className="overflow-hidden border-b border-[var(--hl-border)]">

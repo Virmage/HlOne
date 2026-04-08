@@ -146,7 +146,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       // Skip polling when tab is hidden — avoids stale/failed fetches
       if (document.hidden) return;
       fetchPositions();
-    }, 15_000);
+    }, 5_000);
     return () => clearInterval(interval);
   }, [isConnected, address, fetchPositions]);
 
@@ -213,15 +213,18 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
       if (agentResult.error) { setActionResult({ coin: pos.coin, msg: friendlyError(agentResult.error), ok: false }); setSubmitting(false); return; }
 
-      // Step 2: Check builder fee approval (required for orders with builder fee)
-      const builderOk = await exchange.checkBuilderApproval(address);
-      if (!builderOk) {
-        console.log("[tpsl] Builder fee not approved, requesting approval...");
-        const approveResult = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
-        if (!approveResult.success) {
-          setActionResult({ coin: pos.coin, msg: `Builder fee: ${friendlyError(approveResult.error)}`, ok: false });
-          setSubmitting(false);
-          return;
+      // Step 2: Check builder fee approval (only needed for TP which uses limit orders with builder fee;
+      // SL trigger orders don't include builder fee)
+      if (tpSlMode.type === "tp") {
+        const builderOk = await exchange.checkBuilderApproval(address);
+        if (!builderOk) {
+          console.log("[tpsl] Builder fee not approved, requesting approval...");
+          const approveResult = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
+          if (!approveResult.success) {
+            setActionResult({ coin: pos.coin, msg: `Builder fee: ${friendlyError(approveResult.error)}`, ok: false });
+            setSubmitting(false);
+            return;
+          }
         }
       }
 
@@ -240,7 +243,8 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
           });
         }
       }
-      setActionResult({ coin: pos.coin, msg: result.success ? `${tpSlMode.type.toUpperCase()} set at $${triggerPrice}` : friendlyError(result.error), ok: result.success });
+      // Show raw error for SL debugging (friendlyError hides details)
+      setActionResult({ coin: pos.coin, msg: result.success ? `${tpSlMode.type.toUpperCase()} set at $${triggerPrice}` : (result.error || "Unknown error"), ok: result.success });
       if (result.success) { setTpSlMode(null); setTriggerPrice(""); fetchPositions(); }
     } catch (err) {
       setActionResult({ coin: pos.coin, msg: friendlyError((err as Error).message), ok: false });
@@ -261,6 +265,13 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       if (!walletClient) { setClosingAll(false); return; }
       let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
       if (agentResult.error) { setActionResult({ coin: "ALL", msg: agentResult.error, ok: false }); setClosingAll(false); return; }
+
+      // Ensure builder fee approved once for all closes
+      const builderOk = await exchange.checkBuilderApproval(address);
+      if (!builderOk) {
+        const approveResult = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
+        if (!approveResult.success) { setActionResult({ coin: "ALL", msg: friendlyError(approveResult.error), ok: false }); setClosingAll(false); return; }
+      }
 
       let closed = 0;
       for (const pos of positions) {
@@ -370,6 +381,11 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
   onTriggerPriceChange: (v: string) => void;
   onTpSlSubmit: (pos: UserPosition) => void;
 }) {
+  // Local state for TP/SL popup
+  const [tpSlPopup, setTpSlPopup] = useState<string | null>(null); // coin or null
+  const [popupTp, setPopupTp] = useState("");
+  const [popupSl, setPopupSl] = useState("");
+
   if (positions.length === 0 && loading) return <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">Loading positions...</div>;
   if (error && positions.length === 0) return <div className="text-[10px] text-[var(--hl-red)] text-center py-2">{error}</div>;
   if (positions.length === 0) return <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">No open positions</div>;
@@ -403,7 +419,6 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
             <th className="text-right py-1 pr-2">PnL (ROE)</th>
             <th className="text-right py-1 pr-2">Liq.</th>
             <th className="text-right py-1 pr-2">Margin</th>
-            <th className="text-right py-1 pr-2">Funding</th>
             <th className="text-right py-1 pr-2">TP / SL</th>
             <th className="text-right py-1">Actions</th>
           </tr>
@@ -415,16 +430,14 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
             const roe = (p.returnOnEquity ?? 0) * 100;
             const posVal = p.positionValue ?? 0;
             const margin = p.marginUsed ?? 0;
-            const funding = p.cumFunding ?? 0;
             const mark = p.markPx ?? 0;
             const pnlColor = pnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
-            const fundingColor = funding >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
             const isClosing = closing === p.coin;
             const result = actionResult?.coin === p.coin ? actionResult : null;
-            const showTpSl = tpSlMode?.coin === p.coin;
+            const showPopup = tpSlPopup === p.coin;
 
             return (
-              <tr key={p.coin} className="border-b border-[var(--hl-border)] border-opacity-30 hover:bg-[var(--hl-surface)] transition-colors">
+              <tr key={p.coin} className="border-b border-[var(--hl-border)] border-opacity-30 hover:bg-[var(--hl-surface)] transition-colors relative">
                 {/* Asset + side + leverage */}
                 <td className="py-1.5 pr-2">
                   <div className="flex items-center gap-1.5">
@@ -441,7 +454,7 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
                 {/* Entry */}
                 <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--hl-muted)]">${(p.entryPx ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                 {/* Mark */}
-                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">{mark ? `$${mark.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">{mark > 0 ? `$${mark.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</td>
                 {/* PnL (ROE %) */}
                 <td className={`py-1.5 pr-2 text-right tabular-nums font-medium ${pnlColor}`}>
                   {pnl >= 0 ? "+" : ""}${pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -453,10 +466,6 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
                 <td className="py-1.5 pr-2 text-right tabular-nums">
                   <span className="text-[var(--foreground)]">${margin.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                   <span className="text-[9px] text-[var(--hl-muted)] ml-0.5">{p.leverageType || "cross"}</span>
-                </td>
-                {/* Funding */}
-                <td className={`py-1.5 pr-2 text-right tabular-nums ${fundingColor}`}>
-                  {funding !== 0 ? `${funding >= 0 ? "+" : ""}$${funding.toFixed(2)}` : "—"}
                 </td>
                 {/* TP / SL */}
                 <td className="py-1.5 pr-2 text-right tabular-nums text-[10px]">
@@ -474,18 +483,73 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
                 {/* Actions */}
                 <td className="py-1.5 text-right">
                   <div className="flex items-center justify-end gap-1">
-                    <button onClick={(e) => { e.stopPropagation(); onClose(p); }} disabled={isClosing || closingAll} className="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.3)] transition-colors disabled:opacity-50">{isClosing ? "..." : "Close"}</button>
-                    <button onClick={(e) => { e.stopPropagation(); onTpSlToggle(p.coin, "tp"); }} className={`px-1.5 py-0.5 text-[9px] font-semibold rounded transition-colors ${showTpSl && tpSlMode?.type === "tp" ? "bg-[rgba(80,210,193,0.3)] text-[var(--hl-green)]" : "bg-[rgba(80,210,193,0.1)] text-[var(--hl-green)] hover:bg-[rgba(80,210,193,0.2)]"}`}>TP</button>
-                    <button onClick={(e) => { e.stopPropagation(); onTpSlToggle(p.coin, "sl"); }} className={`px-1.5 py-0.5 text-[9px] font-semibold rounded transition-colors ${showTpSl && tpSlMode?.type === "sl" ? "bg-[rgba(240,88,88,0.3)] text-[var(--hl-red)]" : "bg-[rgba(240,88,88,0.1)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.2)]"}`}>SL</button>
+                    {/* Market Close */}
+                    <button onClick={(e) => { e.stopPropagation(); onClose(p); }} disabled={isClosing || closingAll} className="px-2.5 py-1 text-[10px] font-semibold rounded bg-[rgba(240,88,88,0.18)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.35)] transition-colors disabled:opacity-50">{isClosing ? "..." : "Close"}</button>
+                    {/* TP/SL popup toggle */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (showPopup) { setTpSlPopup(null); } else {
+                          const trig = triggerOrders[p.coin];
+                          setPopupTp(trig?.tp ? parseFloat(trig.tp).toString() : "");
+                          setPopupSl(trig?.sl ? parseFloat(trig.sl).toString() : "");
+                          setTpSlPopup(p.coin);
+                        }
+                      }}
+                      className={`px-2 py-1 text-[10px] font-semibold rounded transition-colors ${showPopup ? "bg-[var(--hl-accent)] text-[var(--background)]" : "bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)]"}`}
+                    >
+                      TP/SL
+                    </button>
+                    {/* Reverse */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onSelectToken?.(p.coin); }}
+                      title="Reverse position"
+                      className="px-1.5 py-1 text-[10px] font-semibold rounded bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)] transition-colors"
+                    >
+                      &#8645;
+                    </button>
                   </div>
-                  {showTpSl && (
-                    <div className="flex items-center gap-1 mt-1 justify-end">
-                      <span className="text-[9px] text-[var(--hl-muted)]">{tpSlMode!.type === "tp" ? "TP" : "SL"} $</span>
-                      <input type="number" value={triggerPrice} onChange={(e) => onTriggerPriceChange(e.target.value)} placeholder={p.entryPx.toFixed(2)} className="w-20 px-1 py-0.5 text-[10px] bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[var(--foreground)] tabular-nums outline-none" onClick={(e) => e.stopPropagation()} />
-                      <button onClick={(e) => { e.stopPropagation(); onTpSlSubmit(p); }} disabled={submitting || !triggerPrice} className="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-[var(--hl-accent)] text-[var(--background)] hover:opacity-80 transition-opacity disabled:opacity-50">{submitting ? "..." : "Set"}</button>
+                  {/* TP/SL Popup */}
+                  {showPopup && (
+                    <div className="absolute right-2 top-full mt-1 z-50 bg-[var(--hl-dark)] border border-[var(--hl-border)] rounded-lg shadow-xl p-3 min-w-[220px]" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-semibold text-[var(--foreground)]">{displayCoin} TP / SL</span>
+                        <button onClick={() => setTpSlPopup(null)} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-[14px] leading-none">&times;</button>
+                      </div>
+                      {/* Take Profit */}
+                      <div className="mb-2">
+                        <label className="text-[9px] text-[var(--hl-green)] font-medium uppercase tracking-wider">Take Profit</label>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="text-[10px] text-[var(--hl-muted)]">$</span>
+                          <input type="number" value={popupTp} onChange={(e) => setPopupTp(e.target.value)} placeholder={p.entryPx.toFixed(2)} className="flex-1 px-1.5 py-1 text-[11px] bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[var(--foreground)] tabular-nums outline-none focus:border-[var(--hl-green)]" />
+                          <button
+                            onClick={() => { onTpSlToggle(p.coin, "tp"); onTriggerPriceChange(popupTp); setTimeout(() => onTpSlSubmit(p), 50); }}
+                            disabled={submitting || !popupTp}
+                            className="px-2 py-1 text-[9px] font-semibold rounded bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)] hover:bg-[rgba(80,210,193,0.3)] transition-colors disabled:opacity-50"
+                          >
+                            {submitting && tpSlMode?.type === "tp" ? "..." : "Set"}
+                          </button>
+                        </div>
+                      </div>
+                      {/* Stop Loss */}
+                      <div className="mb-1">
+                        <label className="text-[9px] text-[var(--hl-red)] font-medium uppercase tracking-wider">Stop Loss</label>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="text-[10px] text-[var(--hl-muted)]">$</span>
+                          <input type="number" value={popupSl} onChange={(e) => setPopupSl(e.target.value)} placeholder={p.entryPx.toFixed(2)} className="flex-1 px-1.5 py-1 text-[11px] bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[var(--foreground)] tabular-nums outline-none focus:border-[var(--hl-red)]" />
+                          <button
+                            onClick={() => { onTpSlToggle(p.coin, "sl"); onTriggerPriceChange(popupSl); setTimeout(() => onTpSlSubmit(p), 50); }}
+                            disabled={submitting || !popupSl}
+                            className="px-2 py-1 text-[9px] font-semibold rounded bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.3)] transition-colors disabled:opacity-50"
+                          >
+                            {submitting && tpSlMode?.type === "sl" ? "..." : "Set"}
+                          </button>
+                        </div>
+                      </div>
+                      {result && <div className={`text-[9px] mt-1 ${result.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{result.msg}</div>}
                     </div>
                   )}
-                  {result && <div className={`text-[9px] mt-0.5 ${result.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{result.msg}</div>}
+                  {!showPopup && result && <div className={`text-[9px] mt-0.5 ${result.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{result.msg}</div>}
                 </td>
               </tr>
             );

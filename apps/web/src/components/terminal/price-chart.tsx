@@ -158,6 +158,23 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
     return p.toPrecision(4);
   };
 
+  // SMA overlays — persist to localStorage
+  const SMA_PERIODS = [25, 50, 100, 200] as const;
+  const SMA_COLORS: Record<number, string> = { 25: "#f59e0b", 50: "#8b5cf6", 100: "#3b82f6", 200: "#ef4444" };
+  const ALL_SMAS = new Set(SMA_PERIODS);
+  const [smasOn, setSmasOn] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("hlone_smas_on") === "1";
+  });
+  const enabledSMAs = smasOn ? ALL_SMAS : new Set<number>();
+  const toggleSMAs = useCallback(() => {
+    setSmasOn(prev => {
+      const next = !prev;
+      localStorage.setItem("hlone_smas_on", next ? "1" : "0");
+      return next;
+    });
+  }, []);
+
   // Drawing tools — persist to localStorage
   const [magnetMode, setMagnetMode] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -484,6 +501,17 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             </button>
           ))}
         </div>
+        {/* SMA toggle */}
+        <div className="flex items-center ml-3 border-l border-[var(--hl-border)] pl-3">
+          <button
+            onClick={toggleSMAs}
+            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+              smasOn ? "bg-[var(--hl-accent)] text-[var(--background)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            SMA
+          </button>
+        </div>
       </div>
 
       {/* Chart area with left toolbar */}
@@ -614,6 +642,8 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             pendingDrawing={pendingDrawing}
             drawingTool={drawingTool}
             magnetMode={magnetMode}
+            enabledSMAs={enabledSMAs}
+            smaColors={SMA_COLORS}
             onDrawingClick={(time, rawPrice) => {
               if (drawingTool === "none") return;
               // Magnet mode: snap price to nearest candle OHLC
@@ -691,7 +721,7 @@ interface TopTraderFillData {
   trader: string;
 }
 
-function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], liquidationBands, drawings = [], pendingDrawing, drawingTool = "none", magnetMode = false, onDrawingClick, onDrawingHover, onRemoveDrawing }: {
+function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], liquidationBands, drawings = [], pendingDrawing, drawingTool = "none", magnetMode = false, enabledSMAs = new Set(), smaColors = {}, onDrawingClick, onDrawingHover, onRemoveDrawing }: {
   candles: CandleData[];
   oiCandles: { time: number; open: number; high: number; low: number; close: number; bullish: boolean }[];
   formatTime: (t: number) => string;
@@ -705,6 +735,8 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   pendingDrawing?: Partial<DrawingLine> | null;
   drawingTool?: DrawingTool;
   magnetMode?: boolean;
+  enabledSMAs?: Set<number>;
+  smaColors?: Record<number, string>;
   onDrawingClick?: (time: number, price: number) => void;
   onDrawingHover?: (time: number, price: number) => void;
   onRemoveDrawing?: (id: string) => void;
@@ -766,9 +798,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
       const delta = e.deltaY > 0 ? 5 : -5;
       setVisibleCount(prev => {
         const next = Math.max(minVisible, Math.min(maxVisible, prev + delta));
-        // Allow negative offset (right padding) down to -half of visible count
-        const minOff = -Math.floor(next / 2);
-        setOffset(o => Math.max(minOff, Math.min(Math.max(0, totalCandles - next), o)));
+        // Allow dragging freely — no forced clamping to keep candles on screen
+        const minOff = -next + 2; // can scroll far right (almost all empty)
+        setOffset(o => Math.max(minOff, Math.min(Math.max(0, totalCandles - 2), o)));
         return next;
       });
     };
@@ -825,9 +857,8 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     const pxPerCandle = rect.width / visibleCount;
     const dx = e.clientX - dragRef.current.startX;
     const candleDelta = Math.round(dx / pxPerCandle);
-    const maxOff = Math.max(0, totalCandles - visibleCount);
-    // Allow negative offset (right padding) — up to half the visible candles
-    const minOff = -Math.floor(visibleCount / 2);
+    const maxOff = Math.max(0, totalCandles - 2); // can scroll far back in time
+    const minOff = -visibleCount + 2; // can scroll far right past latest candle
     setOffset(Math.max(minOff, Math.min(maxOff, dragRef.current.startOffset + candleDelta)));
   }, [visibleCount, totalCandles]);
 
@@ -854,16 +885,20 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   let visibleOI: (typeof oiCandles[number] | null)[] = [];
   if (hasOI && data.length > 0) {
     const dur = data.length > 1 ? data[1].time - data[0].time : 3600_000;
-    // Index OI candles by bucket key for O(1) lookup
+    const halfDur = dur / 2;
+    // Index OI candles by bucket key for O(1) lookup — try multiple snap points
     const oiByTime = new Map<number, typeof oiCandles[number]>();
     for (const oc of oiCandles) {
       // Snap OI time to the same bucket grid as price candles
       const key = Math.floor(oc.time / dur) * dur;
       oiByTime.set(key, oc);
+      // Also index by rounded key in case of slight misalignment
+      const keyRound = Math.round(oc.time / dur) * dur;
+      if (!oiByTime.has(keyRound)) oiByTime.set(keyRound, oc);
     }
     visibleOI = data.map(d => {
       const key = Math.floor(d.time / dur) * dur;
-      return oiByTime.get(key) ?? null;
+      return oiByTime.get(key) ?? oiByTime.get(key + dur) ?? oiByTime.get(key - dur) ?? null;
     });
   }
 
@@ -904,6 +939,24 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
   const hovered = hover !== null && hover < data.length ? data[hover] : null;
   const hoveredOI = hover !== null && hover < visibleOI.length ? visibleOI[hover] ?? null : null;
+
+  // Compute SMA lines from the full candle dataset (not just visible slice)
+  // We compute over candles and then slice to visible range
+  const smaLines = useMemo(() => {
+    if (enabledSMAs.size === 0) return [];
+    return [...enabledSMAs].map(period => {
+      const values: (number | null)[] = [];
+      for (let i = 0; i < candles.length; i++) {
+        if (i < period - 1) { values.push(null); continue; }
+        let sum = 0;
+        for (let j = i - period + 1; j <= i; j++) sum += candles[j].close;
+        values.push(sum / period);
+      }
+      // Slice to visible range
+      const sliced = values.slice(sliceStart, sliceEnd);
+      return { period, color: smaColors[period] || "#888", values: sliced };
+    });
+  }, [candles, enabledSMAs, smaColors, sliceStart, sliceEnd]);
 
   // Size candles based on total visible slots (data + right padding)
   const totalSlots = data.length + rightPadding;
@@ -1262,6 +1315,28 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             );
           })}
 
+          {/* SMA lines */}
+          {smaLines.map(sma => {
+            const points = sma.values
+              .map((v, i) => v !== null ? `${ML + i * candleW + candleW / 2},${priceY(v)}` : null)
+              .filter(Boolean);
+            if (points.length < 2) return null;
+            // Build path segments skipping nulls
+            let pathD = "";
+            let started = false;
+            for (let i = 0; i < sma.values.length; i++) {
+              const v = sma.values[i];
+              if (v === null) { started = false; continue; }
+              const x = ML + i * candleW + candleW / 2;
+              const y = priceY(v);
+              pathD += started ? `L${x},${y} ` : `M${x},${y} `;
+              started = true;
+            }
+            return (
+              <path key={`sma-${sma.period}`} d={pathD} fill="none" stroke={sma.color} strokeWidth={1.2} opacity={0.8} />
+            );
+          })}
+
           {/* OI Candlesticks */}
           {showOI && visibleOI.map((c, i) => {
             if (!c || i >= data.length) return null;
@@ -1308,26 +1383,14 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
                 const y = baseY - j * spacing;
                 const color = m.isBuy ? "var(--hl-green)" : "var(--hl-red)";
                 const isShark = m.size >= 5_000_000;
+                const emoji = isShark ? "\uD83E\uDD88" : "\uD83D\uDC33"; // 🦈 or 🐳
                 elements.push(
                   <g key={`whale-${candleIdx}-${j}`}>
                     <title>{`${m.name}: ${m.isBuy ? "BUY" : "SELL"} $${(m.size / 1e6).toFixed(1)}M @ ${formatPrice(m.price)}`}</title>
-                    {/* Outer glow */}
+                    {/* Glow ring */}
                     <circle cx={x} cy={y} r={R + 2} fill={color} opacity={0.15} />
-                    {/* Main circle */}
-                    <circle cx={x} cy={y} r={R} fill={color} opacity={0.85} stroke={color} strokeWidth={0.5} />
-                    {/* Whale or shark SVG icon inside */}
-                    {isShark ? (
-                      /* Shark fin icon */
-                      <g transform={`translate(${x - 4}, ${y - 4}) scale(0.32)`}>
-                        <path d="M4 20 L14 4 L16 14 L24 12 L20 20 Z" fill="white" opacity={0.9} />
-                      </g>
-                    ) : (
-                      /* Whale icon */
-                      <g transform={`translate(${x - 4}, ${y - 3.5}) scale(0.35)`}>
-                        <path d="M4 12 Q4 6 10 6 Q14 6 16 8 L20 6 L19 10 Q22 12 20 16 Q16 20 10 18 Q4 16 4 12Z" fill="white" opacity={0.9} />
-                        <circle cx="9" cy="10" r="1" fill={color} />
-                      </g>
-                    )}
+                    {/* Emoji */}
+                    <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={isShark ? 13 : 12} style={{ pointerEvents: "none" }}>{emoji}</text>
                   </g>
                 );
               });

@@ -247,10 +247,17 @@ async function getSzDecimals(asset: string): Promise<number> {
 
 // ─── Float to wire format ────────────────────────────────────────────────────
 
+/**
+ * Match Python SDK: Decimal(f"{x:.8f}").normalize() → string
+ * Formats to 8 decimals, strips trailing zeros (but keeps "0" not "0E+2").
+ */
 function floatToWire(x: number): string {
-  const rounded = parseFloat(x.toPrecision(5));
-  if (Math.abs(rounded) < 1e-8) return "0";
-  return rounded.toString();
+  if (Math.abs(x) < 1e-8) return "0";
+  // Format to 8 decimal places like Python f"{x:.8f}"
+  const fixed = x.toFixed(8);
+  // Strip trailing zeros after decimal point, then trailing dot
+  const stripped = fixed.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  return stripped;
 }
 
 function roundSize(size: number, szDecimals: number): number {
@@ -259,7 +266,11 @@ function roundSize(size: number, szDecimals: number): number {
 }
 
 function roundPrice(price: number): number {
-  return parseFloat(price.toPrecision(5));
+  // HL uses 5 significant figures for prices
+  const magnitude = Math.floor(Math.log10(Math.abs(price))) + 1;
+  const decimals = Math.max(0, 5 - magnitude);
+  const factor = 10 ** decimals;
+  return Math.round(price * factor) / factor;
 }
 
 // ─── Get mid price ───────────────────────────────────────────────────────────
@@ -653,6 +664,7 @@ export async function placeTriggerOrder(
     const size = roundSize(Math.abs(params.size), szDecimals);
     if (size <= 0) throw new Error("Size must be positive");
 
+    // Key order MUST match Python SDK exactly — msgpack is order-dependent
     const orderWire = {
       a: assetIndex,
       b: !params.isLong,
@@ -661,8 +673,8 @@ export async function placeTriggerOrder(
       r: true,
       t: {
         trigger: {
-          triggerPx: floatToWire(roundPrice(params.triggerPrice)),
           isMarket: true,
+          triggerPx: floatToWire(roundPrice(params.triggerPrice)),
           tpsl: "sl" as const,
         },
       },
@@ -672,18 +684,44 @@ export async function placeTriggerOrder(
       type: "order",
       orders: [orderWire],
       grouping: "na",
-      builder: {
-        b: BUILDER_ADDRESS.toLowerCase(),
-        f: BUILDER_FEE,
-      },
     };
 
+    // NOTE: no builder fee on trigger orders — HL doesn't support it and it
+    // changes the msgpack hash causing "does not exist" signature errors.
     console.log("[tpsl] SL action:", JSON.stringify(action));
     const connectionId = actionHash(action, nonce);
-    console.log("[tpsl] SL connectionId:", connectionId.slice(0, 16) + "...");
+    console.log("[tpsl] SL connectionId:", connectionId);
+    console.log("[tpsl] SL nonce:", nonce);
+    console.log("[tpsl] SL agent address:", privateKeyToAccount(agentKey).address);
 
     const signature = await signL1Action(agentKey, action, nonce);
-    const result = await submitToExchange(action, nonce, signature) as {
+    console.log("[tpsl] SL signature:", signature);
+
+    // Direct fetch to see raw response (bypass submitToExchange error wrapping)
+    const sigParts = splitSig(signature);
+    console.log("[tpsl] SL sig parts:", JSON.stringify(sigParts));
+
+    const res = await fetch(`${HL_API}/exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        nonce,
+        signature: sigParts,
+        vaultAddress: null,
+      }),
+    });
+
+    const rawText = await res.text();
+    console.log("[tpsl] SL raw response status:", res.status);
+    console.log("[tpsl] SL raw response body:", rawText);
+
+    if (!res.ok) {
+      // Don't throw StaleAgentError — return the raw error so we can debug
+      return { success: false, error: `HL API ${res.status}: ${rawText}` };
+    }
+
+    const result = JSON.parse(rawText) as {
       status?: string;
       response?: {
         type?: string;
@@ -694,18 +732,23 @@ export async function placeTriggerOrder(
             error?: string;
           }>;
         };
-      };
+      } | string;
     };
 
+    console.log("[tpsl] SL parsed result:", JSON.stringify(result));
+
     if (result.status === "ok") {
-      const status = result.response?.data?.statuses?.[0];
-      if (status?.error) {
-        return { success: false, error: status.error };
+      const resp = result.response;
+      if (typeof resp === "object" && resp?.data?.statuses?.[0]) {
+        const status = resp.data.statuses[0];
+        if (status?.error) {
+          return { success: false, error: status.error };
+        }
+        return {
+          success: true,
+          orderId: (status?.resting?.oid || status?.filled?.oid)?.toString(),
+        };
       }
-      return {
-        success: true,
-        orderId: (status?.resting?.oid || status?.filled?.oid)?.toString(),
-      };
     }
 
     return {

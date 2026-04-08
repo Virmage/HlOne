@@ -79,7 +79,6 @@ const CopyDialog = dynamic(
 );
 
 const LOADING_LINES = [
-  "Finding signal.",
   "Ringing House of all Finance doorbell.",
   "Considering Derive options.",
   "Getting edge from CL Japan tweet.",
@@ -253,7 +252,7 @@ export default function HomePage() {
       </div>
 
       {/* Positions — shows when wallet connected */}
-      <div className="border-b border-[var(--hl-border)] px-2 py-1">
+      <div className="border-b border-[var(--hl-border)] px-2 py-0.5">
         <PositionsPanel onSelectToken={handleSelectToken} />
       </div>
 
