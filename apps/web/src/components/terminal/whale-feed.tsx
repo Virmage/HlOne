@@ -145,7 +145,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
               const posDirection = alert.newSize > 0 ? "Long" : alert.newSize < 0 ? "Short" : "";
               const dirColor = alert.newSize > 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
               return (
-                <div key={`exp-${alert.id}`} className="flex items-start gap-2 py-1.5 px-3 border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors">
+                <div key={`exp-${alert.id}`} className="group flex items-start gap-2 py-1.5 px-3 border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] transition-colors">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 text-[12px]">
                       <button onClick={(e) => { e.stopPropagation(); onSelectTrader?.(alert.whaleAddress); }} className="font-medium text-[var(--foreground)] truncate max-w-[120px] hover:text-[var(--hl-accent)]">{alert.whaleName}</button>
@@ -159,6 +159,14 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
                       <span>{timeAgo(alert.detectedAt)}</span>
                     </div>
                   </div>
+                  {onCopy && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onCopy(alert.whaleAddress); }}
+                      className="px-2 py-0.5 rounded text-[10px] font-medium bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 shrink-0"
+                    >
+                      Copy Trader
+                    </button>
+                  )}
                 </div>
               );
             })}

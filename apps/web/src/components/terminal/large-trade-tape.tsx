@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { LargeTrade } from "@/lib/api";
 
 interface LargeTradeTapeProps {
@@ -21,7 +22,33 @@ function timeAgo(ts: number): string {
   return `${Math.floor(sec / 86400)}d`;
 }
 
+function TradeRow({ t, onSelectToken }: { t: LargeTrade; onSelectToken: (coin: string) => void }) {
+  const isBuy = t.side === "buy";
+  return (
+    <div
+      className="flex items-center justify-between px-2 py-1 text-[11px] border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
+      onClick={() => onSelectToken(t.coin)}
+    >
+      <span className="font-medium text-[var(--foreground)] w-14">{t.coin.includes(":") ? t.coin.split(":")[1] : t.coin}</span>
+      <span className={`w-8 font-medium ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+        {isBuy ? "BUY" : "SELL"}
+      </span>
+      <span className={`tabular-nums font-medium w-16 text-right ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+        {formatSize(t.sizeUsd)}
+      </span>
+      <span className="text-[var(--hl-muted)] tabular-nums w-20 text-right">
+        ${t.price >= 1 ? t.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : t.price.toPrecision(4)}
+      </span>
+      <span className="text-[var(--hl-muted)] tabular-nums w-8 text-right text-[10px]">
+        {timeAgo(t.time)}
+      </span>
+    </div>
+  );
+}
+
 export function LargeTradeTape({ trades, onSelectToken }: LargeTradeTapeProps) {
+  const [expanded, setExpanded] = useState(false);
+
   if (!trades.length) {
     return (
       <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[12px]">
@@ -30,37 +57,39 @@ export function LargeTradeTape({ trades, onSelectToken }: LargeTradeTapeProps) {
     );
   }
 
+  const visibleTrades = trades.slice(0, 8);
+
   return (
     <div>
-      <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">
-        Large Trades (&gt;$25K)
-      </h2>
-      <div className="overflow-y-auto scroll-on-hover max-h-[220px]">
-        {trades.slice(0, 15).map((t) => {
-          const isBuy = t.side === "buy";
-          return (
-            <div
-              key={t.hash}
-              className="flex items-center justify-between px-2 py-1 text-[11px] border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
-              onClick={() => onSelectToken(t.coin)}
-            >
-              <span className="font-medium text-[var(--foreground)] w-14">{t.coin.includes(":") ? t.coin.split(":")[1] : t.coin}</span>
-              <span className={`w-8 font-medium ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
-                {isBuy ? "BUY" : "SELL"}
-              </span>
-              <span className={`tabular-nums font-medium w-16 text-right ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
-                {formatSize(t.sizeUsd)}
-              </span>
-              <span className="text-[var(--hl-muted)] tabular-nums w-20 text-right">
-                ${t.price >= 1 ? t.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : t.price.toPrecision(4)}
-              </span>
-              <span className="text-[var(--hl-muted)] tabular-nums w-8 text-right text-[10px]">
-                {timeAgo(t.time)}
-              </span>
-            </div>
-          );
-        })}
+      <div className="cursor-pointer" onClick={() => setExpanded(true)}>
+        <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">
+          Large Trades (&gt;$25K)
+        </h2>
+        <div className="overflow-hidden">
+          {visibleTrades.map((t) => (
+            <TradeRow key={t.hash} t={t} onSelectToken={onSelectToken} />
+          ))}
+        </div>
+        {trades.length > 8 && (
+          <div className="text-[10px] text-[var(--hl-muted)] text-center py-1">Click to see all {trades.length} trades</div>
+        )}
       </div>
+      {expanded && (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center" onClick={() => setExpanded(false)}>
+          <div className="absolute inset-0 bg-black/50" />
+          <div className="relative bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl w-[90vw] max-w-[600px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-3 border-b border-[var(--hl-border)] shrink-0">
+              <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider">Large Trades</h2>
+              <button onClick={() => setExpanded(false)} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-[16px]">&times;</button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {trades.map((t) => (
+                <TradeRow key={`exp-${t.hash}`} t={t} onSelectToken={onSelectToken} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

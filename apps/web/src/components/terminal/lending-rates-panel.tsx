@@ -260,14 +260,14 @@ function RateTable({
   }
 
   return (
-    <div className="overflow-y-auto scroll-on-hover max-h-[220px]">
+    <div className="overflow-hidden">
       {/* Header */}
       <div className="flex items-center px-2 py-1 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
         <span className="w-14">Asset</span>
         <span className="flex-1 text-right">Supply APY</span>
         <span className="flex-1 text-right">Borrow APY</span>
       </div>
-      {rates.map((r, i) => (
+      {rates.slice(0, 8).map((r, i) => (
         <a
           key={`${r.asset}-${i}`}
           href={assetUrl(r.asset, protocol)}

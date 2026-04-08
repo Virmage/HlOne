@@ -24,7 +24,7 @@ export function SocialPanel({ social, onSelectToken }: SocialPanelProps) {
       <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">
         Social Sentiment <span className="text-[10px] font-normal text-[var(--hl-muted)]">LunarCrush</span>
       </h2>
-      <div className="overflow-y-auto scroll-on-hover max-h-[220px]">
+      <div className="overflow-hidden">
         <table className="w-full text-[11px]">
           <thead>
             <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)] text-[10px]">
@@ -36,7 +36,7 @@ export function SocialPanel({ social, onSelectToken }: SocialPanelProps) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((s) => {
+            {sorted.slice(0, 8).map((s) => {
               const sentimentColor = s.sentiment >= 60
                 ? "text-[var(--hl-green)]"
                 : s.sentiment <= 40

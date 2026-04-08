@@ -51,9 +51,18 @@
 }
 
 body {
+  background: #060a0c;
   background: var(--background);
   color: var(--foreground);
   font-family: system-ui, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", sans-serif;
+}
+
+/* Prevent content flash during page transitions */
+[data-theme="dark"] body {
+  background: #060a0c;
+}
+[data-theme="light"] body {
+  background: #faf8f5;
 }
 
 ::-webkit-scrollbar {

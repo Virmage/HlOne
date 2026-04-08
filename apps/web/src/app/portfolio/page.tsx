@@ -31,9 +31,10 @@ export default function PortfolioPage() {
   const [pnlWindow, setPnlWindow] = useState<PnlWindow>("allTime");
   const [chartMode, setChartMode] = useState<"value" | "pnl">("value");
 
+  const initialLoadDone = useRef(false);
   const fetchData = useCallback(async () => {
     if (!address) return;
-    setLoading(true);
+    if (!initialLoadDone.current) setLoading(true);
     try {
       const [posData, portfolioData] = await Promise.all([
         getUserPositions(address),
@@ -43,6 +44,7 @@ export default function PortfolioPage() {
       setAccount(posData.account);
       setPortfolio(portfolioData);
       setError(null);
+      initialLoadDone.current = true;
     } catch (err) {
       setError((err as Error).message);
     } finally {
