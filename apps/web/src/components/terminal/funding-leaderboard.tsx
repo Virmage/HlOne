@@ -56,7 +56,7 @@ export function FundingLeaderboardPanel({ funding, onSelectToken }: FundingLeade
               Longs Paying (Short to earn)
             </div>
             <div className="overflow-hidden">
-              {funding.topPositive.slice(0, 6).map((f) => (
+              {funding.topPositive.slice(0, 7).map((f) => (
                 <FundingRow key={f.coin} f={f} isPositive={true} onSelectToken={onSelectToken} />
               ))}
             </div>
@@ -66,13 +66,13 @@ export function FundingLeaderboardPanel({ funding, onSelectToken }: FundingLeade
               Shorts Paying (Long to earn)
             </div>
             <div className="overflow-hidden">
-              {funding.topNegative.slice(0, 6).map((f) => (
+              {funding.topNegative.slice(0, 7).map((f) => (
                 <FundingRow key={f.coin} f={f} isPositive={false} onSelectToken={onSelectToken} />
               ))}
             </div>
           </div>
         </div>
-        {(funding.topPositive.length > 6 || funding.topNegative.length > 6) && (
+        {(funding.topPositive.length > 7 || funding.topNegative.length > 7) && (
           <div className="text-[10px] text-[var(--hl-muted)] text-center py-1">Click to see all</div>
         )}
       </div>
