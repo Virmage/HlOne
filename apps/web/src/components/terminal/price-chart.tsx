@@ -163,8 +163,8 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
   const SMA_COLORS: Record<number, string> = { 25: "#f59e0b", 50: "#8b5cf6", 100: "#3b82f6", 200: "#ef4444" };
   const ALL_SMAS = new Set(SMA_PERIODS);
   const [smasOn, setSmasOn] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("hlone_smas_on") === "1";
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("hlone_smas_on") !== "0";
   });
   const enabledSMAs = smasOn ? ALL_SMAS : new Set<number>();
   const toggleSMAs = useCallback(() => {
@@ -193,8 +193,8 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
 
   // Heatmap toggle — persist preference
   const [showHeatmap, setShowHeatmap] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("hlone_heatmap") === "on";
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("hlone_heatmap") !== "off";
   });
 
   // Load drawings when coin changes
@@ -501,8 +501,8 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             </button>
           ))}
         </div>
-        {/* SMA toggle */}
-        <div className="flex items-center ml-3 border-l border-[var(--hl-border)] pl-3">
+        {/* SMA + Heatmap toggles */}
+        <div className="flex items-center ml-3 border-l border-[var(--hl-border)] pl-3 gap-1.5">
           <button
             onClick={toggleSMAs}
             className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
@@ -510,6 +510,15 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             }`}
           >
             SMA
+          </button>
+          <button
+            onClick={() => setShowHeatmap(prev => !prev)}
+            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+              showHeatmap ? "bg-orange-500/80 text-white" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
+            }`}
+            title={showHeatmap ? "Hide Liquidation Heatmap" : "Show Liquidation Heatmap"}
+          >
+            Heatmap
           </button>
         </div>
       </div>
@@ -584,19 +593,6 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
               <line x1="18" y1="5" x2="24" y2="5" strokeLinecap="round" />
               <line x1="4" y1="9" x2="10" y2="9" strokeLinecap="round" />
               <line x1="18" y1="9" x2="24" y2="9" strokeLinecap="round" />
-            </svg>
-          </button>
-
-          {/* Heatmap toggle — stacked bars (heat levels) */}
-          <button
-            onClick={() => setShowHeatmap(prev => !prev)}
-            className={`p-1 rounded transition-colors ${showHeatmap ? "bg-[var(--hl-surface)] text-orange-400" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
-            title={showHeatmap ? "Hide Liquidation Heatmap" : "Show Liquidation Heatmap"}
-          >
-            <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
-              <rect x="4" y="5" width="20" height="4" rx="1" opacity="0.35" />
-              <rect x="4" y="12" width="20" height="4" rx="1" opacity="0.6" />
-              <rect x="4" y="19" width="20" height="4" rx="1" opacity="1" />
             </svg>
           </button>
 
