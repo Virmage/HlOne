@@ -181,23 +181,23 @@ export default function PortfolioPage() {
 
       {/* Top stats row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {/* Left: Volume + Fees */}
+        {/* Left: Total Equity + Volume */}
         <div className="border border-[var(--hl-border)] rounded-lg bg-[var(--hl-surface)] p-4 space-y-4">
           <div>
-            <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-1">14 Day Volume</div>
-            <div className="text-[22px] font-bold text-[var(--foreground)] tabular-nums">
-              ${volume14d >= 1000 ? volume14d.toLocaleString(undefined, { maximumFractionDigits: 2 }) : volume14d.toFixed(2)}
+            <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-1">Total Equity</div>
+            <div className="text-[22px] font-bold text-[var(--hl-accent)] tabular-nums">
+              {fmtUsd(account?.accountValue ?? 0)}
             </div>
           </div>
           <div className="border-t border-[var(--hl-border)] pt-3">
-            <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-1">Fees (Taker / Maker)</div>
+            <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-1">14 Day Volume</div>
             <div className="text-[18px] font-bold text-[var(--foreground)] tabular-nums">
-              {portfolio?.fees.takerRate || "—"} / {portfolio?.fees.makerRate || "—"}
+              ${volume14d >= 1000 ? volume14d.toLocaleString(undefined, { maximumFractionDigits: 2 }) : volume14d.toFixed(2)}
             </div>
           </div>
         </div>
 
-        {/* Middle: PNL stats */}
+        {/* Middle: PNL stats + Fees */}
         <div className="border border-[var(--hl-border)] rounded-lg bg-[var(--hl-surface)] p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider">Perps & Spot</div>
@@ -215,8 +215,8 @@ export default function PortfolioPage() {
             <StatRow label="PNL" value={fmtUsd(displayPnl)} color={displayPnl >= 0 ? "green" : "red"} />
             <StatRow label="Volume" value={fmtUsd(volumeAll)} />
             <StatRow label="Max Drawdown" value={`${(portfolio?.maxDrawdown ?? 0).toFixed(2)}%`} />
-            <StatRow label="Total Equity" value={fmtUsd(account?.accountValue ?? 0)} color="green" />
             <StatRow label="Perp Account Equity" value={fmtUsd(portfolio?.account.perpAccountEquity ?? 0)} />
+            <StatRow label="Fees (Taker / Maker)" value={`${portfolio?.fees.takerRate || "—"} / ${portfolio?.fees.makerRate || "—"}`} />
           </div>
         </div>
 
