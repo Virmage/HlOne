@@ -710,6 +710,32 @@ export async function getUserPositions(address: string) {
   return apiFetch<UserPositionsData>(`/api/market/positions/${address}`);
 }
 
+// ─── Portfolio ──────────────────────────────────────────────────────────────
+
+export interface PortfolioPageData {
+  account: {
+    accountValue: number;
+    withdrawable: number;
+    totalMarginUsed: number;
+    perpAccountEquity: number;
+    spotAccountEquity: number;
+  };
+  pnl: Record<string, number>;
+  volume: Record<string, number>;
+  maxDrawdown: number;
+  fees: { takerRate: string; makerRate: string; referralDiscount: string };
+  equityCurve: { time: number; accountValue: number; pnl: number }[];
+  trades: { time: number; coin: string; side: string; dir: string; price: number; size: number; closedPnl: number; fee: number; hash: string }[];
+  funding: { time: number; coin: string; payment: number; size: number; rate: number }[];
+  openOrders: { coin: string; side: string; sz: string; limitPx: string; orderType: string; oid: number }[];
+  triggerOrders: { coin: string; side: string; sz: string; triggerPx: string; orderType: string; oid: number }[];
+  timestamp: number;
+}
+
+export async function getPortfolioPage(address: string, window = "allTime") {
+  return apiFetch<PortfolioPageData>(`/api/market/portfolio/${address}?window=${window}`);
+}
+
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 export async function connectUser(walletAddress: string) {

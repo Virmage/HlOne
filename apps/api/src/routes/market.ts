@@ -852,4 +852,141 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       timestamp: now,
     };
   });
+
+  /**
+   * GET /api/market/portfolio/:address
+   * Full portfolio page data: PNL history, equity curve, volume, fees, trade history, funding, orders.
+   */
+  app.get<{ Params: { address: string }; Querystring: { window?: string } }>(
+    "/portfolio/:address",
+    async (req, reply) => {
+      const { address } = req.params;
+      if (!ethAddress.safeParse(address).success) {
+        reply.code(400);
+        return { error: "Invalid address format" };
+      }
+      const window = req.query.window || "allTime";
+      const HL = "https://api.hyperliquid.xyz/info";
+      const post = (body: Record<string, unknown>) =>
+        fetch(HL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+      const [
+        stateRes, portfolioRes, feesRes, fillsRes, fundingRes, openOrdersRes, frontendOrdersRes,
+      ] = await Promise.all([
+        post({ type: "clearinghouseState", user: address }).catch(() => null),
+        post({ type: "portfolio", user: address }).catch(() => null),
+        post({ type: "userFees", user: address }).catch(() => null),
+        post({ type: "userFillsByTime", user: address, startTime: Date.now() - 30 * 86400_000, endTime: Date.now() }).catch(() => null),
+        post({ type: "userFunding", user: address, startTime: Date.now() - 30 * 86400_000, endTime: Date.now() }).catch(() => null),
+        post({ type: "openOrders", user: address }).catch(() => null),
+        post({ type: "frontendOpenOrders", user: address }).catch(() => null),
+      ]);
+
+      const [state, portfolio, fees, fills, funding, openOrders, frontendOrders] = await Promise.all([
+        stateRes?.ok ? stateRes.json() : null,
+        portfolioRes?.ok ? portfolioRes.json() : null,
+        feesRes?.ok ? feesRes.json() : null,
+        fillsRes?.ok ? fillsRes.json() : null,
+        fundingRes?.ok ? fundingRes.json() : null,
+        openOrdersRes?.ok ? openOrdersRes.json() : null,
+        frontendOrdersRes?.ok ? frontendOrdersRes.json() : null,
+      ]);
+
+      // Parse equity curve from portfolio response
+      let equityCurve: { time: number; accountValue: number; pnl: number }[] = [];
+      let pnlByWindow: Record<string, number> = {};
+      let volumeByWindow: Record<string, number> = {};
+      if (portfolio && Array.isArray(portfolio)) {
+        for (const [win, data] of portfolio as [string, { accountValueHistory?: [number, string][]; pnlHistory?: [number, string][]; vlm?: string }][]) {
+          if (data.pnlHistory?.length) {
+            const lastPnl = data.pnlHistory[data.pnlHistory.length - 1];
+            pnlByWindow[win] = parseFloat(lastPnl[1]);
+          }
+          if (data.vlm) volumeByWindow[win] = parseFloat(data.vlm);
+          if (win === window && data.accountValueHistory) {
+            equityCurve = data.accountValueHistory.map(([t, v]: [number, string]) => {
+              const pnlEntry = data.pnlHistory?.find(([pt]: [number, string]) => pt === t);
+              return { time: t, accountValue: parseFloat(v), pnl: pnlEntry ? parseFloat(pnlEntry[1]) : 0 };
+            });
+          }
+        }
+      }
+
+      // Parse crossMarginSummary
+      const s = state as { crossMarginSummary?: Record<string, string>; marginSummary?: Record<string, string> } | null;
+      const cs = s?.crossMarginSummary || s?.marginSummary;
+      const accountValue = cs ? parseFloat(cs.accountValue || "0") : 0;
+      const withdrawable = cs ? parseFloat((cs as Record<string, string>).withdrawable || "0") : 0;
+      const totalMarginUsed = cs ? parseFloat(cs.totalMarginUsed || "0") : 0;
+
+      // Parse fees
+      const feeData = fees as { activeReferralDiscount?: string; dailyUserVlm?: [{ date: string; exchange: string; userCross: string; userAdd: string }]; userCrossRate?: string; userAddRate?: string } | null;
+
+      // Compute 14d volume from fills
+      let volume14d = 0;
+      if (Array.isArray(fills)) {
+        const cutoff14d = Date.now() - 14 * 86400_000;
+        for (const f of fills as { time: number; px: string; sz: string }[]) {
+          if (f.time >= cutoff14d) {
+            volume14d += parseFloat(f.px) * parseFloat(f.sz);
+          }
+        }
+      }
+
+      // Max drawdown from equity curve
+      let maxDrawdown = 0;
+      let peak = 0;
+      for (const pt of equityCurve) {
+        if (pt.accountValue > peak) peak = pt.accountValue;
+        if (peak > 0) {
+          const dd = (peak - pt.accountValue) / peak;
+          if (dd > maxDrawdown) maxDrawdown = dd;
+        }
+      }
+
+      return {
+        account: {
+          accountValue,
+          withdrawable,
+          totalMarginUsed,
+          perpAccountEquity: accountValue, // HL perp account = cross margin account value
+          spotAccountEquity: 0, // Would need spot clearinghouse for real value
+        },
+        pnl: pnlByWindow,
+        volume: { ...volumeByWindow, "14d": volume14d },
+        maxDrawdown: maxDrawdown * 100,
+        fees: {
+          takerRate: feeData?.userCrossRate || "0.035%",
+          makerRate: feeData?.userAddRate || "0.01%",
+          referralDiscount: feeData?.activeReferralDiscount || "0",
+        },
+        equityCurve,
+        trades: Array.isArray(fills) ? (fills as { time: number; coin: string; side: string; px: string; sz: string; dir: string; hash: string; closedPnl: string; fee: string; crossed: boolean }[])
+          .slice(0, 200).map(f => ({
+            time: f.time,
+            coin: f.coin,
+            side: f.side,
+            dir: f.dir || f.side,
+            price: parseFloat(f.px),
+            size: parseFloat(f.sz),
+            closedPnl: parseFloat(f.closedPnl || "0"),
+            fee: parseFloat(f.fee || "0"),
+            hash: f.hash,
+          })) : [],
+        funding: Array.isArray(funding) ? (funding as { time: number; coin: string; usdc: string; szi: string; fundingRate: string }[])
+          .slice(0, 200).map(f => ({
+            time: f.time,
+            coin: f.coin,
+            payment: parseFloat(f.usdc),
+            size: parseFloat(f.szi),
+            rate: parseFloat(f.fundingRate),
+          })) : [],
+        openOrders: Array.isArray(openOrders) ? (openOrders as { coin: string; side: string; sz: string; limitPx: string; orderType: string; oid: number }[]).slice(0, 100) : [],
+        triggerOrders: Array.isArray(frontendOrders) ? (frontendOrders as { coin: string; side: string; sz: string; triggerPx: string; orderType: string; oid: number }[])
+          .filter((o: { orderType: string }) => o.orderType?.startsWith("Stop") || o.orderType?.startsWith("Take"))
+          .slice(0, 100) : [],
+        timestamp: Date.now(),
+      };
+    },
+  );
 };

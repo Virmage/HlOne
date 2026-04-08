@@ -93,13 +93,16 @@ function LoadingScreen() {
     return () => globalThis.clearInterval(t);
   }, []);
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-[#060a0c] z-[9999]" style={{ background: '#060a0c' }}>
-      <div className="text-center">
-        <div
-          key={idx}
-          className="text-[var(--hl-accent)] text-[14px] animate-fade-in"
-        >
-          {LOADING_LINES[idx]}
+    <div className="fixed inset-0 z-[9999] overflow-hidden" style={{ background: '#060a0c' }}>
+      <div className="absolute inset-0" style={{ background: '#060a0c' }} />
+      <div className="relative flex items-center justify-center h-full w-full">
+        <div className="text-center px-4 py-2 rounded" style={{ background: '#060a0c' }}>
+          <div
+            key={idx}
+            className="text-[var(--hl-accent)] text-[14px] animate-fade-in"
+          >
+            {LOADING_LINES[idx]}
+          </div>
         </div>
       </div>
     </div>
