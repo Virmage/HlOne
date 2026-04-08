@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export default function GlobalError({
   error,
@@ -9,9 +9,15 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const retryCount = useRef(0);
+
   useEffect(() => {
     // Log the actual error for debugging
     console.error("[global-error]", error.message, error.stack?.substring(0, 300));
+
+    // Cap auto-retries to prevent infinite loops
+    if (retryCount.current >= 2) return;
+    retryCount.current++;
 
     // Auto-retry for API errors (cold start, network hiccup)
     if (error.message?.includes("API error") || error.message?.includes("fetch") || error.message?.includes("Failed to fetch")) {

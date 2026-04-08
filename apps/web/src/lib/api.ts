@@ -4,8 +4,8 @@ const API_URL = typeof window !== "undefined" && process.env.NODE_ENV === "produ
   ? ""  // Relative — proxied via next.config rewrites
   : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001");
 
-async function apiFetch<T>(path: string, options?: RequestInit & { retries?: number }): Promise<T> {
-  const maxRetries = options?.retries ?? 2;
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const maxRetries = 2;
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
