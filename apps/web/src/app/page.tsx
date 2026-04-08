@@ -210,37 +210,64 @@ export default function HomePage() {
         />
       </div>
 
-      {/* Chart / Options Chain + Trading Panel */}
-      <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)] overflow-hidden">
-        {/* Main area: Chart or Options Chain */}
-        {tradingMode === "options" ? (
-          <div className="flex-1 min-w-0 h-[300px] md:h-[400px] overflow-hidden">
-            <InlineOptionsChain
-              coin={chartCoin.includes(":") ? chartCoin.split(":")[1] : chartCoin}
-              onSelectOption={setSelectedOption}
-              selectedOption={selectedOption}
-              onChangeCoin={handleChangeCoin}
-            />
+      {/* Chart + Positions (left) | Order Book + Trading Panel (right) */}
+      <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)]">
+        {/* Left column: Chart stacked above Positions */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          {/* Chart / Options Chain */}
+          <div className="border-b border-[var(--hl-border)] overflow-hidden">
+            {tradingMode === "options" ? (
+              <div className="h-[300px] md:h-[400px] overflow-hidden">
+                <InlineOptionsChain
+                  coin={chartCoin.includes(":") ? chartCoin.split(":")[1] : chartCoin}
+                  onSelectOption={setSelectedOption}
+                  selectedOption={selectedOption}
+                  onChangeCoin={handleChangeCoin}
+                />
+              </div>
+            ) : (
+              <div className="h-[300px] md:h-[400px] overflow-hidden">
+                <PriceChart
+                  coin={chartCoin}
+                  tokens={data?.tokens || []}
+                  onSelectToken={handleSelectToken}
+                  whaleAlerts={data?.whaleAlerts || []}
+                  liquidationBands={data?.liquidationHeatmap?.find(h => h.coin === chartCoin)?.bands}
+                />
+              </div>
+            )}
           </div>
-        ) : (
-          <>
-            <div className="flex-1 min-w-0 h-[300px] md:h-[400px] overflow-hidden">
-              <PriceChart
-                coin={chartCoin}
-                tokens={data?.tokens || []}
-                onSelectToken={handleSelectToken}
-                whaleAlerts={data?.whaleAlerts || []}
-                liquidationBands={data?.liquidationHeatmap?.find(h => h.coin === chartCoin)?.bands}
-              />
-            </div>
-            {/* Order Book — hidden on mobile */}
-            <div className="hidden lg:block w-[180px] flex-shrink-0 h-[400px]">
+          {/* Positions — below chart */}
+          <div className="px-2">
+            <PositionsPanel onSelectToken={handleSelectToken} />
+          </div>
+        </div>
+
+        {/* Right column: Order Book + Trading Panel — spans chart + positions height */}
+        <div className="hidden md:flex flex-shrink-0 border-l border-[var(--hl-border)]">
+          {/* Order Book */}
+          {tradingMode !== "options" && (
+            <div className="hidden lg:block w-[180px] flex-shrink-0 h-[620px] overflow-hidden border-r border-[var(--hl-border)]">
               <OrderBook coin={chartCoin} />
             </div>
-          </>
-        )}
-        {/* Trading Panel — full width on mobile, fixed on desktop */}
-        <div className="w-full md:w-[260px] flex-shrink-0 h-auto md:h-[400px] overflow-hidden">
+          )}
+          {/* Trading Panel */}
+          <div className="w-[260px] flex-shrink-0 h-[620px] overflow-hidden">
+            <TradingPanel
+              coin={chartCoin}
+              overview={chartOverview}
+              score={chartOverview?.score ?? null}
+              onOpenOptionsChain={handleOpenOptions}
+              tradingMode={tradingMode}
+              onTradingModeChange={setTradingMode}
+              selectedOption={selectedOption}
+              onClearOption={() => setSelectedOption(null)}
+            />
+          </div>
+        </div>
+
+        {/* Mobile: Trading Panel full width */}
+        <div className="md:hidden w-full border-t border-[var(--hl-border)]">
           <TradingPanel
             coin={chartCoin}
             overview={chartOverview}
@@ -252,11 +279,6 @@ export default function HomePage() {
             onClearOption={() => setSelectedOption(null)}
           />
         </div>
-      </div>
-
-      {/* Positions — shows when wallet connected */}
-      <div className="border-b border-[var(--hl-border)] px-2">
-        <PositionsPanel onSelectToken={handleSelectToken} />
       </div>
 
       {/* Below-fold content — deferred until main thread is idle */}
