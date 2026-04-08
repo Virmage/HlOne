@@ -409,36 +409,48 @@ async function submitToExchange(
   action: Record<string, unknown>,
   nonce: number,
   signature: `0x${string}`,
+  retries = 2,
 ): Promise<Record<string, unknown>> {
-  const res = await fetch(`${HL_API}/exchange`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      action,
-      nonce,
-      signature: splitSig(signature),
-      vaultAddress: null,
-    }),
-  });
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(`${HL_API}/exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        nonce,
+        signature: splitSig(signature),
+        vaultAddress: null,
+      }),
+    });
 
-  if (!res.ok) {
-    const text = await res.text();
-    // Detect stale/unrecognized agent wallet — must be agent-specific, not generic "not found"
-    const lower = text.toLowerCase();
-    if (lower.includes("wallet does not exist") || lower.includes("agent does not exist") || lower.includes("unknown wallet") || lower.includes("user does not exist")) {
-      throw new StaleAgentError(`Exchange API error: ${res.status} ${text}`);
+    // Retry on rate limit (429)
+    if (res.status === 429 && attempt < retries) {
+      console.log(`[exchange] 429 rate limited, retrying in ${(attempt + 1) * 1000}ms...`);
+      await new Promise(r => setTimeout(r, (attempt + 1) * 1000));
+      continue;
     }
-    throw new Error(`Exchange API error: ${res.status} ${text}`);
+
+    if (!res.ok) {
+      const text = await res.text();
+      // Detect stale/unrecognized agent wallet — must be agent-specific, not generic "not found"
+      const lower = text.toLowerCase();
+      if (lower.includes("wallet does not exist") || lower.includes("agent does not exist") || lower.includes("unknown wallet") || lower.includes("user does not exist")) {
+        throw new StaleAgentError(`Exchange API error: ${res.status} ${text}`);
+      }
+      throw new Error(`Exchange API error: ${res.status} ${text}`);
+    }
+
+    const result = await res.json();
+    // Also check for agent-specific errors in response body
+    const responseStr = typeof result.response === "string" ? result.response.toLowerCase() : "";
+    if (responseStr.includes("wallet does not exist") || responseStr.includes("agent does not exist") || responseStr.includes("unknown wallet") || responseStr.includes("user does not exist")) {
+      throw new StaleAgentError(typeof result.response === "string" ? result.response : responseStr);
+    }
+
+    return result;
   }
 
-  const result = await res.json();
-  // Also check for agent-specific errors in response body
-  const responseStr = typeof result.response === "string" ? result.response.toLowerCase() : "";
-  if (responseStr.includes("wallet does not exist") || responseStr.includes("agent does not exist") || responseStr.includes("unknown wallet") || responseStr.includes("user does not exist")) {
-    throw new StaleAgentError(typeof result.response === "string" ? result.response : responseStr);
-  }
-
-  return result;
+  throw new Error("Exchange API error: 429 rate limited after retries");
 }
 
 // ─── Set leverage ────────────────────────────────────────────────────────────
