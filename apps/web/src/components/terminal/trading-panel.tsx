@@ -560,12 +560,10 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         <button
           className={`w-full py-2.5 rounded font-semibold text-[13px] transition-colors ${
             !isConnected
-              ? "bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110"
+              ? "bg-[#0ea5e9] text-white hover:brightness-110"
               : sizeNum <= 0
                 ? "bg-[var(--hl-surface)] text-[var(--hl-muted)] cursor-not-allowed"
-                : side === "long"
-                  ? "bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
-                  : "bg-[var(--hl-red)] text-white hover:brightness-110"
+                : "bg-[#0ea5e9] text-white hover:brightness-110"
           } ${submitting ? "opacity-50" : ""}`}
           disabled={submitting || (isConnected && sizeNum <= 0)}
           onClick={() => {
@@ -822,11 +820,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
               href={`https://derive.xyz/trade/options/${coin}`}
               target="_blank"
               rel="noopener noreferrer"
-              className={`w-full py-2.5 rounded font-semibold text-[12px] text-center block transition-colors ${
-                optionSide === "buy"
-                  ? "bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
-                  : "bg-[var(--hl-red)] text-white hover:brightness-110"
-              }`}
+              className="w-full py-2.5 rounded font-semibold text-[12px] text-center block transition-colors bg-[#0ea5e9] text-white hover:brightness-110"
             >
               {optionSide === "buy" ? `Buy ${typeLabel}` : `Sell ${typeLabel}`} on Derive
             </a>
