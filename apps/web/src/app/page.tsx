@@ -209,7 +209,7 @@ export default function HomePage() {
       </div>
 
       {/* Chart / Options Chain + Trading Panel */}
-      <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)] overflow-hidden" style={{ minHeight: "320px" }}>
+      <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)] overflow-hidden" style={{ minHeight: "300px" }}>
         {/* Main area: Chart or Options Chain */}
         {tradingMode === "options" ? (
           <div className="flex-1 min-w-0 h-[300px] md:h-[420px] overflow-hidden">
@@ -238,7 +238,7 @@ export default function HomePage() {
           </>
         )}
         {/* Trading Panel — full width on mobile, fixed on desktop */}
-        <div className="w-full md:w-[280px] flex-shrink-0">
+        <div className="w-full md:w-[260px] flex-shrink-0">
           <TradingPanel
             coin={chartCoin}
             overview={chartOverview}
@@ -253,7 +253,7 @@ export default function HomePage() {
       </div>
 
       {/* Positions — shows when wallet connected */}
-      <div className="border-b border-[var(--hl-border)] px-2 py-2">
+      <div className="border-b border-[var(--hl-border)] px-2 py-1">
         <PositionsPanel onSelectToken={handleSelectToken} />
       </div>
 

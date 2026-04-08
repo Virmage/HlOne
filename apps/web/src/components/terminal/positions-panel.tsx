@@ -332,8 +332,8 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
         {/* Account info — right side */}
         {account && (
           <div className="ml-auto flex gap-3 text-[10px] pr-1 shrink-0">
-            <span className="text-[var(--hl-muted)]">
-              Acct: <span className="text-[var(--hl-accent)] tabular-nums font-medium">${account.accountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            <span className="text-[var(--hl-accent)]">
+              Acct: <span className="tabular-nums font-medium">${account.accountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
             </span>
             <span className={totalPnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}>
               uPnL: {totalPnl >= 0 ? "+" : ""}${totalPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -343,7 +343,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       </div>
 
       {/* Tab content */}
-      <div className="min-h-[60px]">
+      <div className="min-h-[40px]">
         {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} triggerOrders={triggerOrders} onSelectToken={onSelectToken} onClose={handleClose} onCloseAll={handleCloseAll} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
         {tab === "balances" && <BalancesTab account={account} />}
         {tab === "orders" && <OpenOrdersTab orders={openOrders} onSelectToken={onSelectToken} />}
