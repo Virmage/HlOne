@@ -26,6 +26,31 @@ interface DrawingLine {
 
 const POLL_INTERVAL = 15_000; // 15 seconds
 
+// ─── Direct HL candle fetch (fast, ~200ms, no backend round-trip) ────────
+const HL_API = "https://api.hyperliquid.xyz";
+const LOOKBACK: Record<string, number> = {
+  "5m": 2 * 86400_000, "15m": 5 * 86400_000, "1h": 14 * 86400_000,
+  "4h": 30 * 86400_000, "1d": 365 * 86400_000, "1w": 3 * 365 * 86400_000, "1M": 5 * 365 * 86400_000,
+};
+
+type CandleRaw = { t: number; o: string; h: string; l: string; c: string; v: string };
+
+async function fetchCandlesDirect(coin: string, interval: string): Promise<TokenDetail["candles"]> {
+  const now = Date.now();
+  const startTime = now - (LOOKBACK[interval] || 7 * 86400_000);
+  const res = await fetch(`${HL_API}/info`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "candleSnapshot", req: { coin, interval, startTime, endTime: now } }),
+  });
+  if (!res.ok) return [];
+  const raw: CandleRaw[] = await res.json();
+  return raw.map(c => ({
+    time: c.t, open: parseFloat(c.o), high: parseFloat(c.h),
+    low: parseFloat(c.l), close: parseFloat(c.c), volume: parseFloat(c.v),
+  }));
+}
+
 export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liquidationBands }: PriceChartProps) {
   const [interval, setInterval] = useState<Interval>("1h");
   const [detail, setDetail] = useState<TokenDetail | null>(null);
@@ -34,46 +59,52 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
 
   const overview = tokens.find(t => t.coin === coin);
 
-  const fetchData = useCallback(async (showLoading = false) => {
-    if (showLoading) setLoading(true);
-    try {
-      const d = await getTokenDetail(coin, interval);
-      setDetail(d);
-    } catch { /* ignore */ }
-    if (showLoading) setLoading(false);
-  }, [coin, interval]);
-
-  // Initial fetch + polling — only show loading on first load or coin change
+  // Full detail fetch (initial load + coin change + background poll)
   const prevCoinRef = useRef(coin);
+  const prevIntervalRef = useRef(interval);
   useEffect(() => {
     let cancelled = false;
     const coinChanged = prevCoinRef.current !== coin;
+    const intervalChanged = prevIntervalRef.current !== interval;
     prevCoinRef.current = coin;
-    // Only show full loading spinner on first load or coin change
-    // Interval changes keep the old chart visible (no flash)
-    if (coinChanged || !detail) setLoading(true);
+    prevIntervalRef.current = interval;
 
-    getTokenDetail(coin, interval)
-      .then(d => { if (!cancelled) setDetail(d); })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
+    if (coinChanged || !detail) {
+      // Coin change or first load: fetch full detail (candles + positions + funding etc.)
+      setLoading(true);
+      getTokenDetail(coin, interval)
+        .then(d => { if (!cancelled) setDetail(d); })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) setLoading(false); });
+    } else if (intervalChanged) {
+      // Interval change only: fetch just candles directly from HL (fast!)
+      fetchCandlesDirect(coin, interval)
+        .then(candles => {
+          if (!cancelled && candles.length > 0) {
+            setDetail(prev => prev ? { ...prev, candles } : prev);
+          }
+        })
+        .catch(() => {});
+    }
 
-    // Pre-fetch adjacent intervals so switching feels instant
-    const allIntervals: Interval[] = ["5m", "15m", "1h", "4h", "1d", "1w", "1M"];
-    const idx = allIntervals.indexOf(interval);
-    const adjacent = [allIntervals[idx - 1], allIntervals[idx + 1]].filter(Boolean);
-    adjacent.forEach(iv => { if (iv) getTokenDetail(coin, iv); }); // warm cache
-
-    // Poll for live updates (skip if tab hidden)
+    // Poll for live candle updates (skip if tab hidden)
     pollRef.current = globalThis.setInterval(() => {
-      if (!cancelled && !document.hidden) fetchData(false);
+      if (!cancelled && !document.hidden) {
+        fetchCandlesDirect(coin, interval)
+          .then(candles => {
+            if (!cancelled && candles.length > 0) {
+              setDetail(prev => prev ? { ...prev, candles } : prev);
+            }
+          })
+          .catch(() => {});
+      }
     }, POLL_INTERVAL);
 
     return () => {
       cancelled = true;
       if (pollRef.current) globalThis.clearInterval(pollRef.current);
     };
-  }, [coin, interval, fetchData]);
+  }, [coin, interval]);
 
   const chartData = useMemo(() => {
     if (!detail?.candles?.length) return [];

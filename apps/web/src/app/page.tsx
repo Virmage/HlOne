@@ -120,6 +120,19 @@ export default function HomePage() {
     setCopyTrader(addr);
   }, []);
 
+  const handleOpenOptions = useCallback((coin: string) => {
+    setOptionsChainCoin(coin);
+  }, []);
+
+  const handleChangeCoin = useCallback((c: string) => {
+    setChartCoin(c);
+    setSelectedOption(null);
+  }, []);
+
+  const handleClearCopy = useCallback((open: boolean) => {
+    if (!open) setCopyTrader(null);
+  }, []);
+
   const chartOverview = useMemo(
     () => data?.tokens?.find(t => t.coin === chartCoin || t.displayName === chartCoin) ?? null,
     [data?.tokens, chartCoin]
@@ -168,7 +181,7 @@ export default function HomePage() {
           regime={data?.regime || null}
           options={data?.options || {}}
           onSelectToken={handleSelectToken}
-          onOpenOptions={(coin: string) => setOptionsChainCoin(coin)}
+          onOpenOptions={handleOpenOptions}
           avgCorrelation={data?.correlationMatrix?.avgCorrelation ?? null}
         />
       </div>
@@ -182,7 +195,7 @@ export default function HomePage() {
               coin={chartCoin.includes(":") ? chartCoin.split(":")[1] : chartCoin}
               onSelectOption={setSelectedOption}
               selectedOption={selectedOption}
-              onChangeCoin={(c) => { setChartCoin(c); setSelectedOption(null); }}
+              onChangeCoin={handleChangeCoin}
             />
           </div>
         ) : (
@@ -208,7 +221,7 @@ export default function HomePage() {
             coin={chartCoin}
             overview={chartOverview}
             score={chartOverview?.score ?? null}
-            onOpenOptionsChain={(coin) => setOptionsChainCoin(coin)}
+            onOpenOptionsChain={handleOpenOptions}
             tradingMode={tradingMode}
             onTradingModeChange={setTradingMode}
             selectedOption={selectedOption}
@@ -338,7 +351,7 @@ export default function HomePage() {
       {copyTrader && (
         <CopyDialog
           open={true}
-          onOpenChange={(open) => !open && setCopyTrader(null)}
+          onOpenChange={handleClearCopy}
           traderAddress={copyTrader}
           walletAddress={walletAddress}
         />
