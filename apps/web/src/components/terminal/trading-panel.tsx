@@ -553,35 +553,35 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         )}
       </div>
 
-      {/* Submit button */}
+      {/* Submit button — always show trade action; connect wallet on click if needed */}
       <div className="px-3 py-3 mt-auto">
-        {isConnected ? (
-          <button
-            className={`w-full py-2.5 rounded font-semibold text-[13px] transition-colors ${
-              sizeNum <= 0
+        <button
+          className={`w-full py-2.5 rounded font-semibold text-[13px] transition-colors ${
+            !isConnected
+              ? "bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110"
+              : sizeNum <= 0
                 ? "bg-[var(--hl-surface)] text-[var(--hl-muted)] cursor-not-allowed"
-                : "bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110"
-            } ${submitting ? "opacity-50" : ""}`}
-            disabled={submitting || sizeNum <= 0}
-            onClick={handleSubmit}
-          >
-            {submitting
-              ? "Signing..."
+                : side === "long"
+                  ? "bg-[var(--hl-green)] text-[var(--background)] hover:brightness-110"
+                  : "bg-[var(--hl-red)] text-white hover:brightness-110"
+          } ${submitting ? "opacity-50" : ""}`}
+          disabled={submitting || (isConnected && sizeNum <= 0)}
+          onClick={() => {
+            if (!isConnected) {
+              document.querySelector<HTMLButtonElement>('[data-testid="rk-connect-button"]')?.click();
+            } else {
+              handleSubmit();
+            }
+          }}
+        >
+          {submitting
+            ? "Signing..."
+            : !isConnected
+              ? "Connect Wallet"
               : sizeNum <= 0
                 ? `${side === "long" ? "Buy / Long" : "Sell / Short"}`
                 : `${side === "long" ? "Buy / Long" : "Sell / Short"} ${displayCoin}`}
-          </button>
-        ) : (
-          <button
-            className="w-full py-2.5 rounded font-semibold text-[13px] bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 transition-colors"
-            onClick={() => {
-              // Trigger wallet connect via RainbowKit
-              document.querySelector<HTMLButtonElement>('[data-testid="rk-connect-button"]')?.click();
-            }}
-          >
-            Connect Wallet
-          </button>
-        )}
+        </button>
       </div>
 
       </>}

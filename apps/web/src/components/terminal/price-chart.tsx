@@ -1387,8 +1387,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
                 elements.push(
                   <g key={`whale-${candleIdx}-${j}`}>
                     <title>{`${m.name}: ${m.isBuy ? "BUY" : "SELL"} $${(m.size / 1e6).toFixed(1)}M @ ${formatPrice(m.price)}`}</title>
-                    {/* Glow ring */}
-                    <circle cx={x} cy={y} r={R + 2} fill={color} opacity={0.15} />
+                    {/* Buy/sell colored ring */}
+                    <circle cx={x} cy={y} r={R + 3} fill="none" stroke={color} strokeWidth={2} opacity={0.9} />
+                    <circle cx={x} cy={y} r={R + 4.5} fill="none" stroke={color} strokeWidth={0.5} opacity={0.3} />
                     {/* Emoji */}
                     <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={isShark ? 13 : 12} style={{ pointerEvents: "none" }}>{emoji}</text>
                   </g>

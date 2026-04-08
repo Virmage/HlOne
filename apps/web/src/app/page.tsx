@@ -208,10 +208,10 @@ export default function HomePage() {
       </div>
 
       {/* Chart / Options Chain + Trading Panel */}
-      <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)] overflow-hidden" style={{ minHeight: "300px" }}>
+      <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)] overflow-hidden">
         {/* Main area: Chart or Options Chain */}
         {tradingMode === "options" ? (
-          <div className="flex-1 min-w-0 h-[300px] md:h-[420px] overflow-hidden">
+          <div className="flex-1 min-w-0 h-[300px] md:h-[400px] overflow-hidden">
             <InlineOptionsChain
               coin={chartCoin.includes(":") ? chartCoin.split(":")[1] : chartCoin}
               onSelectOption={setSelectedOption}
@@ -221,7 +221,7 @@ export default function HomePage() {
           </div>
         ) : (
           <>
-            <div className="flex-1 min-w-0 h-[300px] md:h-[420px] overflow-hidden">
+            <div className="flex-1 min-w-0 h-[300px] md:h-[400px] overflow-hidden">
               <PriceChart
                 coin={chartCoin}
                 tokens={data?.tokens || []}
@@ -231,7 +231,7 @@ export default function HomePage() {
               />
             </div>
             {/* Order Book — hidden on mobile */}
-            <div className="hidden lg:block w-[180px] flex-shrink-0 h-[420px]">
+            <div className="hidden lg:block w-[180px] flex-shrink-0 h-[400px]">
               <OrderBook coin={chartCoin} />
             </div>
           </>
