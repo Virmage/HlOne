@@ -12,7 +12,7 @@ import { discoverActiveTraders, getCandleSnapshot, getFundingHistory, getL2Book,
 import { getOptionsData, getAllOptionsData, type OptionsSnapshot } from "../services/options-data.js";
 import { getDeriveOptionsData, getAllDeriveOptionsData, getDeriveOptionsChain, getDeriveSupportedCoins } from "../services/derive-options.js";
 import { getSignals, getSignalsCached } from "../services/signals.js";
-import { getOICandlesForInterval } from "../services/oi-tracker.js";
+import { getOICandlesForInterval, getOICandlesFromCoinalyze } from "../services/oi-tracker.js";
 import { getNewsFeedCached, getCoinNews, type NewsPost } from "../services/crypto-panic.js";
 import { getAllSocialMetricsCached, getSocialMetricsCached, type SocialMetrics } from "../services/lunar-crush.js";
 import { getLargeTradesCached } from "../services/trade-tape.js";
@@ -442,7 +442,16 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         "1w": 156,
         "1M": 60,
       };
-      const oiCandles = getOICandlesForInterval(coin, interval, oiCountMap[interval] || 200);
+      let oiCandles = getOICandlesForInterval(coin, interval, oiCountMap[interval] || 200);
+      // Fallback to Coinalyze if local OI data is sparse (< 10 candles)
+      if (oiCandles.length < 10) {
+        try {
+          const coinalyzeOI = await getOICandlesFromCoinalyze(coin, interval, candleSince, now);
+          if (coinalyzeOI.length > oiCandles.length) {
+            oiCandles = coinalyzeOI;
+          }
+        } catch { /* ignore — local data is still usable */ }
+      }
 
       // Top trader fills for chart markers
       const topTraderFillsRaw = getTopTraderFills(coin, candleSince);

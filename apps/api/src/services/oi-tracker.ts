@@ -228,3 +228,59 @@ export function getOICandlesForInterval(coin: string, interval: string, count = 
   const ms = INTERVAL_MS[interval] || INTERVAL_MS["5m"];
   return getOICandles(coin, ms, count);
 }
+
+// ─── Coinalyze fallback for historical OI ──────────────────────────────────
+
+// Coinalyze uses specific symbol format: e.g. "BTC" → "BTCUSD_PERP.A" (Hyperliquid)
+// Their interval format: "1hour", "4hour", "1day", "1week"
+const COINALYZE_INTERVAL: Record<string, string> = {
+  "5m": "5min", "15m": "15min", "1h": "1hour", "4h": "4hour",
+  "1d": "1day", "1w": "1week", "1M": "1month",
+};
+
+// In-memory cache for Coinalyze responses (avoid hammering their API)
+const coinalyzeCache = new Map<string, { data: OICandle[]; fetchedAt: number }>();
+const COINALYZE_CACHE_TTL = 5 * 60_000; // 5 minutes
+
+export async function getOICandlesFromCoinalyze(
+  coin: string, interval: string, fromMs: number, toMs: number
+): Promise<OICandle[]> {
+  const cacheKey = `${coin}_${interval}`;
+  const cached = coinalyzeCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < COINALYZE_CACHE_TTL) {
+    return cached.data;
+  }
+
+  const symbol = `${coin.toUpperCase()}USD_PERP.A`; // Hyperliquid on Coinalyze
+  const coinalyzeInterval = COINALYZE_INTERVAL[interval];
+  if (!coinalyzeInterval) return [];
+
+  try {
+    const apiKey = process.env.COINALYZE_API_KEY;
+    if (!apiKey) return [];
+    const url = `https://api.coinalyze.net/v1/open-interest-history?symbols=${symbol}&interval=${coinalyzeInterval}&from=${Math.floor(fromMs / 1000)}&to=${Math.floor(toMs / 1000)}&api_key=${apiKey}`;
+    const res = await fetch(url, {
+      headers: { "Accept": "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    // Response: [{ symbol, history: [{ t, o, h, l, c }] }]
+    const entry = Array.isArray(json) ? json[0] : null;
+    if (!entry?.history?.length) return [];
+
+    const candles: OICandle[] = entry.history.map((h: { t: number; o: number; h: number; l: number; c: number }) => ({
+      time: h.t * 1000, // convert seconds to ms
+      open: h.o,
+      high: h.h,
+      low: h.l,
+      close: h.c,
+    }));
+
+    coinalyzeCache.set(cacheKey, { data: candles, fetchedAt: Date.now() });
+    return candles;
+  } catch (err) {
+    console.warn(`[oi-tracker] Coinalyze fetch failed for ${coin}:`, (err as Error).message);
+    return [];
+  }
+}
