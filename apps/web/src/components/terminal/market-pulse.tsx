@@ -141,7 +141,7 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
             {/* Market Correlation */}
             {avgCorrelation !== null && avgCorrelation !== undefined && (
               <div className="ticker-chip">
-                <span className="text-[var(--hl-muted)] text-[10px]">Corr</span>
+                <span className="text-[var(--hl-muted)] text-[10px]">Asset Corr.</span>
                 <span className={`font-bold tabular-nums ${
                   avgCorrelation > 0.6 ? "text-[var(--hl-red)]" : avgCorrelation > 0.3 ? "text-orange-400" : "text-[var(--hl-green)]"
                 }`}>

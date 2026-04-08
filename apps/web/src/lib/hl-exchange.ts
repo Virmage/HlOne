@@ -624,6 +624,21 @@ export async function placeTriggerOrder(
   address: `0x${string}`,
   params: TriggerOrderParams,
 ): Promise<PlaceOrderResult> {
+  // For TP: use reduce-only limit order (reliable, no trigger needed)
+  // For SL: use trigger order format
+  if (params.type === "tp") {
+    console.log("[tpsl] Placing TP as reduce-only limit order");
+    return placeOrder(agentKey, address, {
+      asset: params.asset,
+      isBuy: !params.isLong, // opposite side to close
+      size: Math.abs(params.size),
+      orderType: "limit",
+      limitPrice: params.triggerPrice,
+      reduceOnly: true,
+    });
+  }
+
+  console.log("[tpsl] Placing SL as trigger order");
   try {
     const assetIndex = await getAssetIndex(params.asset);
     const szDecimals = await getSzDecimals(params.asset);
@@ -631,9 +646,6 @@ export async function placeTriggerOrder(
 
     const size = roundSize(Math.abs(params.size), szDecimals);
     if (size <= 0) throw new Error("Size must be positive");
-
-    const tpsl = params.type === "tp" ? "tp" : "sl";
-    const isMarket = true;
 
     const orderWire = {
       a: assetIndex,
@@ -644,8 +656,8 @@ export async function placeTriggerOrder(
       t: {
         trigger: {
           triggerPx: floatToWire(roundPrice(params.triggerPrice)),
-          isMarket,
-          tpsl,
+          isMarket: true,
+          tpsl: "sl" as const,
         },
       },
     };
@@ -659,6 +671,10 @@ export async function placeTriggerOrder(
         f: BUILDER_FEE,
       },
     };
+
+    console.log("[tpsl] SL action:", JSON.stringify(action));
+    const connectionId = actionHash(action, nonce);
+    console.log("[tpsl] SL connectionId:", connectionId.slice(0, 16) + "...");
 
     const signature = await signL1Action(agentKey, action, nonce);
     const result = await submitToExchange(action, nonce, signature) as {
