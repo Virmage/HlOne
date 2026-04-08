@@ -64,15 +64,7 @@ async function approveAgentOnChain(
   const agentAddr = agentAddress.toLowerCase();
 
   // Sign with agentName in the EIP-712 data (empty string = unnamed agent)
-  const signAction = {
-    type: "approveAgent",
-    hyperliquidChain: "Mainnet",
-    signatureChainId: "0x66eee", // Must match SDK: Arbitrum Sepolia (421614)
-    agentAddress: agentAddr,
-    agentName: "",
-    nonce,
-  };
-
+  // signatureChainId must match domain chainId; use 42161 (Arbitrum) so MetaMask accepts it
   const typedData = {
     types: {
       EIP712Domain: [
@@ -92,7 +84,7 @@ async function approveAgentOnChain(
     domain: {
       name: "HyperliquidSignTransaction",
       version: "1",
-      chainId: 421614, // Must match signatureChainId (0x66eee)
+      chainId: 42161,
       verifyingContract: "0x0000000000000000000000000000000000000000",
     },
     message: {
@@ -115,7 +107,7 @@ async function approveAgentOnChain(
   const postAction = {
     type: "approveAgent",
     hyperliquidChain: "Mainnet",
-    signatureChainId: "0x66eee",
+    signatureChainId: "0xa4b1",
     agentAddress: agentAddr,
     nonce,
   };
@@ -775,7 +767,7 @@ export async function approveBuilderFee(
     const action = {
       type: "approveBuilderFee",
       hyperliquidChain: "Mainnet",
-      signatureChainId: "0x66eee",
+      signatureChainId: "0xa4b1",
       maxFeeRate: "0.02%",
       builder: BUILDER_ADDRESS,
       nonce,
@@ -800,7 +792,7 @@ export async function approveBuilderFee(
       domain: {
         name: "HyperliquidSignTransaction",
         version: "1",
-        chainId: 421614,
+        chainId: 42161,
         verifyingContract: "0x0000000000000000000000000000000000000000",
       },
       message: {
