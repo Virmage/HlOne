@@ -219,6 +219,7 @@ const INTERVAL_MS: Record<string, number> = {
   "15m": 15 * 60_000,
   "1h": 60 * 60_000,
   "4h": 4 * 60 * 60_000,
+  "12h": 12 * 60 * 60_000,
   "1d": 24 * 60 * 60_000,
   "1w": 7 * 24 * 60 * 60_000,
   "1M": 30 * 24 * 60 * 60_000,
@@ -234,7 +235,7 @@ export function getOICandlesForInterval(coin: string, interval: string, count = 
 // Coinalyze uses specific symbol format: e.g. "BTC" → "BTCUSD_PERP.A" (Hyperliquid)
 // Their interval format: "1hour", "4hour", "1day", "1week"
 const COINALYZE_INTERVAL: Record<string, string> = {
-  "5m": "5min", "15m": "15min", "1h": "1hour", "4h": "4hour",
+  "5m": "5min", "15m": "15min", "1h": "1hour", "4h": "4hour", "12h": "12hour",
   "1d": "1day", "1w": "1week", "1M": "1month",
 };
 

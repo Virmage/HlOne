@@ -12,12 +12,12 @@ interface PriceChartProps {
   liquidationBands?: LiquidationBand[];
 }
 
-type Interval = "5m" | "15m" | "1h" | "4h" | "1d" | "1w" | "1M";
-type DrawingTool = "none" | "trendline" | "hline" | "ray";
+type Interval = "5m" | "15m" | "1h" | "4h" | "12h" | "1d" | "1w" | "1M";
+type DrawingTool = "none" | "trendline" | "hline" | "hray" | "ray";
 
 interface DrawingLine {
   id: string;
-  type: "trendline" | "hline" | "ray";
+  type: "trendline" | "hline" | "hray" | "ray";
   // Stored in price coordinates (not pixels) so they survive zoom/pan
   p1: { time: number; price: number };
   p2?: { time: number; price: number }; // undefined for hline
@@ -30,7 +30,7 @@ const POLL_INTERVAL = 15_000; // 15 seconds
 const HL_API = "https://api.hyperliquid.xyz";
 const LOOKBACK: Record<string, number> = {
   "5m": 2 * 86400_000, "15m": 5 * 86400_000, "1h": 14 * 86400_000,
-  "4h": 30 * 86400_000, "1d": 365 * 86400_000, "1w": 3 * 365 * 86400_000, "1M": 5 * 365 * 86400_000,
+  "4h": 30 * 86400_000, "12h": 60 * 86400_000, "1d": 365 * 86400_000, "1w": 3 * 365 * 86400_000, "1M": 5 * 365 * 86400_000,
 };
 
 type CandleRaw = { t: number; o: string; h: string; l: string; c: string; v: string };
@@ -148,7 +148,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
   const formatTime = (ts: number) => {
     const d = new Date(ts);
     if (interval === "1M") return d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
-    if (interval === "1w" || interval === "1d") return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    if (interval === "1w" || interval === "1d" || interval === "12h") return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
     return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   };
 
@@ -487,7 +487,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
       {/* Row 2: Timeframes */}
       <div className="flex items-center border-b border-[var(--hl-border)] px-3 py-0.5 shrink-0">
         <div className="flex items-center gap-0.5">
-          {(["5m", "15m", "1h", "4h", "1d", "1w", "1M"] as Interval[]).map(i => (
+          {(["5m", "15m", "1h", "4h", "12h", "1d", "1w", "1M"] as Interval[]).map(i => (
             <button
               key={i}
               onClick={() => setInterval(i)}
@@ -497,7 +497,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
                   : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
               }`}
             >
-              {i}
+              {i === "1M" ? "1m" : i}
             </button>
           ))}
         </div>
@@ -563,6 +563,19 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
               <line x1="2" y1="14" x2="26" y2="14" strokeDasharray="3 2" />
               <line x1="4" y1="14" x2="24" y2="14" />
+            </svg>
+          </button>
+
+          {/* Horizontal Ray — horizontal line extending right from click point */}
+          <button
+            onClick={() => { setDrawingTool(drawingTool === "hray" ? "none" : "hray"); setPendingDrawing(null); }}
+            className={`p-1 rounded transition-colors ${drawingTool === "hray" ? "bg-[var(--hl-surface)] text-[var(--hl-accent)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+            title="Horizontal Ray"
+          >
+            <svg width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <circle cx="4" cy="14" r="2" fill="currentColor" stroke="none" />
+              <line x1="5" y1="14" x2="26" y2="14" />
+              <polyline points="22,11 26,14 22,17" strokeWidth="1.4" strokeLinejoin="round" fill="none" />
             </svg>
           </button>
 
@@ -653,11 +666,11 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
                   }
                 }
               }
-              if (drawingTool === "hline") {
+              if (drawingTool === "hline" || drawingTool === "hray") {
                 drawingCounter.current++;
                 addDrawing({
                   id: `d_${drawingCounter.current}`,
-                  type: "hline",
+                  type: drawingTool,
                   p1: { time, price },
                   color: "var(--hl-green)",
                 });
@@ -1209,20 +1222,22 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
           {/* User drawings */}
           {drawings.map(d => {
-            if (d.type === "hline") {
+            if (d.type === "hline" || d.type === "hray") {
               const y = priceY(d.p1.price);
               if (y < MT || y > MT + priceH) return null;
+              const startX = d.type === "hray" ? timeToX(d.p1.time) : ML;
               return (
                 <g key={d.id}>
-                  <line x1={ML} y1={y} x2={W - MR} y2={y}
-                    stroke={d.color} strokeWidth={1} strokeDasharray="6 3" />
+                  <line x1={startX} y1={y} x2={W - MR} y2={y}
+                    stroke={d.color} strokeWidth={1} strokeDasharray={d.type === "hline" ? "6 3" : "none"} />
                   <text x={W - MR + 4} y={y + 3} fill={d.color} fontSize={9} fontFamily="monospace">
                     {formatPrice(d.p1.price)}
                   </text>
+                  {d.type === "hray" && <circle cx={startX} cy={y} r={3} fill={d.color} opacity={0.7} />}
                   {/* Delete button */}
-                  <circle cx={ML + 8} cy={y} r={5} fill="var(--hl-surface)" stroke={d.color} strokeWidth={0.8}
+                  <circle cx={startX + 8} cy={y} r={5} fill="var(--hl-surface)" stroke={d.color} strokeWidth={0.8}
                     style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onRemoveDrawing?.(d.id); }} />
-                  <text x={ML + 5} y={y + 3} fill={d.color} fontSize={8} style={{ cursor: "pointer", pointerEvents: "none" }}>×</text>
+                  <text x={startX + 5} y={y + 3} fill={d.color} fontSize={8} style={{ cursor: "pointer", pointerEvents: "none" }}>×</text>
                 </g>
               );
             }

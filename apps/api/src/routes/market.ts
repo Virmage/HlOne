@@ -336,6 +336,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         "15m": 5 * 24 * 3600_000,  // 5 days
         "1h": 14 * 24 * 3600_000,  // 14 days
         "4h": 30 * 24 * 3600_000,  // 30 days
+        "12h": 60 * 24 * 3600_000, // 60 days
         "1d": 365 * 24 * 3600_000, // 1 year
         "1w": 3 * 365 * 24 * 3600_000, // 3 years
         "1M": 5 * 365 * 24 * 3600_000, // 5 years
@@ -438,6 +439,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         "15m": 480,  // 5 days of 15m
         "1h": 336,   // 14 days of 1h
         "4h": 180,   // 30 days of 4h
+        "12h": 120,  // 60 days of 12h
         "1d": 365,
         "1w": 156,
         "1M": 60,
