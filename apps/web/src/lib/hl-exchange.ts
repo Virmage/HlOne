@@ -50,18 +50,25 @@ function clearStoredAgent(userAddress: string): void {
   } catch {}
 }
 
+/** Normalize v to 27/28 — some wallets return 0/1 */
+function normalizeV(v: number): number {
+  return v < 27 ? v + 27 : v;
+}
+
 async function approveAgentOnChain(
   walletClient: WalletClient,
   userAddress: string,
   agentAddress: string,
 ): Promise<{ success: boolean; error?: string }> {
   const nonce = Date.now();
+  // HL docs: lowercase all addresses
+  const agentAddr = agentAddress.toLowerCase();
 
   const action = {
     type: "approveAgent",
     hyperliquidChain: "Mainnet",
     signatureChainId: "0xa4b1",
-    agentAddress: agentAddress,
+    agentAddress: agentAddr,
     agentName: "HLOne",
     nonce,
   };
@@ -85,25 +92,25 @@ async function approveAgentOnChain(
     domain: {
       name: "HyperliquidSignTransaction",
       version: "1",
-      chainId: 42161, // Arbitrum mainnet — MetaMask accepts this
+      chainId: 42161,
       verifyingContract: "0x0000000000000000000000000000000000000000",
     },
     message: {
       hyperliquidChain: "Mainnet",
-      agentAddress: agentAddress,
+      agentAddress: agentAddr,
       agentName: "HLOne",
       nonce: nonce,
     },
   };
 
-  console.log("[approveAgent] Requesting MetaMask signature...");
+  console.log("[approveAgent] Requesting MetaMask signature for agent:", agentAddr.slice(0, 10) + "...");
   const signature = await rawSignTypedData(walletClient, userAddress, typedData);
   console.log("[approveAgent] Got signature:", signature.slice(0, 10) + "...");
 
-  // Split signature into r, s, v
+  // Split signature into r, s, v — normalize v to 27/28
   const r = signature.slice(0, 66);
   const s = `0x${signature.slice(66, 130)}`;
-  const v = parseInt(signature.slice(130, 132), 16);
+  const v = normalizeV(parseInt(signature.slice(130, 132), 16));
 
   const res = await fetch(`${HL_API}/exchange`, {
     method: "POST",
@@ -148,7 +155,7 @@ export async function ensureAgent(
   console.log("[agent] Generating new agent wallet...");
   const agentKey = generatePrivateKey();
   const agentAccount = privateKeyToAccount(agentKey);
-  console.log("[agent] Agent address:", agentAccount.address);
+  console.log("[agent] Agent address:", agentAccount.address, "for user:", userAddress.slice(0, 10) + "...");
 
   // Approve agent on-chain (MetaMask popup — one time only)
   const result = await approveAgentOnChain(walletClient, userAddress, agentAccount.address);
@@ -156,12 +163,13 @@ export async function ensureAgent(
     return { agentKey: "0x" as `0x${string}`, error: result.error };
   }
 
-  // Brief delay for HL to register the new agent before we use it
-  await new Promise(r => setTimeout(r, 1500));
+  // Wait for HL to register the new agent before we use it
+  console.log("[agent] Approval OK, waiting 3s for propagation...");
+  await new Promise(r => setTimeout(r, 3000));
 
   // Store for future use
   storeAgent(userAddress, agentKey);
-  console.log("[agent] Agent approved and stored");
+  console.log("[agent] Agent stored successfully");
   return { agentKey };
 }
 
@@ -393,7 +401,7 @@ function splitSig(sig: `0x${string}`): { r: string; s: string; v: number } {
   return {
     r: sig.slice(0, 66),
     s: `0x${sig.slice(66, 130)}`,
-    v: parseInt(sig.slice(130, 132), 16),
+    v: normalizeV(parseInt(sig.slice(130, 132), 16)),
   };
 }
 
@@ -800,7 +808,7 @@ export async function approveBuilderFee(
 
     const r = signature.slice(0, 66);
     const s = `0x${signature.slice(66, 130)}`;
-    const v = parseInt(signature.slice(130, 132), 16);
+    const v = normalizeV(parseInt(signature.slice(130, 132), 16));
 
     const res = await fetch(`${HL_API}/exchange`, {
       method: "POST",
