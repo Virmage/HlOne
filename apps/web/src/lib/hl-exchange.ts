@@ -434,7 +434,7 @@ async function submitToExchange(
       const text = await res.text();
       // Detect stale/unrecognized agent wallet — must be agent-specific, not generic "not found"
       const lower = text.toLowerCase();
-      if (lower.includes("wallet does not exist") || lower.includes("agent does not exist") || lower.includes("unknown wallet") || lower.includes("user does not exist")) {
+      if (lower.includes("does not exist") || lower.includes("unknown wallet")) {
         throw new StaleAgentError(`Exchange API error: ${res.status} ${text}`);
       }
       throw new Error(`Exchange API error: ${res.status} ${text}`);
@@ -443,7 +443,7 @@ async function submitToExchange(
     const result = await res.json();
     // Also check for agent-specific errors in response body
     const responseStr = typeof result.response === "string" ? result.response.toLowerCase() : "";
-    if (responseStr.includes("wallet does not exist") || responseStr.includes("agent does not exist") || responseStr.includes("unknown wallet") || responseStr.includes("user does not exist")) {
+    if (responseStr.includes("does not exist") || responseStr.includes("unknown wallet")) {
       throw new StaleAgentError(typeof result.response === "string" ? result.response : responseStr);
     }
 
