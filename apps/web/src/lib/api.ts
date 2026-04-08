@@ -4,15 +4,28 @@ const API_URL = typeof window !== "undefined" && process.env.NODE_ENV === "produ
   ? ""  // Relative — proxied via next.config rewrites
   : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001");
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`);
+async function apiFetch<T>(path: string, options?: RequestInit & { retries?: number }): Promise<T> {
+  const maxRetries = options?.retries ?? 2;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * attempt)); // backoff
+      const res = await fetch(`${API_URL}${path}`, {
+        headers: { "Content-Type": "application/json" },
+        ...options,
+      });
+      if (!res.ok) {
+        throw new Error(`API error: ${res.status} ${res.statusText}`);
+      }
+      return await res.json();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries) continue;
+    }
   }
-  return res.json();
+
+  throw lastError!;
 }
 
 // ─── Traders ─────────────────────────────────────────────────────────────────

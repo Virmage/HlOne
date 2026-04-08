@@ -15,13 +15,22 @@ export function useTerminal() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const retryRef = { current: 0 };
+
   const fetch = useCallback(async () => {
     try {
       const result = await getTerminalData();
       setData(result);
       setError(null);
+      retryRef.current = 0;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch terminal data");
+      const msg = err instanceof Error ? err.message : "Failed to fetch terminal data";
+      setError(msg);
+      // Auto-retry up to 3 times with backoff (handles API cold starts)
+      if (retryRef.current < 3) {
+        retryRef.current++;
+        setTimeout(() => fetch(), 2000 * retryRef.current);
+      }
     } finally {
       setLoading(false);
     }
@@ -49,15 +58,19 @@ export function useTerminal() {
       if (interval) { clearInterval(interval); interval = null; }
     };
 
+    let lastRefetch = Date.now();
     const handleVisibility = () => {
       if (document.hidden) {
         stopPolling();
       } else {
-        // Refresh immediately on tab refocus, then resume polling
-        getWhaleAlertsFeed(30)
-          .then(result => setData(prev => prev ? { ...prev, whaleAlerts: result.alerts, hotTokens: result.hotTokens } : prev))
-          .catch(() => {});
         startPolling();
+        // Only refetch if tab was hidden for >2 minutes
+        if (Date.now() - lastRefetch > 120_000) {
+          lastRefetch = Date.now();
+          getWhaleAlertsFeed(20)
+            .then(result => setData(prev => prev ? { ...prev, whaleAlerts: result.alerts, hotTokens: result.hotTokens } : prev))
+            .catch(() => {});
+        }
       }
     };
 

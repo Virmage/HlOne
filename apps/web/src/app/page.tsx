@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useTerminal } from "@/hooks/use-terminal";
 import { TickerBar } from "@/components/terminal/ticker-bar";
@@ -103,17 +103,27 @@ export default function HomePage() {
     }
   }, [data]);
 
-  // When a token is selected from any panel, update chart
-  const handleSelectToken = (coin: string) => {
+  // Stable callbacks — prevent child re-renders
+  const handleSelectToken = useCallback((coin: string) => {
     setChartCoin(coin);
-  };
+  }, []);
 
-  // Deep-dive drawer on double-click or specific action
-  const handleDeepDive = (coin: string) => {
+  const handleDeepDive = useCallback((coin: string) => {
     setSelectedToken(coin);
-  };
+  }, []);
 
-  const chartOverview = data?.tokens?.find(t => t.coin === chartCoin || t.displayName === chartCoin) ?? null;
+  const handleSelectTrader = useCallback((addr: string) => {
+    setSelectedTrader(addr);
+  }, []);
+
+  const handleCopy = useCallback((addr: string) => {
+    setCopyTrader(addr);
+  }, []);
+
+  const chartOverview = useMemo(
+    () => data?.tokens?.find(t => t.coin === chartCoin || t.displayName === chartCoin) ?? null,
+    [data?.tokens, chartCoin]
+  );
 
   if (loading && !data) {
     return (
@@ -244,8 +254,8 @@ export default function HomePage() {
               <WhaleFeed
                 alerts={data?.whaleAlerts || []}
                 onSelectToken={handleSelectToken}
-                onSelectTrader={setSelectedTrader}
-                onCopy={setCopyTrader}
+                onSelectTrader={handleSelectTrader}
+                onCopy={handleCopy}
               />
             </div>
 
@@ -302,7 +312,7 @@ export default function HomePage() {
         <TokenDrawer
           coin={selectedToken}
           onClose={() => setSelectedToken(null)}
-          onCopy={setCopyTrader}
+          onCopy={handleCopy}
         />
       )}
 
@@ -312,7 +322,7 @@ export default function HomePage() {
           <TraderDetailPanel
             address={selectedTrader}
             onClose={() => setSelectedTrader(null)}
-            onCopy={setCopyTrader}
+            onCopy={handleCopy}
           />
         </div>
       )}

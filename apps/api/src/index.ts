@@ -6,6 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: resolve(__dirname, "../../.env") }); // apps/api/.env
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import compress from "@fastify/compress";
 import rateLimit from "@fastify/rate-limit";
 import { createDb, runMigrations } from "@hl-copy/db";
 import { traderRoutes } from "./routes/traders.js";
@@ -25,17 +26,16 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 async function main() {
   console.log(`[startup] Starting API server (PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || "development"})...`);
 
-  // ─── Auto-run DB migrations on startup (non-blocking) ───────────────────────
-  try {
-    console.log("[startup] Running DB migrations...");
-    await runMigrations(DATABASE_URL);
-    console.log("[startup] Migrations OK");
-  } catch (err) {
-    console.error("[startup] Migration failed (non-fatal):", (err as Error).message);
-  }
+  // ─── Auto-run DB migrations (non-blocking — don't delay server start) ───────
+  runMigrations(DATABASE_URL)
+    .then(() => console.log("[startup] Migrations OK"))
+    .catch(err => console.error("[startup] Migration failed (non-fatal):", (err as Error).message));
 
   console.log("[startup] Creating Fastify instance...");
   const app = Fastify({ logger: true });
+
+  // ─── Gzip/Brotli compression — massive payload reduction ─────────────────
+  await app.register(compress, { threshold: 1024 });
 
   // ─── Rate limiting ──────────────────────────────────────────────────────────
   console.log("[startup] Registering rate-limit...");

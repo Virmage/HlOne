@@ -86,6 +86,17 @@ let tradersCache: { data: unknown[]; fetchedAt: number } | null = null;
 const TRADERS_CACHE_TTL = 60_000; // 60 seconds
 
 export const marketRoutes: FastifyPluginAsync = async (app) => {
+  // Cache-Control headers for browser/CDN caching
+  app.addHook("onSend", async (req, reply) => {
+    if (req.url === "/api/market/terminal") {
+      reply.header("Cache-Control", "public, max-age=10, stale-while-revalidate=30");
+    } else if (req.url.startsWith("/api/market/token/")) {
+      reply.header("Cache-Control", "public, max-age=5, stale-while-revalidate=15");
+    } else if (req.url === "/api/market/whale-alerts") {
+      reply.header("Cache-Control", "public, max-age=10, stale-while-revalidate=20");
+    }
+  });
+
   /**
    * GET /api/market/terminal
    * Returns everything the main dashboard needs in one call.
@@ -106,7 +117,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     const smartMoney = getSmartMoneyCached();
     const scores = getTokenScoresCached();
 
-    const whaleAlerts = getWhaleAlerts(30);
+    const whaleAlerts = getWhaleAlerts(20);
     const hotTokens = getHotTokens(10);
 
     // All tokens with scores (perps + spot + HIP-3 tradfi)
@@ -115,16 +126,22 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       score: scores.get(t.coin) || null,
     }));
 
+    // Build overview lookup map (O(1) instead of O(n) per flow entry)
+    const overviewMap = new Map(overviews.map(o => [o.coin, o]));
+
     // Sharp flow — top tokens by smart money interest, min 5 rows
-    const rawFlow = smartMoney?.flow.slice(0, 30).map(f => ({
-      ...f,
-      score: scores.get(f.coin)?.score ?? null,
-      signal: scores.get(f.coin)?.signal ?? "neutral",
-      price: overviews.find(o => o.coin === f.coin)?.price ?? 0,
-      change24h: overviews.find(o => o.coin === f.coin)?.change24h ?? 0,
-      volume24h: overviews.find(o => o.coin === f.coin)?.volume24h ?? 0,
-      fundingRate: overviews.find(o => o.coin === f.coin)?.fundingRate ?? 0,
-    })) || [];
+    const rawFlow = smartMoney?.flow.slice(0, 30).map(f => {
+      const ov = overviewMap.get(f.coin);
+      return {
+        ...f,
+        score: scores.get(f.coin)?.score ?? null,
+        signal: scores.get(f.coin)?.signal ?? "neutral",
+        price: ov?.price ?? 0,
+        change24h: ov?.change24h ?? 0,
+        volume24h: ov?.volume24h ?? 0,
+        fundingRate: ov?.fundingRate ?? 0,
+      };
+    }) || [];
 
     // Pad with top coins by volume if fewer than 5 sharp flow entries
     const MIN_SHARP_ROWS = 5;
@@ -161,12 +178,15 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // Divergences
-    const divergences = smartMoney?.divergences.slice(0, 10).map(d => ({
-      ...d,
-      score: scores.get(d.coin)?.score ?? null,
-      price: overviews.find(o => o.coin === d.coin)?.price ?? 0,
-      change24h: overviews.find(o => o.coin === d.coin)?.change24h ?? 0,
-    })) || [];
+    const divergences = smartMoney?.divergences.slice(0, 10).map(d => {
+      const ov = overviewMap.get(d.coin);
+      return {
+        ...d,
+        score: scores.get(d.coin)?.score ?? null,
+        price: ov?.price ?? 0,
+        change24h: ov?.change24h ?? 0,
+      };
+    }) || [];
 
     // Top traders (mini leaderboard) — cached 60s to avoid fetching 32K traders per request
     let topTraders: {
@@ -274,8 +294,8 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       fundingOpps: signalsData?.fundingOpps.slice(0, 5) || [],
       regime: signalsData?.regime || null,
       callout: signalsData?.callout || null,
-      news: newsFeed?.posts.slice(0, 20) || [],
-      social: socialMetrics.slice(0, 30),
+      news: newsFeed?.posts.slice(0, 10) || [],
+      social: socialMetrics.slice(0, 20),
       funding,
       largeTrades,
       macro,

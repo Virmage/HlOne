@@ -48,10 +48,11 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
   const [accountValue, setAccountValue] = useState(0);
   const [currentPosition, setCurrentPosition] = useState(0);
 
-  // Fetch account value + current position from Hyperliquid
+  // Fetch account value + current position — skip when tab hidden
   useEffect(() => {
     if (!address) { setAccountValue(0); setCurrentPosition(0); return; }
     const fetchState = async () => {
+      if (document.hidden) return; // skip when tab not visible
       try {
         const res = await fetch("https://api.hyperliquid.xyz/info", {
           method: "POST",
@@ -61,7 +62,6 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         const data = await res.json();
         const av = parseFloat(data?.marginSummary?.accountValue ?? "0");
         setAccountValue(av);
-        // Find current position for this coin
         const pos = data?.assetPositions?.find((p: { position: { coin: string } }) =>
           p.position.coin === displayCoin
         );
@@ -69,7 +69,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
       } catch { setAccountValue(0); setCurrentPosition(0); }
     };
     fetchState();
-    const interval = window.setInterval(fetchState, 15_000);
+    const interval = window.setInterval(fetchState, 30_000); // 30s instead of 15s
     return () => clearInterval(interval);
   }, [address, coin]);
 
@@ -143,13 +143,13 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
 
       // Step 1: Ensure agent wallet (one-time MetaMask approval)
       console.log("[trade] Ensuring agent wallet...");
-      const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
       if (agentResult.error) {
         setLastResult({ success: false, error: `Agent setup: ${agentResult.error}` });
         setSubmitting(false);
         return;
       }
-      const agentKey = agentResult.agentKey;
+      let agentKey = agentResult.agentKey;
 
       // Step 2: Builder fee approval (MetaMask, one-time)
       if (!builderApproved) {
@@ -169,10 +169,26 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         }
       }
 
+      // Helper: re-create agent if stale
+      const refreshAgent = async (): Promise<boolean> => {
+        console.log("[trade] Agent stale, re-approving...");
+        agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+        if (agentResult.error) {
+          setLastResult({ success: false, error: `Agent re-setup: ${agentResult.error}` });
+          return false;
+        }
+        agentKey = agentResult.agentKey;
+        return true;
+      };
+
       // Step 3: Set leverage (signed locally with agent key — no popup)
       if (!leverageSet) {
         console.log(`[trade] Setting leverage to ${leverage}x (${marginMode})...`);
-        const levResult = await exchange.setLeverage(agentKey, address as `0x${string}`, coin, leverage, marginMode === "cross");
+        let levResult = await exchange.setLeverage(agentKey, address as `0x${string}`, coin, leverage, marginMode === "cross");
+        if (!levResult.success && levResult.error === exchange.STALE_AGENT_MSG) {
+          if (!(await refreshAgent())) { setSubmitting(false); return; }
+          levResult = await exchange.setLeverage(agentKey, address as `0x${string}`, coin, leverage, marginMode === "cross");
+        }
         if (!levResult.success) {
           setLastResult({ success: false, error: `Leverage: ${levResult.error}` });
           setSubmitting(false);
@@ -184,7 +200,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
       // Step 4: Place order (signed locally with agent key — no popup)
       console.log("[trade] Placing order...");
       const orderStart = Date.now();
-      const result = await exchange.placeOrder(agentKey, address as `0x${string}`, {
+      let result = await exchange.placeOrder(agentKey, address as `0x${string}`, {
         asset: coin,
         isBuy: side === "long",
         size: sizeNum,
@@ -193,6 +209,15 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         reduceOnly,
         slippageBps: 50,
       });
+      if (!result.success && result.error === exchange.STALE_AGENT_MSG) {
+        if (await refreshAgent()) {
+          result = await exchange.placeOrder(agentKey, address as `0x${string}`, {
+            asset: coin, isBuy: side === "long", size: sizeNum, orderType,
+            limitPrice: orderType === "limit" ? parseFloat(limitPrice) : undefined,
+            reduceOnly, slippageBps: 50,
+          });
+        }
+      }
       const latencyMs = Date.now() - orderStart;
 
       console.log("[trade] Order result:", result);

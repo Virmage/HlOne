@@ -43,6 +43,13 @@ function storeAgent(userAddress: string, privateKey: `0x${string}`): void {
   } catch {}
 }
 
+function clearStoredAgent(userAddress: string): void {
+  try {
+    localStorage.removeItem(`${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`);
+    console.log("[agent] Cleared stored agent for", userAddress.slice(0, 8) + "...");
+  } catch {}
+}
+
 async function approveAgentOnChain(
   walletClient: WalletClient,
   userAddress: string,
@@ -387,6 +394,14 @@ function splitSig(sig: `0x${string}`): { r: string; s: string; v: number } {
   };
 }
 
+/** Error thrown when the agent wallet is not recognized by HL API */
+class StaleAgentError extends Error {
+  constructor(msg: string) {
+    super(msg);
+    this.name = "StaleAgentError";
+  }
+}
+
 async function submitToExchange(
   action: Record<string, unknown>,
   nonce: number,
@@ -405,13 +420,26 @@ async function submitToExchange(
 
   if (!res.ok) {
     const text = await res.text();
+    // Detect stale/unrecognized agent wallet
+    if (text.includes("does not exist") || text.includes("not found")) {
+      throw new StaleAgentError(`Exchange API error: ${res.status} ${text}`);
+    }
     throw new Error(`Exchange API error: ${res.status} ${text}`);
   }
 
-  return res.json();
+  const result = await res.json();
+  // Also check for "does not exist" in response body
+  const responseStr = typeof result.response === "string" ? result.response : "";
+  if (responseStr.includes("does not exist") || responseStr.includes("not found")) {
+    throw new StaleAgentError(responseStr);
+  }
+
+  return result;
 }
 
 // ─── Set leverage ────────────────────────────────────────────────────────────
+
+export const STALE_AGENT_MSG = "STALE_AGENT";
 
 export async function setLeverage(
   agentKey: `0x${string}`,
@@ -436,6 +464,10 @@ export async function setLeverage(
 
     return { success: (result as { status?: string }).status === "ok" };
   } catch (err) {
+    if (err instanceof StaleAgentError) {
+      clearStoredAgent(address);
+      return { success: false, error: STALE_AGENT_MSG };
+    }
     return { success: false, error: extractError(err) };
   }
 }
@@ -523,6 +555,10 @@ export async function placeOrder(
       error: typeof result.response === "string" ? result.response : JSON.stringify(result),
     };
   } catch (err) {
+    if (err instanceof StaleAgentError) {
+      clearStoredAgent(address);
+      return { success: false, error: STALE_AGENT_MSG };
+    }
     return {
       success: false,
       error: extractError(err),
@@ -632,6 +668,10 @@ export async function placeTriggerOrder(
       error: typeof result.response === "string" ? result.response : JSON.stringify(result),
     };
   } catch (err) {
+    if (err instanceof StaleAgentError) {
+      clearStoredAgent(address);
+      return { success: false, error: STALE_AGENT_MSG };
+    }
     return {
       success: false,
       error: extractError(err),
@@ -661,6 +701,10 @@ export async function cancelOrder(
 
     return { success: (result as { status?: string }).status === "ok" };
   } catch (err) {
+    if (err instanceof StaleAgentError) {
+      clearStoredAgent(address);
+      return { success: false, error: STALE_AGENT_MSG };
+    }
     return { success: false, error: extractError(err) };
   }
 }

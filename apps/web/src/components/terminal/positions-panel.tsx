@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getUserPositions, type UserPosition, type UserAccount } from "@/lib/api";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
@@ -56,23 +56,25 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   const [triggerPrice, setTriggerPrice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [actionResult, setActionResult] = useState<{ coin: string; msg: string; ok: boolean } | null>(null);
+  const hasFetchedRef = useRef(false);
 
   const fetchPositions = useCallback(async () => {
     if (!address) return;
     // Only show loading on very first fetch — subsequent refreshes keep stale data visible
-    if (positions.length === 0 && !account) setLoading(true);
+    if (!hasFetchedRef.current) setLoading(true);
     try {
       const data = await getUserPositions(address);
       setPositions(data.positions);
       setAccount(data.account);
       setOpenOrders(data.openOrders || []);
       setError(null);
+      hasFetchedRef.current = true;
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [address, positions.length, account]);
+  }, [address]);
 
   // Fetch trade history from HL directly
   const fetchFills = useCallback(async () => {
@@ -144,9 +146,16 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       ]);
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) { setClosing(null); return; }
-      const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
       if (agentResult.error) { setActionResult({ coin: pos.coin, msg: agentResult.error, ok: false }); setClosing(null); return; }
-      const result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
+      let result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
+      // Auto-recover from stale agent
+      if (!result.success && result.error === exchange.STALE_AGENT_MSG) {
+        agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+        if (!agentResult.error) {
+          result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
+        }
+      }
       setActionResult({ coin: pos.coin, msg: result.success ? "Closed" : (result.error || "Failed"), ok: result.success });
       if (result.success) fetchPositions();
     } catch (err) {
@@ -166,12 +175,22 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       ]);
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) { setSubmitting(false); return; }
-      const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
       if (agentResult.error) { setActionResult({ coin: pos.coin, msg: agentResult.error, ok: false }); setSubmitting(false); return; }
-      const result = await exchange.placeTriggerOrder(agentResult.agentKey, address as `0x${string}`, {
+      let result = await exchange.placeTriggerOrder(agentResult.agentKey, address as `0x${string}`, {
         asset: pos.coin, isLong: pos.side === "long", size: Math.abs(pos.size),
         triggerPrice: parseFloat(triggerPrice), type: tpSlMode.type,
       });
+      // Auto-recover from stale agent
+      if (!result.success && result.error === exchange.STALE_AGENT_MSG) {
+        agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+        if (!agentResult.error) {
+          result = await exchange.placeTriggerOrder(agentResult.agentKey, address as `0x${string}`, {
+            asset: pos.coin, isLong: pos.side === "long", size: Math.abs(pos.size),
+            triggerPrice: parseFloat(triggerPrice), type: tpSlMode.type,
+          });
+        }
+      }
       setActionResult({ coin: pos.coin, msg: result.success ? `${tpSlMode.type.toUpperCase()} set at $${triggerPrice}` : (result.error || "Failed"), ok: result.success });
       if (result.success) { setTpSlMode(null); setTriggerPrice(""); }
     } catch (err) {

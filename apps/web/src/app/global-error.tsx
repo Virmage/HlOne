@@ -13,6 +13,12 @@ export default function GlobalError({
     // Log the actual error for debugging
     console.error("[global-error]", error.message, error.stack?.substring(0, 300));
 
+    // Auto-retry for API errors (cold start, network hiccup)
+    if (error.message?.includes("API error") || error.message?.includes("fetch") || error.message?.includes("Failed to fetch")) {
+      setTimeout(() => reset(), 1500);
+      return;
+    }
+
     // Auto-retry for localStorage errors (sandbox browser issue)
     if (error.message?.includes("localStorage")) {
       // Patch localStorage and retry

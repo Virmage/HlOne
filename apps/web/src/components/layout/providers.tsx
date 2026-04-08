@@ -2,6 +2,7 @@
 
 import { useState, useEffect, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ErrorBoundary } from "./error-boundary";
 
 const queryClient = new QueryClient();
 
@@ -51,19 +52,22 @@ export function Providers({ children }: { children: ReactNode }) {
   }, []);
 
   const content = (
-    <QueryClientProvider client={queryClient}>
-      {children}
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        {children}
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 
   if (!WalletStack) {
-    // Render without wallet providers while loading (or if failed)
     return content;
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <WalletStack>{children}</WalletStack>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <WalletStack>{children}</WalletStack>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
