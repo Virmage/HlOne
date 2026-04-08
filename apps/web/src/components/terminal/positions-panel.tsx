@@ -158,11 +158,13 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   }, [isConnected, address, fetchPositions]);
 
   // Fetch tab-specific data when tab changes
+  const fillsFetched = useRef(false);
+  const fundingFetched = useRef(false);
   useEffect(() => {
     if (!isConnected || !address) return;
-    if (tab === "tradeHistory" && fills.length === 0) fetchFills();
-    if (tab === "fundingHistory" && funding.length === 0) fetchFunding();
-  }, [tab, isConnected, address]);
+    if (tab === "tradeHistory" && !fillsFetched.current) { fillsFetched.current = true; fetchFills(); }
+    if (tab === "fundingHistory" && !fundingFetched.current) { fundingFetched.current = true; fetchFunding(); }
+  }, [tab, isConnected, address, fetchFills, fetchFunding]);
 
   useEffect(() => {
     if (!actionResult) return;
@@ -800,7 +802,8 @@ function FundingHistoryTab({ funding }: { funding: FundingEntry[] }) {
         </thead>
         <tbody>
           {funding.map((f, i) => {
-            const payment = parseFloat(f.usdc);
+            const payment = parseFloat(f.usdc || "0");
+            const rate = parseFloat(f.fundingRate || "0");
             return (
               <tr key={`${f.coin}-${f.time}-${i}`} className="border-b border-[var(--hl-border)] border-opacity-30">
                 <td className="py-1 text-[var(--hl-muted)] tabular-nums text-[10px]">{new Date(f.time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
@@ -808,7 +811,7 @@ function FundingHistoryTab({ funding }: { funding: FundingEntry[] }) {
                 <td className={`py-1 text-right tabular-nums ${payment >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                   {payment >= 0 ? "+" : ""}${payment.toFixed(4)}
                 </td>
-                <td className="py-1 text-right tabular-nums text-[var(--hl-muted)]">{(parseFloat(f.fundingRate) * 100).toFixed(4)}%</td>
+                <td className="py-1 text-right tabular-nums text-[var(--hl-muted)]">{(rate * 100).toFixed(4)}%</td>
               </tr>
             );
           })}
