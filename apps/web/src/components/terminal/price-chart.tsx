@@ -1371,13 +1371,13 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
               byCandle.set(m.candleIdx, arr);
             }
             const elements: React.ReactNode[] = [];
-            const R = 6;
-            const spacing = R * 2 + 3;
+            const R = 8;
+            const spacing = R * 2 + 8;
             byCandle.forEach((markers, candleIdx) => {
               const candle = data[candleIdx];
               markers.sort((a, b) => b.size - a.size);
               const capped = markers.slice(0, 3);
-              const baseY = priceY(candle.high) - 4; // start above the wick
+              const baseY = priceY(candle.high) - 10; // start above the wick
               capped.forEach((m, j) => {
                 const x = ML + candleIdx * candleW + candleW / 2;
                 const y = baseY - j * spacing;
@@ -1388,10 +1388,10 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
                   <g key={`whale-${candleIdx}-${j}`}>
                     <title>{`${m.name}: ${m.isBuy ? "BUY" : "SELL"} $${(m.size / 1e6).toFixed(1)}M @ ${formatPrice(m.price)}`}</title>
                     {/* Buy/sell colored ring */}
-                    <circle cx={x} cy={y} r={R + 3} fill="none" stroke={color} strokeWidth={2} opacity={0.9} />
-                    <circle cx={x} cy={y} r={R + 4.5} fill="none" stroke={color} strokeWidth={0.5} opacity={0.3} />
+                    <circle cx={x} cy={y} r={R + 2} fill="none" stroke={color} strokeWidth={2} opacity={0.9} />
+                    <circle cx={x} cy={y} r={R + 3.5} fill="none" stroke={color} strokeWidth={0.5} opacity={0.3} />
                     {/* Emoji */}
-                    <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={isShark ? 13 : 12} style={{ pointerEvents: "none" }}>{emoji}</text>
+                    <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={isShark ? 14 : 13} style={{ pointerEvents: "none" }}>{emoji}</text>
                   </g>
                 );
               });

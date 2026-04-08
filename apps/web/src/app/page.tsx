@@ -237,7 +237,7 @@ export default function HomePage() {
           </>
         )}
         {/* Trading Panel — full width on mobile, fixed on desktop */}
-        <div className="w-full md:w-[260px] flex-shrink-0">
+        <div className="w-full md:w-[260px] flex-shrink-0 h-auto md:h-[400px] overflow-y-auto">
           <TradingPanel
             coin={chartCoin}
             overview={chartOverview}
@@ -252,7 +252,7 @@ export default function HomePage() {
       </div>
 
       {/* Positions — shows when wallet connected */}
-      <div className="border-b border-[var(--hl-border)] px-2 py-0.5">
+      <div className="border-b border-[var(--hl-border)] px-2">
         <PositionsPanel onSelectToken={handleSelectToken} />
       </div>
 

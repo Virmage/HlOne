@@ -293,6 +293,40 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
     }
   }, [address, positions, fetchPositions]);
 
+  // Reverse a position: close current + open opposite at 2x size (net result: flipped position)
+  const handleReverse = useCallback(async (pos: UserPosition) => {
+    if (!address) return;
+    setClosing(pos.coin);
+    setActionResult(null);
+    try {
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"), import("@/lib/hl-exchange"), import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) { setClosing(null); return; }
+      let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      if (agentResult.error) { setActionResult({ coin: pos.coin, msg: friendlyError(agentResult.error), ok: false }); setClosing(null); return; }
+      const builderOk = await exchange.checkBuilderApproval(address);
+      if (!builderOk) {
+        const approveResult = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
+        if (!approveResult.success) { setActionResult({ coin: pos.coin, msg: friendlyError(approveResult.error), ok: false }); setClosing(null); return; }
+      }
+      // Place a market order for 2x size in opposite direction to flip the position
+      const result = await exchange.placeOrder(agentResult.agentKey, address as `0x${string}`, {
+        asset: pos.coin,
+        isBuy: pos.side === "short", // opposite side
+        size: Math.abs(pos.size) * 2,
+        orderType: "market",
+      });
+      setActionResult({ coin: pos.coin, msg: result.success ? "Reversed" : friendlyError(result.error), ok: result.success });
+      if (result.success) fetchPositions();
+    } catch (err) {
+      setActionResult({ coin: pos.coin, msg: friendlyError((err as Error).message), ok: false });
+    } finally {
+      setClosing(null);
+    }
+  }, [address, fetchPositions]);
+
   const totalPnl = positions.reduce((s, p) => s + p.unrealizedPnl, 0);
 
   const TABS: { key: Tab; label: string; count?: number }[] = [
@@ -321,9 +355,9 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   }
 
   return (
-    <div>
+    <div className="max-h-[220px] flex flex-col">
       {/* Tab bar */}
-      <div className="flex items-center gap-0 overflow-x-auto scrollbar-none border-b border-[var(--hl-border)]">
+      <div className="flex items-center gap-0 overflow-x-auto scrollbar-none border-b border-[var(--hl-border)] flex-shrink-0">
         {TABS.map(t => (
           <button
             key={t.key}
@@ -354,8 +388,8 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       </div>
 
       {/* Tab content */}
-      <div className="min-h-[40px]">
-        {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} triggerOrders={triggerOrders} onSelectToken={onSelectToken} onClose={handleClose} onCloseAll={handleCloseAll} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
+      <div className="min-h-[40px] flex-1 overflow-y-auto">
+        {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} triggerOrders={triggerOrders} onSelectToken={onSelectToken} onClose={handleClose} onCloseAll={handleCloseAll} onReverse={handleReverse} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
         {tab === "balances" && <BalancesTab account={account} />}
         {tab === "orders" && <OpenOrdersTab orders={openOrders} onSelectToken={onSelectToken} />}
         {tab === "twap" && <EmptyTab label="No active TWAP orders" />}
@@ -369,7 +403,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
 // ─── Positions Tab ────────────────────────────────────────────────────────────
 
-function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode, triggerPrice, submitting, actionResult, triggerOrders, onSelectToken, onClose, onCloseAll, onTpSlToggle, onTriggerPriceChange, onTpSlSubmit }: {
+function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode, triggerPrice, submitting, actionResult, triggerOrders, onSelectToken, onClose, onCloseAll, onReverse, onTpSlToggle, onTriggerPriceChange, onTpSlSubmit }: {
   positions: UserPosition[]; loading: boolean; error: string | null;
   closing: string | null; closingAll: boolean; tpSlMode: TpSlMode; triggerPrice: string; submitting: boolean;
   actionResult: { coin: string; msg: string; ok: boolean } | null;
@@ -377,6 +411,7 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
   onSelectToken?: (coin: string) => void;
   onClose: (pos: UserPosition) => void;
   onCloseAll: () => void;
+  onReverse: (pos: UserPosition) => void;
   onTpSlToggle: (coin: string, type: "tp" | "sl") => void;
   onTriggerPriceChange: (v: string) => void;
   onTpSlSubmit: (pos: UserPosition) => void;
@@ -385,6 +420,10 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
   const [tpSlPopup, setTpSlPopup] = useState<string | null>(null); // coin or null
   const [popupTp, setPopupTp] = useState("");
   const [popupSl, setPopupSl] = useState("");
+  // Confirmation popup state
+  const [confirmAction, setConfirmAction] = useState<{ type: "close" | "reverse"; pos: UserPosition } | null>(null);
+  const [skipConfirmClose, setSkipConfirmClose] = useState(() => typeof window !== "undefined" && localStorage.getItem("hlone_skip_confirm_close") === "1");
+  const [skipConfirmReverse, setSkipConfirmReverse] = useState(() => typeof window !== "undefined" && localStorage.getItem("hlone_skip_confirm_reverse") === "1");
 
   if (positions.length === 0 && loading) return <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">Loading positions...</div>;
   if (error && positions.length === 0) return <div className="text-[10px] text-[var(--hl-red)] text-center py-2">{error}</div>;
@@ -461,6 +500,52 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
             {actionResult?.coin === popupPos.coin && (
               <div className={`text-[10px] mt-2 pt-2 border-t border-[var(--hl-border)] ${actionResult.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{actionResult.msg}</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setConfirmAction(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl p-4 w-[260px]" onClick={(e) => e.stopPropagation()}>
+            <div className="text-[12px] font-semibold text-[var(--foreground)] mb-2">
+              {confirmAction.type === "close" ? "Close Position?" : "Reverse Position?"}
+            </div>
+            <div className="text-[11px] text-[var(--hl-muted)] mb-3">
+              {confirmAction.type === "close"
+                ? `Market close ${(confirmAction.pos.coin.includes(":") ? confirmAction.pos.coin.split(":")[1] : confirmAction.pos.coin)} ${confirmAction.pos.side.toUpperCase()} ${Math.abs(confirmAction.pos.size)}`
+                : `Reverse ${(confirmAction.pos.coin.includes(":") ? confirmAction.pos.coin.split(":")[1] : confirmAction.pos.coin)} from ${confirmAction.pos.side.toUpperCase()} to ${confirmAction.pos.side === "long" ? "SHORT" : "LONG"}`
+              }
+            </div>
+            <div className="flex items-center gap-2 mb-3">
+              <input
+                type="checkbox"
+                id="skip-confirm"
+                checked={confirmAction.type === "close" ? skipConfirmClose : skipConfirmReverse}
+                onChange={(e) => {
+                  const key = confirmAction.type === "close" ? "hlone_skip_confirm_close" : "hlone_skip_confirm_reverse";
+                  if (e.target.checked) localStorage.setItem(key, "1"); else localStorage.removeItem(key);
+                  if (confirmAction.type === "close") setSkipConfirmClose(e.target.checked);
+                  else setSkipConfirmReverse(e.target.checked);
+                }}
+                className="accent-[var(--hl-accent)]"
+              />
+              <label htmlFor="skip-confirm" className="text-[10px] text-[var(--hl-muted)] cursor-pointer">Don&apos;t show again</label>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmAction(null)} className="flex-1 px-3 py-1.5 text-[10px] font-semibold rounded bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)] transition-colors">Cancel</button>
+              <button
+                onClick={() => {
+                  const { type, pos } = confirmAction;
+                  setConfirmAction(null);
+                  if (type === "close") onClose(pos); else onReverse(pos);
+                }}
+                className={`flex-1 px-3 py-1.5 text-[10px] font-semibold rounded transition-colors ${confirmAction.type === "close" ? "bg-[rgba(240,88,88,0.18)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.35)]" : "bg-[rgba(80,210,193,0.18)] text-[var(--hl-green)] hover:bg-[rgba(80,210,193,0.35)]"}`}
+              >
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -555,7 +640,7 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
                 <td className="py-1.5 text-right">
                   <div className="flex items-center justify-end gap-1">
                     {/* Market Close */}
-                    <button onClick={(e) => { e.stopPropagation(); onClose(p); }} disabled={isClosing || closingAll} className="px-2.5 py-1 text-[10px] font-semibold rounded bg-[rgba(240,88,88,0.18)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.35)] transition-colors disabled:opacity-50">{isClosing ? "..." : "Close"}</button>
+                    <button onClick={(e) => { e.stopPropagation(); if (skipConfirmClose) onClose(p); else setConfirmAction({ type: "close", pos: p }); }} disabled={isClosing || closingAll} className="px-2.5 py-1 text-[10px] font-semibold rounded bg-[rgba(240,88,88,0.18)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.35)] transition-colors disabled:opacity-50">{isClosing ? "..." : "Close"}</button>
                     {/* TP/SL popup toggle */}
                     <button
                       onClick={(e) => {
@@ -573,9 +658,10 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
                     </button>
                     {/* Reverse */}
                     <button
-                      onClick={(e) => { e.stopPropagation(); onSelectToken?.(p.coin); }}
+                      onClick={(e) => { e.stopPropagation(); if (skipConfirmReverse) onReverse(p); else setConfirmAction({ type: "reverse", pos: p }); }}
+                      disabled={isClosing || closingAll}
                       title="Reverse position"
-                      className="px-1.5 py-1 text-[10px] font-semibold rounded bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)] transition-colors"
+                      className="px-1.5 py-1 text-[10px] font-semibold rounded bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)] transition-colors disabled:opacity-50"
                     >
                       &#8645;
                     </button>
