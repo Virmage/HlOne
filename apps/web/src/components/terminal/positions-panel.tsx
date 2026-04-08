@@ -372,12 +372,17 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
         <tbody>
           {positions.map((p) => {
             const displayCoin = p.coin.includes(":") ? p.coin.split(":")[1] : p.coin;
-            const pnlColor = p.unrealizedPnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
+            const pnl = p.unrealizedPnl ?? 0;
+            const roe = (p.returnOnEquity ?? 0) * 100;
+            const posVal = p.positionValue ?? 0;
+            const margin = p.marginUsed ?? 0;
+            const funding = p.cumFunding ?? 0;
+            const mark = p.markPx ?? 0;
+            const pnlColor = pnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
+            const fundingColor = funding >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
             const isClosing = closing === p.coin;
             const result = actionResult?.coin === p.coin ? actionResult : null;
             const showTpSl = tpSlMode?.coin === p.coin;
-            const roe = (p.returnOnEquity * 100);
-            const fundingColor = p.cumFunding >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]";
 
             return (
               <tr key={p.coin} className="border-b border-[var(--hl-border)] border-opacity-30 hover:bg-[var(--hl-surface)] transition-colors">
@@ -386,33 +391,33 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
                   <div className="flex items-center gap-1.5">
                     <span className="font-medium text-[var(--foreground)] cursor-pointer hover:underline" onClick={() => onSelectToken?.(p.coin)}>{displayCoin}</span>
                     <span className={`px-1 py-0.5 rounded text-[8px] font-bold ${p.side === "long" ? "bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)]" : "bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)]"}`}>
-                      {p.side === "long" ? "L" : "S"} {p.leverage}x
+                      {p.side === "long" ? "L" : "S"} {p.leverage ?? 0}x
                     </span>
                   </div>
                 </td>
                 {/* Size */}
-                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">{Math.abs(p.size).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">{Math.abs(p.size ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                 {/* Value (USDC) */}
-                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">${p.positionValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">${posVal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                 {/* Entry */}
-                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--hl-muted)]">${p.entryPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--hl-muted)]">${(p.entryPx ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                 {/* Mark */}
-                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">{p.markPx ? `$${p.markPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">{mark ? `$${mark.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</td>
                 {/* PnL (ROE %) */}
                 <td className={`py-1.5 pr-2 text-right tabular-nums font-medium ${pnlColor}`}>
-                  {p.unrealizedPnl >= 0 ? "+" : ""}${p.unrealizedPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {pnl >= 0 ? "+" : ""}${pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   <span className="text-[9px] ml-0.5 opacity-70">({roe >= 0 ? "+" : ""}{roe.toFixed(1)}%)</span>
                 </td>
                 {/* Liq. price */}
                 <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--hl-muted)]">{p.liquidationPx ? `$${p.liquidationPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</td>
                 {/* Margin (type) */}
                 <td className="py-1.5 pr-2 text-right tabular-nums">
-                  <span className="text-[var(--foreground)]">${p.marginUsed.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  <span className="text-[var(--foreground)]">${margin.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                   <span className="text-[9px] text-[var(--hl-muted)] ml-0.5">{p.leverageType || "cross"}</span>
                 </td>
                 {/* Funding */}
                 <td className={`py-1.5 pr-2 text-right tabular-nums ${fundingColor}`}>
-                  {p.cumFunding !== 0 ? `${p.cumFunding >= 0 ? "+" : ""}$${p.cumFunding.toFixed(2)}` : "—"}
+                  {funding !== 0 ? `${funding >= 0 ? "+" : ""}$${funding.toFixed(2)}` : "—"}
                 </td>
                 {/* Actions */}
                 <td className="py-1.5 text-right">
