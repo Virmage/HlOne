@@ -251,25 +251,25 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
 
   return (
     <div className="flex flex-col h-full border-l border-[var(--hl-border)] bg-[var(--background)]">
-      {/* Mode toggle: Perp | Options — only show if coin has Derive options */}
+      {/* Perps / Options tab bar — always visible at top, styled like header nav */}
       {coinHasOptions && (
-        <div className="flex items-center mx-3 mt-3 rounded overflow-hidden border border-[var(--hl-border)]">
+        <div className="flex items-center border-b border-[var(--hl-border)] shrink-0">
           <button
             onClick={() => setMode("perp")}
-            className={`flex-1 py-1.5 text-[11px] font-medium transition-colors ${
+            className={`px-4 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px ${
               mode === "perp"
-                ? "bg-[var(--hl-surface)] text-[var(--foreground)]"
-                : "text-[var(--hl-muted)] hover:text-[var(--hl-text)]"
+                ? "text-[var(--foreground)] border-[var(--hl-accent)]"
+                : "text-[var(--hl-muted)] border-transparent hover:text-[var(--foreground)]"
             }`}
           >
-            Perp
+            Perps
           </button>
           <button
             onClick={() => setMode("options")}
-            className={`flex-1 py-1.5 text-[11px] font-medium transition-colors ${
+            className={`px-4 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px ${
               mode === "options"
-                ? "bg-[rgba(168,85,247,0.15)] text-purple-400"
-                : "text-[var(--hl-muted)] hover:text-[var(--hl-text)]"
+                ? "text-purple-400 border-purple-400"
+                : "text-[var(--hl-muted)] border-transparent hover:text-[var(--foreground)]"
             }`}
           >
             Options
@@ -288,7 +288,8 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
       )}
 
       {/* ─── Perp Mode (existing) ─── */}
-      {mode === "perp" && <>
+      {mode === "perp" && <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex-1 overflow-y-auto">
       {/* Top row: Isolated / Leverage / Classic — HL style */}
       <div className="grid grid-cols-3 gap-px mx-3 mt-3">
         <button
@@ -552,9 +553,10 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
           </div>
         )}
       </div>
+      </div>{/* end scrollable area */}
 
-      {/* Submit button — always show trade action; connect wallet on click if needed */}
-      <div className="px-3 py-3 mt-auto">
+      {/* Submit button — pinned at bottom, never clipped */}
+      <div className="px-3 py-3 shrink-0 border-t border-[var(--hl-border)]">
         <button
           className={`w-full py-2.5 rounded font-semibold text-[13px] transition-colors ${
             !isConnected
@@ -583,8 +585,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
                 : `${side === "long" ? "Buy / Long" : "Sell / Short"} ${displayCoin}`}
         </button>
       </div>
-
-      </>}
+      </div>}
 
       {/* ── Leverage Modal (centered, HL style) ── */}
       {showLevModal && (
