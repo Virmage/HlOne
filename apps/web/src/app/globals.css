@@ -96,6 +96,9 @@ body {
 .animate-in {
   animation: fadeIn 150ms ease-out, zoomIn95 150ms ease-out;
 }
+.animate-fade-in {
+  animation: fadeIn 400ms ease-out;
+}
 
 @keyframes ticker-scroll {
   0% { transform: translateX(0); }

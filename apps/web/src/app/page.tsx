@@ -78,6 +78,35 @@ const CopyDialog = dynamic(
   { ssr: false }
 );
 
+const LOADING_LINES = [
+  "Finding signal.",
+  "Ringing House of all Finance doorbell.",
+  "Considering Derive options.",
+  "Getting edge from CL Japan tweet.",
+  "Feeling liquid.",
+  "Front running whales.",
+];
+
+function LoadingScreen() {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    const t = globalThis.setInterval(() => setIdx(i => (i + 1) % LOADING_LINES.length), 2200);
+    return () => globalThis.clearInterval(t);
+  }, []);
+  return (
+    <div className="flex h-[80vh] items-center justify-center">
+      <div className="text-center">
+        <div
+          key={idx}
+          className="text-[var(--hl-muted)] text-[14px] animate-fade-in"
+        >
+          {LOADING_LINES[idx]}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const { data, loading, error } = useTerminal();
   const { address: walletAddress } = useSafeAccount();
@@ -139,14 +168,7 @@ export default function HomePage() {
   );
 
   if (loading && !data) {
-    return (
-      <div className="flex h-[80vh] items-center justify-center">
-        <div className="text-center">
-          <div className="text-[var(--hl-muted)] text-[14px] mb-2">Loading terminal data...</div>
-          <div className="text-[var(--hl-muted)] text-[11px]">Analyzing 32K+ traders across Hyperliquid</div>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   if (error && !data) {
