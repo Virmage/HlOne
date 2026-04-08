@@ -81,7 +81,7 @@ const CopyDialog = dynamic(
 const LOADING_LINES = [
   "Ringing House of all Finance doorbell.",
   "Considering Derive options.",
-  "Getting edge from CL Japan tweet.",
+  "Getting edge from a cat in a tank.",
   "Feeling liquid.",
   "Front running whales.",
 ];
