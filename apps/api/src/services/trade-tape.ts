@@ -23,13 +23,13 @@ export interface LargeTrade {
 
 // ─── Storage ────────────────────────────────────────────────────────────────
 
-const MAX_TRADES = 200;
-const MIN_SIZE_MAJOR = 100_000;  // $100K+ for BTC, ETH, SOL
-const MIN_SIZE_ALT = 25_000;     // $25K+ for everything else
+const MAX_TRADES = 500;
+const MIN_SIZE_MAJOR = 50_000;   // $50K+ for BTC, ETH, SOL
+const MIN_SIZE_ALT = 15_000;     // $15K+ for everything else
 const MAJOR_COINS = new Set(["BTC", "ETH", "SOL"]);
-const POLL_INTERVAL = 30_000; // 30 seconds — avoid rate limits
-const TOP_COINS_COUNT = 15;
-const COIN_DELAY = 300; // ms between each coin request to avoid 429s
+const POLL_INTERVAL = 15_000; // 15 seconds — more frequent polling
+const TOP_COINS_COUNT = 20;
+const COIN_DELAY = 200; // ms between each coin request to avoid 429s
 
 let trades: LargeTrade[] = [];
 const seenTids = new Set<number>();
@@ -165,10 +165,10 @@ async function pollTrades(): Promise<void> {
 
 export function startTradeTapeTracking(): void {
   if (intervalId) return;
-  console.log("[trade-tape] Starting large trade tracking (30s interval, top 15 coins, $100K+ majors / $25K+ alts)");
+  console.log("[trade-tape] Starting large trade tracking (15s interval, top 20 coins, $50K+ majors / $15K+ alts)");
   intervalId = setInterval(pollTrades, POLL_INTERVAL);
-  // Initial poll after whale tracker settles
-  setTimeout(pollTrades, 60_000);
+  // Initial poll quickly after startup
+  setTimeout(pollTrades, 5_000);
 }
 
 export function getLargeTrades(limit?: number): LargeTrade[] {
