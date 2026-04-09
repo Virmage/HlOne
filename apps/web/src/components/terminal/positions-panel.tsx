@@ -417,7 +417,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   }
 
   return (
-    <div className="max-h-[110px] flex flex-col overflow-hidden">
+    <div className="flex flex-col">
       {/* Tab bar */}
       <div className="flex items-center border-b border-[var(--hl-border)] flex-shrink-0">
         <div className="flex items-center gap-0 overflow-x-auto scrollbar-none flex-1">
@@ -453,7 +453,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       </div>
 
       {/* Tab content */}
-      <div className="min-h-[40px] flex-1 overflow-hidden">
+      <div className="min-h-[40px] flex-1">
         {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} triggerOrders={triggerOrders} onSelectToken={onSelectToken} onClose={handleClose} onLimitClose={handleLimitClose} onReverse={handleReverse} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
         {tab === "balances" && <BalancesTab account={account} />}
         {tab === "orders" && <OpenOrdersTab orders={openOrders} onSelectToken={onSelectToken} />}

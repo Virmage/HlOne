@@ -243,16 +243,16 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Right column: Order Book + Trading Panel — spans chart + positions height */}
+        {/* Right column: Order Book + Trading Panel — stretches to match left column */}
         <div className="hidden md:flex flex-shrink-0 border-l border-[var(--hl-border)]">
           {/* Order Book */}
           {tradingMode !== "options" && (
-            <div className="hidden lg:block w-[180px] flex-shrink-0 h-[620px] overflow-hidden border-r border-[var(--hl-border)]">
+            <div className="hidden lg:block w-[180px] flex-shrink-0 overflow-y-auto border-r border-[var(--hl-border)]">
               <OrderBook coin={chartCoin} />
             </div>
           )}
           {/* Trading Panel */}
-          <div className="w-[260px] flex-shrink-0 h-[620px] overflow-hidden">
+          <div className="w-[260px] flex-shrink-0 overflow-y-auto">
             <TradingPanel
               coin={chartCoin}
               overview={chartOverview}
