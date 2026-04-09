@@ -988,6 +988,39 @@ function DepositWithdrawBar({ address }: { address: string }) {
   const [amount, setAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [spotBalance, setSpotBalance] = useState<number | null>(null);
+  const [perpsBalance, setPerpsBalance] = useState<number | null>(null);
+
+  // Fetch both balances
+  useEffect(() => {
+    if (!address) return;
+    const fetchBalances = async () => {
+      try {
+        // Perps balance (withdrawable)
+        const perpsRes = await fetch("https://api.hyperliquid.xyz/info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "clearinghouseState", user: address }),
+        });
+        const perpsData = await perpsRes.json();
+        setPerpsBalance(parseFloat(perpsData?.withdrawable ?? "0"));
+      } catch { /* ignore */ }
+      try {
+        // Spot balance (USDC = token index 0 in spot)
+        const spotRes = await fetch("https://api.hyperliquid.xyz/info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "spotClearinghouseState", user: address }),
+        });
+        const spotData = await spotRes.json();
+        const usdcBal = spotData?.balances?.find((b: { coin: string; total: string }) => b.coin === "USDC");
+        setSpotBalance(usdcBal ? parseFloat(usdcBal.total) : 0);
+      } catch { setSpotBalance(0); }
+    };
+    fetchBalances();
+    const iv = window.setInterval(fetchBalances, 30_000);
+    return () => clearInterval(iv);
+  }, [address]);
 
   // Transfer: deposit = spot→perp, withdraw = perp→spot
   const handleTransfer = useCallback(async (toPerp: boolean) => {
@@ -1019,19 +1052,22 @@ function DepositWithdrawBar({ address }: { address: string }) {
   }, [amount, address]);
 
   if (mode === "none") {
+    const fmtBal = (v: number | null) => v === null ? "..." : `$${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
     return (
       <div className="flex gap-2 mt-2">
         <button
           onClick={() => { setMode("deposit"); setResult(null); }}
           className="flex-1 py-1.5 rounded text-[10px] font-medium border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--hl-green)] hover:bg-[var(--hl-surface-hover)] transition-colors"
         >
-          Spot → Perps
+          <div>Spot → Perps</div>
+          <div className="text-[9px] text-[var(--hl-muted)] mt-0.5">{fmtBal(spotBalance)} available</div>
         </button>
         <button
           onClick={() => { setMode("withdraw"); setResult(null); }}
           className="flex-1 py-1.5 rounded text-[10px] font-medium border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--hl-accent)] hover:bg-[var(--hl-surface-hover)] transition-colors"
         >
-          Perps → Spot
+          <div>Perps → Spot</div>
+          <div className="text-[9px] text-[var(--hl-muted)] mt-0.5">{fmtBal(perpsBalance)} available</div>
         </button>
       </div>
     );
@@ -1044,6 +1080,12 @@ function DepositWithdrawBar({ address }: { address: string }) {
       <div className="flex items-center gap-2">
         <button onClick={() => { setMode("none"); setResult(null); setAmount(""); }} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-[14px]">&larr;</button>
         <span className="text-[11px] font-medium text-[var(--foreground)]">{toPerp ? "Spot → Perps" : "Perps → Spot"}</span>
+        <span className="text-[9px] text-[var(--hl-muted)] ml-auto tabular-nums">
+          {toPerp
+            ? `Spot: $${(spotBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+            : `Perps: $${(perpsBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+          }
+        </span>
       </div>
       <div className="flex items-center gap-2">
         <div className="flex-1 flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1.5">
@@ -1056,6 +1098,12 @@ function DepositWithdrawBar({ address }: { address: string }) {
             className="flex-1 bg-transparent text-right text-[12px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none"
             autoFocus
           />
+          <button
+            onClick={() => setAmount(String(toPerp ? (spotBalance ?? 0) : (perpsBalance ?? 0)))}
+            className="text-[9px] text-[var(--hl-accent)] ml-1 hover:brightness-110"
+          >
+            MAX
+          </button>
         </div>
         <button
           onClick={() => handleTransfer(toPerp)}

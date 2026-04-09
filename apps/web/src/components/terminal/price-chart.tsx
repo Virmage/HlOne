@@ -36,6 +36,10 @@ const LOOKBACK: Record<string, number> = {
 
 type CandleRaw = { t: number; o: string; h: string; l: string; c: string; v: string };
 
+// Client-side candle cache — switching back to a previously loaded interval is instant
+const candleCache = new Map<string, { candles: TokenDetail["candles"]; fetchedAt: number }>();
+const CANDLE_CACHE_TTL = 30_000; // 30s — stale candles shown instantly, refresh in background
+
 async function fetchCandlesDirect(coin: string, interval: string): Promise<TokenDetail["candles"]> {
   const now = Date.now();
   const startTime = now - (LOOKBACK[interval] || 7 * 86400_000);
@@ -46,10 +50,18 @@ async function fetchCandlesDirect(coin: string, interval: string): Promise<Token
   });
   if (!res.ok) return [];
   const raw: CandleRaw[] = await res.json();
-  return raw.map(c => ({
+  const candles = raw.map(c => ({
     time: c.t, open: parseFloat(c.o), high: parseFloat(c.h),
     low: parseFloat(c.l), close: parseFloat(c.c), volume: parseFloat(c.v),
   }));
+  candleCache.set(`${coin}:${interval}`, { candles, fetchedAt: Date.now() });
+  return candles;
+}
+
+function getCachedCandles(coin: string, interval: string): TokenDetail["candles"] | null {
+  const cached = candleCache.get(`${coin}:${interval}`);
+  if (!cached) return null;
+  return cached.candles;
 }
 
 export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liquidationBands }: PriceChartProps) {
@@ -103,7 +115,12 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         .catch(() => {})
         .finally(() => { if (!cancelled && !fastDone) setLoading(false); });
     } else if (intervalChanged) {
-      // Interval change: fetch candles + OI fast, then full detail replaces everything
+      // Interval change: show cached candles instantly, then refresh in background
+      const cached = getCachedCandles(coin, interval);
+      if (cached && cached.length > 0) {
+        setDetail(prev => prev ? { ...prev, candles: cached } : prev);
+      }
+      // Fetch fresh candles + OI in background
       Promise.all([
         fetchCandlesDirect(coin, interval).catch(() => [] as TokenDetail["candles"]),
         fetchOICandles(coin, interval).then(r => r.oiCandles).catch(() => []),
