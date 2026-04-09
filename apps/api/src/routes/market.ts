@@ -12,7 +12,7 @@ import { discoverActiveTraders, getCandleSnapshot, getFundingHistory, getL2Book,
 import { getOptionsData, getAllOptionsData, type OptionsSnapshot } from "../services/options-data.js";
 import { getDeriveOptionsData, getAllDeriveOptionsData, getDeriveOptionsChain, getDeriveSupportedCoins } from "../services/derive-options.js";
 import { getSignals, getSignalsCached } from "../services/signals.js";
-import { getOICandlesForInterval, getOICandlesFromCoinalyze } from "../services/oi-tracker.js";
+import { getOICandlesForInterval, getExternalOICandles } from "../services/oi-tracker.js";
 import { getNewsFeedCached, getCoinNews, type NewsPost } from "../services/crypto-panic.js";
 import { getAllSocialMetricsCached, getSocialMetricsCached, type SocialMetrics } from "../services/lunar-crush.js";
 import { getLargeTradesCached } from "../services/trade-tape.js";
@@ -445,11 +445,11 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         "1M": 60,
       };
       let oiCandles = getOICandlesForInterval(coin, interval, oiCountMap[interval] || 200);
-      // Always try Coinalyze and use whichever source has more data
+      // Try external sources (Binance free, Coinalyze if key set) and use whichever has more data
       try {
-        const coinalyzeOI = await getOICandlesFromCoinalyze(coin, interval, candleSince, now);
-        if (coinalyzeOI.length > oiCandles.length) {
-          oiCandles = coinalyzeOI;
+        const externalOI = await getExternalOICandles(coin, interval, candleSince, now);
+        if (externalOI.length > oiCandles.length) {
+          oiCandles = externalOI;
         }
       } catch { /* ignore — local data is still usable */ }
 

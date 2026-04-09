@@ -892,3 +892,340 @@ export async function approveBuilderFee(
     return { success: false, error: extractError(err) };
   }
 }
+
+// ─── Withdraw (HL L1 → Arbitrum) ────────────────────────────────────────────
+// Withdrawals are L1 actions signed by the agent wallet.
+// Hyperliquid processes the withdrawal and sends USDC to the user's Arbitrum address.
+
+export async function withdraw(
+  agentKey: `0x${string}`,
+  address: `0x${string}`,
+  amount: number, // USDC amount
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const nonce = Date.now();
+    const action = {
+      type: "withdraw3",
+      hyperliquidChain: "Mainnet",
+      signatureChainId: "0xa4b1",
+      amount: floatToWire(amount),
+      time: nonce,
+      destination: address,
+    };
+
+    const signature = await signL1Action(agentKey, action, nonce);
+    const result = await submitToExchange(action, nonce, signature);
+
+    if ((result as { status?: string }).status === "ok") {
+      return { success: true };
+    }
+    const apiErr = (result as { response?: string }).response
+      || (result as { error?: string }).error
+      || JSON.stringify(result);
+    return { success: false, error: apiErr };
+  } catch (err) {
+    if (err instanceof StaleAgentError) {
+      clearStoredAgent(address);
+      return { success: false, error: STALE_AGENT_MSG };
+    }
+    return { success: false, error: extractError(err) };
+  }
+}
+
+// ─── Transfer between Spot and Perps ────────────────────────────────────────
+// Move USDC between spot wallet and perps wallet on HL.
+
+export async function transferBetweenSpotAndPerp(
+  agentKey: `0x${string}`,
+  address: `0x${string}`,
+  amount: number,
+  toPerp: boolean, // true = spot→perp, false = perp→spot
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const nonce = Date.now();
+    const action = {
+      type: "usdClassTransfer",
+      hyperliquidChain: "Mainnet",
+      signatureChainId: "0xa4b1",
+      amount: floatToWire(amount),
+      toPerp,
+      nonce,
+    };
+
+    const signature = await signL1Action(agentKey, action, nonce);
+    const result = await submitToExchange(action, nonce, signature);
+
+    if ((result as { status?: string }).status === "ok") {
+      return { success: true };
+    }
+    const apiErr = (result as { response?: string }).response
+      || (result as { error?: string }).error
+      || JSON.stringify(result);
+    return { success: false, error: apiErr };
+  } catch (err) {
+    if (err instanceof StaleAgentError) {
+      clearStoredAgent(address);
+      return { success: false, error: STALE_AGENT_MSG };
+    }
+    return { success: false, error: extractError(err) };
+  }
+}
+
+// ─── Spot order ─────────────────────────────────────────────────────────────
+// Spot trading uses the same order action but with spot asset indices.
+// Spot tokens on HL have indices starting at 10000.
+
+let spotMetaCache: Map<string, { index: number; szDecimals: number; token: string }> | null = null;
+
+async function loadSpotMeta(): Promise<void> {
+  if (spotMetaCache) return;
+  const res = await fetch(`${HL_API}/info`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "spotMeta" }),
+  });
+  const meta = await res.json();
+  spotMetaCache = new Map();
+  if (meta.tokens) {
+    for (const t of meta.tokens) {
+      spotMetaCache.set(t.name, {
+        index: t.index,
+        szDecimals: t.szDecimals,
+        token: t.name,
+      });
+    }
+  }
+  // Also index by universe if present
+  if (meta.universe) {
+    for (const u of meta.universe) {
+      // universe entries have { name, tokens: [baseIdx, quoteIdx], index }
+      const name = u.name; // e.g. "PURR/USDC"
+      const baseName = name.split("/")[0];
+      if (!spotMetaCache.has(baseName)) {
+        spotMetaCache.set(baseName, {
+          index: 10000 + u.index,
+          szDecimals: u.szDecimals ?? 0,
+          token: baseName,
+        });
+      }
+    }
+  }
+  console.log(`[spot] Loaded ${spotMetaCache.size} spot tokens`);
+}
+
+async function getSpotAssetIndex(token: string): Promise<number> {
+  await loadSpotMeta();
+  const info = spotMetaCache?.get(token);
+  if (!info) throw new Error(`Unknown spot token: ${token}`);
+  return info.index;
+}
+
+async function getSpotSzDecimals(token: string): Promise<number> {
+  await loadSpotMeta();
+  return spotMetaCache?.get(token)?.szDecimals ?? 2;
+}
+
+export interface SpotOrderParams {
+  token: string;     // e.g. "PURR", "HYPE"
+  isBuy: boolean;
+  size: number;
+  orderType: "market" | "limit";
+  limitPrice?: number;
+}
+
+export async function placeSpotOrder(
+  agentKey: `0x${string}`,
+  address: `0x${string}`,
+  params: SpotOrderParams,
+): Promise<PlaceOrderResult> {
+  try {
+    const assetIndex = await getSpotAssetIndex(params.token);
+    const szDecimals = await getSpotSzDecimals(params.token);
+    const nonce = Date.now();
+
+    let limitPrice: number;
+    if (params.orderType === "market") {
+      // For spot market orders, use mid price + slippage
+      const midPrice = await getMidPrice(`${params.token}/USDC`).catch(
+        () => getMidPrice(params.token)
+      );
+      const slippage = params.isBuy ? 1.005 : 0.995; // 0.5% slippage
+      limitPrice = roundPrice(midPrice * slippage);
+    } else {
+      if (!params.limitPrice) throw new Error("Limit price required");
+      limitPrice = roundPrice(params.limitPrice);
+    }
+
+    const roundedSize = roundSize(params.size, szDecimals);
+
+    const orderWire = {
+      a: assetIndex,
+      b: params.isBuy,
+      p: floatToWire(limitPrice),
+      s: floatToWire(roundedSize),
+      r: false, // reduce only (not applicable for spot)
+      t: params.orderType === "market"
+        ? { limit: { tif: "Ioc" } }  // IOC for market orders
+        : { limit: { tif: "Gtc" } }, // GTC for limit orders
+    };
+
+    const action: Record<string, unknown> = {
+      type: "order",
+      orders: [orderWire],
+      grouping: "na",
+    };
+
+    const signature = await signL1Action(agentKey, action, nonce);
+    const result = await submitToExchange(action, nonce, signature);
+
+    const response = (result as { response?: { type?: string; data?: { statuses?: Array<{ resting?: { oid: number }; filled?: { oid: number; totalSz: string; avgPx: string }; error?: string }> } } }).response;
+    if (typeof response === "object" && response?.data?.statuses?.[0]) {
+      const status = response.data.statuses[0];
+      if (status?.error) {
+        return { success: false, error: status.error };
+      }
+      return {
+        success: true,
+        orderId: (status?.resting?.oid || status?.filled?.oid)?.toString(),
+        filledSize: status?.filled?.totalSz,
+        avgPrice: status?.filled?.avgPx,
+      };
+    }
+
+    return { success: true };
+  } catch (err) {
+    if (err instanceof StaleAgentError) {
+      clearStoredAgent(address);
+      return { success: false, error: STALE_AGENT_MSG };
+    }
+    return { success: false, error: extractError(err) };
+  }
+}
+
+// ─── Deposit (Arbitrum USDC → HL L1) ────────────────────────────────────────
+// Deposits use the Hyperliquid bridge contract on Arbitrum.
+// The user approves USDC spend, then calls the bridge deposit function.
+
+export const HL_BRIDGE_ADDRESS = "0x2Df1c51E09aECF9cacB7bc98cB1742757f163dF7" as const;
+export const USDC_ARB_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as const; // Native USDC on Arbitrum
+
+// Minimal ABIs for deposit flow
+export const USDC_ABI = [
+  {
+    name: "approve",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    name: "allowance",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "balanceOf",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+export const HL_BRIDGE_ABI = [
+  {
+    name: "deposit",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+/**
+ * Get USDC balance on Arbitrum (for deposit UI).
+ */
+export async function getArbUsdcBalance(
+  walletClient: WalletClient,
+  address: `0x${string}`,
+): Promise<number> {
+  try {
+    const result = await walletClient.readContract({
+      address: USDC_ARB_ADDRESS,
+      abi: USDC_ABI,
+      functionName: "balanceOf",
+      args: [address],
+    });
+    // USDC has 6 decimals
+    return Number(result) / 1e6;
+  } catch (err) {
+    console.error("[deposit] Failed to get USDC balance:", err);
+    return 0;
+  }
+}
+
+/**
+ * Deposit USDC from Arbitrum to Hyperliquid.
+ * Two-step: approve USDC spend → call bridge deposit.
+ * Returns tx hash on success.
+ */
+export async function depositToHL(
+  walletClient: WalletClient,
+  address: `0x${string}`,
+  amount: number, // USDC amount (human readable, e.g. 100 = $100)
+): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  try {
+    const amountRaw = BigInt(Math.floor(amount * 1e6)); // USDC has 6 decimals
+
+    // Step 1: Check allowance and approve if needed
+    console.log("[deposit] Checking USDC allowance...");
+    const allowance = await walletClient.readContract({
+      address: USDC_ARB_ADDRESS,
+      abi: USDC_ABI,
+      functionName: "allowance",
+      args: [address, HL_BRIDGE_ADDRESS],
+    });
+
+    if ((allowance as bigint) < amountRaw) {
+      console.log("[deposit] Approving USDC spend...");
+      const approveTx = await walletClient.writeContract({
+        address: USDC_ARB_ADDRESS,
+        abi: USDC_ABI,
+        functionName: "approve",
+        args: [HL_BRIDGE_ADDRESS, amountRaw],
+        account: address,
+        chain: { id: 42161, name: "Arbitrum One", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: ["https://arb1.arbitrum.io/rpc"] } } },
+      });
+      console.log("[deposit] Approve tx:", approveTx);
+      // Wait a moment for approval to propagate
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    // Step 2: Call bridge deposit
+    console.log("[deposit] Calling bridge deposit for", amount, "USDC...");
+    const depositTx = await walletClient.writeContract({
+      address: HL_BRIDGE_ADDRESS,
+      abi: HL_BRIDGE_ABI,
+      functionName: "deposit",
+      args: [amountRaw],
+      account: address,
+      chain: { id: 42161, name: "Arbitrum One", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: ["https://arb1.arbitrum.io/rpc"] } } },
+    });
+
+    console.log("[deposit] Deposit tx:", depositTx);
+    return { success: true, txHash: depositTx };
+  } catch (err) {
+    console.error("[deposit] Error:", err);
+    return { success: false, error: extractError(err) };
+  }
+}

@@ -583,6 +583,11 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
                 ? `${side === "long" ? "Buy / Long" : "Sell / Short"}`
                 : `${side === "long" ? "Buy / Long" : "Sell / Short"} ${displayCoin}`}
         </button>
+
+        {/* Deposit / Withdraw buttons */}
+        {isConnected && (
+          <DepositWithdrawBar address={address!} />
+        )}
       </div>
       </div>}
 
@@ -971,6 +976,136 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
             <span className="text-[var(--foreground)] tabular-nums">{opt.openInterest.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── Deposit / Withdraw Bar ─────────────────────────────────────────────────
+
+function DepositWithdrawBar({ address }: { address: string }) {
+  const [mode, setMode] = useState<"none" | "deposit" | "withdraw">("none");
+  const [amount, setAmount] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const handleDeposit = useCallback(async () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"),
+        import("@/lib/hl-exchange"),
+        import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) { setResult({ ok: false, msg: "No wallet" }); return; }
+      const res = await exchange.depositToHL(walletClient, address as `0x${string}`, amt);
+      setResult(res.success
+        ? { ok: true, msg: `Deposited $${amt}. Tx: ${res.txHash?.slice(0, 10)}...` }
+        : { ok: false, msg: res.error || "Failed" }
+      );
+      if (res.success) setAmount("");
+    } catch (err) {
+      setResult({ ok: false, msg: err instanceof Error ? err.message : "Failed" });
+    } finally {
+      setSubmitting(false);
+    }
+  }, [amount, address]);
+
+  const handleWithdraw = useCallback(async () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"),
+        import("@/lib/hl-exchange"),
+        import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) { setResult({ ok: false, msg: "No wallet" }); return; }
+      const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      if (agentResult.error) { setResult({ ok: false, msg: agentResult.error }); return; }
+      const res = await exchange.withdraw(agentResult.agentKey, address as `0x${string}`, amt);
+      setResult(res.success
+        ? { ok: true, msg: `Withdrew $${amt} to Arbitrum` }
+        : { ok: false, msg: res.error || "Failed" }
+      );
+      if (res.success) setAmount("");
+    } catch (err) {
+      setResult({ ok: false, msg: err instanceof Error ? err.message : "Failed" });
+    } finally {
+      setSubmitting(false);
+    }
+  }, [amount, address]);
+
+  if (mode === "none") {
+    return (
+      <div className="flex gap-2 mt-2">
+        <button
+          onClick={() => { setMode("deposit"); setResult(null); }}
+          className="flex-1 py-1.5 rounded text-[10px] font-medium border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--hl-green)] hover:bg-[var(--hl-surface-hover)] transition-colors"
+        >
+          Deposit
+        </button>
+        <button
+          onClick={() => { setMode("withdraw"); setResult(null); }}
+          className="flex-1 py-1.5 rounded text-[10px] font-medium border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--hl-red)] hover:bg-[var(--hl-surface-hover)] transition-colors"
+        >
+          Withdraw
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <button onClick={() => { setMode("none"); setResult(null); setAmount(""); }} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-[14px]">&larr;</button>
+        <span className="text-[11px] font-medium text-[var(--foreground)]">{mode === "deposit" ? "Deposit USDC" : "Withdraw USDC"}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="flex-1 flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1.5">
+          <span className="text-[10px] text-[var(--hl-muted)] mr-1">$</span>
+          <input
+            type="number"
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            placeholder="0.00"
+            className="flex-1 bg-transparent text-right text-[12px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none"
+            autoFocus
+          />
+        </div>
+        <button
+          onClick={mode === "deposit" ? handleDeposit : handleWithdraw}
+          disabled={submitting || !parseFloat(amount)}
+          className={`px-4 py-1.5 rounded text-[11px] font-semibold transition-colors ${
+            mode === "deposit"
+              ? "bg-[var(--hl-green)] text-[var(--background)]"
+              : "bg-[var(--hl-red)] text-white"
+          } ${submitting || !parseFloat(amount) ? "opacity-40" : "hover:brightness-110"}`}
+        >
+          {submitting ? "..." : mode === "deposit" ? "Deposit" : "Withdraw"}
+        </button>
+      </div>
+      {mode === "deposit" && (
+        <div className="text-[9px] text-[var(--hl-muted)]">
+          USDC from Arbitrum → Hyperliquid L1. Requires wallet approval.
+        </div>
+      )}
+      {mode === "withdraw" && (
+        <div className="text-[9px] text-[var(--hl-muted)]">
+          USDC from Hyperliquid → your Arbitrum wallet.
+        </div>
+      )}
+      {result && (
+        <div className={`text-[10px] rounded p-1.5 ${result.ok ? "text-[var(--hl-green)] bg-[rgba(80,210,193,0.08)]" : "text-[var(--hl-red)] bg-[rgba(240,88,88,0.08)]"}`}>
+          {result.msg}
+        </div>
       )}
     </div>
   );
