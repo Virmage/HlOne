@@ -78,6 +78,12 @@ let terminalCache: { data: unknown; fetchedAt: number } | null = null;
 let terminalInFlight: Promise<unknown> | null = null;
 const TERMINAL_CACHE_TTL = 10_000; // 10 seconds
 
+// ─── Token detail response cache ────────────────────────────────────────────
+// Cache per coin+interval so N users viewing BTC-1h = 1 computation.
+const tokenDetailCache = new Map<string, { data: unknown; fetchedAt: number }>();
+const tokenDetailInFlight = new Map<string, Promise<unknown>>();
+const TOKEN_DETAIL_CACHE_TTL = 10_000; // 10 seconds
+
 // ─── Sub-query caches (avoid redundant fetches per terminal request) ────────
 let fundingCache: { data: { topPositive: unknown[]; topNegative: unknown[] }; fetchedAt: number } | null = null;
 const FUNDING_CACHE_TTL = 30_000; // 30 seconds
@@ -323,6 +329,17 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       // Resolve display names (e.g. "WATER") to Hyperliquid pair identifiers (e.g. "@155")
       const coin = resolveSpotName(rawCoin);
       const interval = (req.query.interval as string) || "1h";
+      const cacheKey = `${coin}_${interval}`;
+
+      // Return cached response if fresh
+      const cached = tokenDetailCache.get(cacheKey);
+      if (cached && Date.now() - cached.fetchedAt < TOKEN_DETAIL_CACHE_TTL) {
+        return cached.data;
+      }
+      // Dedup in-flight requests for same coin+interval
+      if (tokenDetailInFlight.has(cacheKey)) return tokenDetailInFlight.get(cacheKey);
+
+      const flight = (async () => {
       const now = Date.now();
 
       // Fetch everything in parallel
@@ -499,6 +516,17 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         social: coinSocial,
         timestamp: Date.now(),
       };
+      })();
+
+      tokenDetailInFlight.set(cacheKey, flight);
+      const result = await flight.finally(() => tokenDetailInFlight.delete(cacheKey));
+      tokenDetailCache.set(cacheKey, { data: result, fetchedAt: Date.now() });
+      // Evict stale entries (keep cache bounded)
+      if (tokenDetailCache.size > 100) {
+        const cutoff = Date.now() - TOKEN_DETAIL_CACHE_TTL * 3;
+        for (const [k, v] of tokenDetailCache) { if (v.fetchedAt < cutoff) tokenDetailCache.delete(k); }
+      }
+      return result;
     },
   );
 
