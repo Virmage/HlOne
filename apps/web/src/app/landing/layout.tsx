@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "HlOne — Your Hyperliquid Homepage",
-  description: "One terminal for everything on Hyperliquid. Markets, positions, whale flow, copy trading, and signals — all in one place. Coming soon.",
+  title: "HlOne – Hyperliquid Homepage",
+  description: "Perps, options and data.",
 };
 
 export default function LandingLayout({ children }: { children: React.ReactNode }) {

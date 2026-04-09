@@ -4,8 +4,19 @@ import { Header } from "@/components/layout/header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "HlOne — Hyperliquid Trading Terminal",
-  description: "Smart money flow, whale alerts, and copy trading for Hyperliquid",
+  title: "HlOne – Hyperliquid Homepage",
+  description: "Perps, options and data.",
+  openGraph: {
+    title: "HlOne – Hyperliquid Homepage",
+    description: "Perps, options and data.",
+    siteName: "HlOne",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "HlOne – Hyperliquid Homepage",
+    description: "Perps, options and data.",
+  },
 };
 
 export default function RootLayout({
