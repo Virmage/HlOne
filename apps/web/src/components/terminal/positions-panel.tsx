@@ -160,7 +160,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       // Skip polling when tab is hidden — avoids stale/failed fetches
       if (document.hidden) return;
       fetchPositions();
-    }, 5_000);
+    }, 15_000);
     return () => clearInterval(interval);
   }, [isConnected, address, fetchPositions]);
 

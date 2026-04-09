@@ -5,6 +5,7 @@
 
 import { discoverActiveTraders, getClearinghouseState, type DiscoveredTrader, type HLPosition } from "./hyperliquid.js";
 import { getTraderDisplayName } from "./name-generator.js";
+import { cacheGet, cacheSet } from "./cache.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -70,9 +71,68 @@ let cache: SmartMoneyCache | null = null;
 const CACHE_TTL = 60_000; // 60 seconds
 const STALE_TTL = 10 * 60_000; // 10 minutes — serve stale data while refreshing in background
 const FULL_REFRESH_TTL = 5 * 60_000; // 5 minutes for full position scan
+const PERSIST_KEY = "smart-money:latest";
+const PERSIST_TTL = 30 * 60_000; // 30 min — survive restarts, not permanently stale
 
 let lastFullRefresh = 0;
 let refreshInFlight = false;
+
+// ─── Persistence — load last-known data on boot so page isn't empty ─────────
+
+/** Serializable subset of SmartMoneyCache (Maps/Sets → arrays/objects) */
+interface PersistedSmartMoney {
+  flow: SharpSquareFlow[];
+  divergences: DivergenceSignal[];
+  sharpPositions: Record<string, TraderPosition[]>;
+  fetchedAt: number;
+}
+
+/** Load last-known smart money data from Redis/memory cache on boot */
+export async function loadSmartMoneyFromCache(): Promise<boolean> {
+  if (cache) return true; // already have live data
+  try {
+    const persisted = await cacheGet<PersistedSmartMoney>(PERSIST_KEY);
+    if (!persisted || !persisted.flow?.length) return false;
+
+    // Reconstruct a partial cache — enough for sharps vs squares + signals
+    const sharpPositionsByCoin = new Map<string, TraderPosition[]>();
+    for (const [coin, positions] of Object.entries(persisted.sharpPositions || {})) {
+      sharpPositionsByCoin.set(coin, positions);
+    }
+
+    cache = {
+      sharps: [],
+      sharpAddresses: new Set(),
+      squares: [],
+      traderScores: new Map(),
+      flow: persisted.flow,
+      divergences: persisted.divergences,
+      sharpPositions: sharpPositionsByCoin,
+      fetchedAt: persisted.fetchedAt,
+    };
+    console.log(`[smart-money] Loaded ${persisted.flow.length} flow entries from cache (${Math.round((Date.now() - persisted.fetchedAt) / 1000)}s old)`);
+    return true;
+  } catch (err) {
+    console.warn("[smart-money] Failed to load from cache:", (err as Error).message);
+    return false;
+  }
+}
+
+/** Persist current smart money data so it survives restarts */
+async function persistSmartMoney(): Promise<void> {
+  if (!cache) return;
+  try {
+    const persisted: PersistedSmartMoney = {
+      flow: cache.flow,
+      divergences: cache.divergences,
+      sharpPositions: Object.fromEntries(cache.sharpPositions),
+      fetchedAt: cache.fetchedAt,
+    };
+    await cacheSet(PERSIST_KEY, persisted, PERSIST_TTL);
+  } catch {
+    // Non-critical
+  }
+}
 
 // ─── Trader Scoring ──────────────────────────────────────────────────────────
 
@@ -481,6 +541,9 @@ async function doSmartMoneyRefresh(): Promise<SmartMoneyCache> {
     sharpPositions: sharpPositionsByCoin,
     fetchedAt: Date.now(),
   };
+
+  // Persist to Redis so next deploy has data immediately
+  persistSmartMoney();
 
   return cache;
 }

@@ -4,7 +4,7 @@
  */
 
 import { runWhaleCheck } from "./whale-tracker.js";
-import { getSmartMoneyData } from "./smart-money.js";
+import { getSmartMoneyData, loadSmartMoneyFromCache } from "./smart-money.js";
 import { getTokenScores } from "./scoring.js";
 import { getCachedMids, getCachedAssetCtxs } from "./market-data.js";
 import { getSignals } from "./signals.js";
@@ -32,13 +32,15 @@ export function startBackgroundJobs() {
   console.log("[bg] Phase 1: warming prices + OI + smart money (healthcheck gates on prices)...");
   (async () => {
     try {
+      // Load persisted smart money from Redis first — instant data on boot
+      await loadSmartMoneyFromCache();
       await getCachedMids();
       await getCachedAssetCtxs();
       await loadOIFromDb();
       await loadFillsFromDb();
       await snapshotOI();
       console.log("[bg] Phase 1a complete — prices warm, healthcheck should pass now");
-      // Smart money right after prices — sharps vs squares needs this
+      // Live smart money scan (overwrites persisted data with fresh)
       await getSmartMoneyData();
       await getTokenScores();
       await getSignals();
