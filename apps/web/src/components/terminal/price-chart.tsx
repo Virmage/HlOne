@@ -102,11 +102,13 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         .catch(() => {})
         .finally(() => { if (!cancelled && !fastDone) setLoading(false); });
     } else if (intervalChanged) {
-      // Interval change: fetch candles fast from HL, then replace with full detail
+      // Interval change: fetch candles fast from HL for instant update,
+      // then full detail replaces everything (including OI for new interval)
       fetchCandlesDirect(coin, interval)
         .then(candles => {
           if (!cancelled && candles.length > 0) {
-            setDetail(prev => prev ? { ...prev, candles, oiCandles: [] } : prev);
+            // Only update candles — keep existing OI visible until new OI arrives
+            setDetail(prev => prev ? { ...prev, candles } : prev);
           }
         })
         .catch(() => {});
