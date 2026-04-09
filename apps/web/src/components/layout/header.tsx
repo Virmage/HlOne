@@ -62,7 +62,7 @@ function Logo() {
     <img
       src={theme === "light" ? "/logo-light.png" : "/logo-dark.png"}
       alt="HLOne"
-      className="h-[22px] w-auto"
+      className="h-[28px] w-auto"
     />
   );
 }
