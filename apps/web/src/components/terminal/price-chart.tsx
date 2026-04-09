@@ -115,12 +115,14 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         .catch(() => {})
         .finally(() => { if (!cancelled && !fastDone) setLoading(false); });
     } else if (intervalChanged) {
-      // Interval change: show cached candles instantly, then refresh in background
+      // Interval change: only candles + OI change per timeframe.
+      // Skip the heavy getTokenDetail call — whale data, funding, social are interval-independent.
       const cached = getCachedCandles(coin, interval);
       if (cached && cached.length > 0) {
+        // Show cached candles instantly
         setDetail(prev => prev ? { ...prev, candles: cached } : prev);
       }
-      // Fetch fresh candles + OI in background
+      // Fetch fresh candles + OI only (~200ms each)
       Promise.all([
         fetchCandlesDirect(coin, interval).catch(() => [] as TokenDetail["candles"]),
         fetchOICandles(coin, interval).then(r => r.oiCandles).catch(() => []),
@@ -130,11 +132,6 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
           setDetail(prev => prev ? { ...prev, candles, ...(oiCandles.length > 0 ? { oiCandles } : {}) } : prev);
         }
       });
-      getTokenDetail(coin, interval)
-        .then(d => {
-          if (!cancelled) setDetail(d);
-        })
-        .catch(() => {});
     }
 
     // Poll for live candle updates (skip if tab hidden)
