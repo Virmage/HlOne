@@ -9,84 +9,39 @@ interface TickerBarProps {
   onSelectToken: (coin: string) => void;
 }
 
-function formatFlow(value: number): string {
-  if (value >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
-  if (value >= 1e6) return `$${(value / 1e6).toFixed(0)}M`;
-  return `$${(value / 1e3).toFixed(0)}K`;
-}
-
 export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProps) {
-  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(120, false);
+  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(110, false);
 
   if (!tokens.length) return null;
 
-  // Filter to crypto-only: exclude tradfi perps (xyz:, cash:, flx:, km: prefixes)
-  // and sort by 24h volume for most liquid first
   const TRADFI_PREFIXES = ["xyz:", "cash:", "flx:", "km:"];
   const cryptoTokens = tokens
     .filter(t => {
-      // Exclude any coin with a tradfi prefix
       if (TRADFI_PREFIXES.some(p => t.coin.startsWith(p))) return false;
-      // Exclude PAXG (tokenized gold) and similar commodity tokens
       if (t.coin === "PAXG") return false;
-      // Require minimum $1M daily volume
       return t.volume24h >= 1_000_000;
     })
     .sort((a, b) => b.volume24h - a.volume24h);
 
-  // Total 24h volume across all tokens = USDC flow proxy
-  const totalVolume = tokens.reduce((sum, t) => sum + t.volume24h, 0);
-  // Net OI = sum of all open interest (positive = capital deployed)
-  const totalOI = tokens.reduce((sum, t) => sum + t.openInterest, 0);
-
-  // Duplicate items for seamless loop — top 25 crypto by volume
   const items = cryptoTokens.slice(0, 25);
 
   return (
     <div className="overflow-hidden border-b border-[var(--hl-border)]">
-      <div ref={trackRef} className="flex py-1.5 px-2 gap-1.5" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
+      <div ref={trackRef} className="flex py-1 px-2 gap-1" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
-          <div key={copy} className="flex shrink-0 gap-1.5" aria-hidden={copy === 1}>
-            {/* USDC flows indicator */}
-            <div className="ticker-chip">
-              <span className="text-[var(--hl-muted)] font-medium">USDC Flow</span>
-              <span className="text-[var(--hl-accent)] tabular-nums font-medium">
-                {formatFlow(totalVolume)}/24h
-              </span>
-              <span className="text-[var(--hl-muted)] tabular-nums text-[10px]">
-                OI:{formatFlow(totalOI)}
-              </span>
-            </div>
+          <div key={copy} className="flex shrink-0 gap-1" aria-hidden={copy === 1}>
             {items.map((t) => {
               const isPositive = t.change24h >= 0;
-              const scoreColor = t.score
-                ? t.score.score >= 70 ? "bg-[var(--hl-green)]"
-                : t.score.score <= 30 ? "bg-[var(--hl-red)]"
-                : "bg-[var(--hl-muted)]"
-                : "";
-              const opts = options[t.coin];
-
               return (
                 <button
                   key={`${copy}-${t.coin}`}
                   onClick={() => onSelectToken(t.displayName || t.coin)}
-                  className="ticker-chip cursor-pointer"
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-[var(--hl-border)] cursor-pointer hover:border-[var(--hl-accent)] transition-colors text-[10px]"
                 >
-                  <span className="font-semibold text-[var(--foreground)]">{t.displayName || (t.coin.includes(":") ? t.coin.split(":")[1] : t.coin)}</span>
-                  <span className="text-[var(--hl-text)] tabular-nums" style={{ minWidth: "60px" }}>
-                    ${t.price >= 1 ? t.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : t.price.toPrecision(4)}
-                  </span>
-                  <span className={`tabular-nums font-medium ${isPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`} style={{ minWidth: "55px" }}>
+                  <span className="font-bold text-[var(--foreground)]">{t.displayName || (t.coin.includes(":") ? t.coin.split(":")[1] : t.coin)}</span>
+                  <span className={`tabular-nums font-semibold ${isPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                     {isPositive ? "+" : ""}{t.change24h.toFixed(2)}%
                   </span>
-                  {opts && opts.dvol > 0 && (
-                    <span className="text-[var(--hl-muted)] tabular-nums" title={`Deribit IV: ${opts.dvol.toFixed(0)}% | P/C: ${opts.putCallRatio.toFixed(2)} | Max Pain: $${opts.maxPain.toLocaleString()}`}>
-                      IV:{opts.dvol.toFixed(0)}%
-                    </span>
-                  )}
-                  {t.score && (
-                    <span className={`w-1.5 h-1.5 rounded-full ${scoreColor}`} title={`HLOne: ${t.score.score}`} />
-                  )}
                 </button>
               );
             })}
