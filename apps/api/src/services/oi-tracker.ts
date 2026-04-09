@@ -246,8 +246,9 @@ function enqueueCoinalyze<T>(fn: () => Promise<T>): Promise<T> {
 
 // Coinalyze interval format (HL-specific OI data)
 const COINALYZE_INTERVAL: Record<string, string> = {
-  "5m": "5min", "15m": "15min", "1h": "1hour", "4h": "4hour", "12h": "12hour",
-  "1d": "1day", "1w": "1week", "1M": "1month",
+  "1m": "1min", "5m": "5min", "15m": "15min", "1h": "1hour", "4h": "4hour",
+  "12h": "12hour", "1d": "daily",
+  // Coinalyze doesn't support 1w/1M — we'll aggregate from daily
 };
 
 /**
@@ -310,7 +311,31 @@ export async function getExternalOICandles(
     return cached.data;
   }
 
-  const candles = await enqueueCoinalyze(() => getOICandlesFromCoinalyze(coin, interval, fromMs, toMs));
+  let candles: OICandle[];
+
+  // For 1w/1M: fetch daily and aggregate into larger buckets
+  if (interval === "1w" || interval === "1M") {
+    const dailyCandles = await enqueueCoinalyze(() => getOICandlesFromCoinalyze(coin, "1d", fromMs, toMs));
+    const bucketMs = interval === "1w" ? 7 * 86400_000 : 30 * 86400_000;
+    const buckets = new Map<number, OICandle[]>();
+    for (const c of dailyCandles) {
+      const key = Math.floor(c.time / bucketMs) * bucketMs;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key)!.push(c);
+    }
+    candles = [...buckets.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([time, bucket]) => ({
+        time,
+        open: bucket[0].open,
+        high: Math.max(...bucket.map(c => c.high)),
+        low: Math.min(...bucket.map(c => c.low)),
+        close: bucket[bucket.length - 1].close,
+      }));
+  } else {
+    candles = await enqueueCoinalyze(() => getOICandlesFromCoinalyze(coin, interval, fromMs, toMs));
+  }
+
   if (candles.length > 0) {
     externalOICache.set(cacheKey, { data: candles, fetchedAt: Date.now() });
   }

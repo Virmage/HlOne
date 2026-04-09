@@ -79,7 +79,11 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
       fetchCandlesDirect(coin, interval)
         .then(candles => {
           if (!cancelled && candles.length > 0) {
-            setDetail(prev => prev ? { ...prev, candles, coin } : { candles, coin } as unknown as TokenDetail);
+            // Only set candles — preserve any existing OI/funding/whale data
+            setDetail(prev => {
+              if (prev && prev.coin === coin) return { ...prev, candles };
+              return { candles, coin } as unknown as TokenDetail;
+            });
             setLoading(false);
           }
         })
@@ -89,19 +93,20 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         .catch(() => {})
         .finally(() => { if (!cancelled) setLoading(false); });
     } else if (intervalChanged) {
-      // Interval change: fetch candles fast from HL, and OI from backend in parallel
+      // Interval change: fetch candles fast from HL, then merge full detail for OI
       fetchCandlesDirect(coin, interval)
         .then(candles => {
           if (!cancelled && candles.length > 0) {
-            setDetail(prev => prev ? { ...prev, candles } : prev);
+            // Clear old OI candles (wrong interval) but keep other data
+            setDetail(prev => prev ? { ...prev, candles, oiCandles: [] } : prev);
           }
         })
         .catch(() => {});
-      // Also fetch full detail for OI candles (slightly slower but keeps OI in sync)
+      // Fetch full detail — replaces everything with correct interval data
       getTokenDetail(coin, interval)
         .then(d => {
-          if (!cancelled && d?.oiCandles) {
-            setDetail(prev => prev ? { ...prev, oiCandles: d.oiCandles } : prev);
+          if (!cancelled) {
+            setDetail(d); // Full replace — all data matches new interval
           }
         })
         .catch(() => {});
