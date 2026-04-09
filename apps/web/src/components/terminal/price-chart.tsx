@@ -76,14 +76,23 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
       // 1. Fetch candles directly from HL (~200ms) for instant chart render
       // 2. Fetch full detail in background for OI, funding, whale data etc.
       setLoading(true);
+      let fastDone = false;
       fetchCandlesDirect(coin, interval)
         .then(candles => {
           if (!cancelled && candles.length > 0) {
-            // Only set candles — preserve any existing OI/funding/whale data
+            // Merge candles into existing detail if it's for the same coin,
+            // otherwise create a minimal detail object with safe defaults
             setDetail(prev => {
               if (prev && prev.coin === coin) return { ...prev, candles };
-              return { candles, coin } as unknown as TokenDetail;
+              return {
+                coin, candles, oiCandles: [], whaleAlerts: [],
+                topTraderFills: [], funding: [], fundingRegime: "",
+                liquidationClusters: [], sharpPositions: [],
+                overview: null, score: null, bookAnalysis: null,
+                options: null, news: [], social: null, timestamp: Date.now(),
+              } as unknown as TokenDetail;
             });
+            fastDone = true;
             setLoading(false);
           }
         })
@@ -91,23 +100,19 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
       getTokenDetail(coin, interval)
         .then(d => { if (!cancelled) { setDetail(d); setLoading(false); } })
         .catch(() => {})
-        .finally(() => { if (!cancelled) setLoading(false); });
+        .finally(() => { if (!cancelled && !fastDone) setLoading(false); });
     } else if (intervalChanged) {
-      // Interval change: fetch candles fast from HL, then merge full detail for OI
+      // Interval change: fetch candles fast from HL, then replace with full detail
       fetchCandlesDirect(coin, interval)
         .then(candles => {
           if (!cancelled && candles.length > 0) {
-            // Clear old OI candles (wrong interval) but keep other data
             setDetail(prev => prev ? { ...prev, candles, oiCandles: [] } : prev);
           }
         })
         .catch(() => {});
-      // Fetch full detail — replaces everything with correct interval data
       getTokenDetail(coin, interval)
         .then(d => {
-          if (!cancelled) {
-            setDetail(d); // Full replace — all data matches new interval
-          }
+          if (!cancelled) setDetail(d);
         })
         .catch(() => {});
     }
