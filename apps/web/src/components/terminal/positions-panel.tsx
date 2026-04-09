@@ -412,28 +412,42 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   return (
     <div className="max-h-[110px] flex flex-col overflow-hidden">
       {/* Tab bar */}
-      <div className="flex items-center gap-0 overflow-x-auto scrollbar-none border-b border-[var(--hl-border)] flex-shrink-0">
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
-              tab === t.key
-                ? "border-[var(--foreground)] text-[var(--foreground)]"
-                : "border-transparent text-[var(--hl-muted)] hover:text-[var(--hl-text)]"
-            }`}
-          >
-            {t.label}
-            {t.count !== undefined && t.count > 0 && (
-              <span className="ml-1 text-[9px] text-[var(--hl-muted)]">({t.count})</span>
-            )}
-          </button>
-        ))}
+      <div className="flex items-center border-b border-[var(--hl-border)] flex-shrink-0">
+        <div className="flex items-center gap-0 overflow-x-auto scrollbar-none flex-1">
+          {TABS.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
+                tab === t.key
+                  ? "border-[var(--foreground)] text-[var(--foreground)]"
+                  : "border-transparent text-[var(--hl-muted)] hover:text-[var(--hl-text)]"
+              }`}
+            >
+              {t.label}
+              {t.count !== undefined && t.count > 0 && (
+                <span className="ml-1 text-[9px] text-[var(--hl-muted)]">({t.count})</span>
+              )}
+            </button>
+          ))}
+        </div>
+        {positions.length > 0 && (
+          <div className="flex items-center gap-2 px-2 flex-shrink-0">
+            {actionResult?.coin === "ALL" && <span className={`text-[9px] ${actionResult.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{actionResult.msg}</span>}
+            <button
+              onClick={handleCloseAll}
+              disabled={closingAll}
+              className="px-2 py-0.5 text-[9px] font-semibold rounded bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.3)] transition-colors disabled:opacity-50 whitespace-nowrap"
+            >
+              {closingAll ? "Closing..." : "Close All"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tab content */}
       <div className="min-h-[40px] flex-1 overflow-hidden">
-        {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} triggerOrders={triggerOrders} onSelectToken={onSelectToken} onClose={handleClose} onLimitClose={handleLimitClose} onCloseAll={handleCloseAll} onReverse={handleReverse} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
+        {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} triggerOrders={triggerOrders} onSelectToken={onSelectToken} onClose={handleClose} onLimitClose={handleLimitClose} onReverse={handleReverse} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
         {tab === "balances" && <BalancesTab account={account} />}
         {tab === "orders" && <OpenOrdersTab orders={openOrders} onSelectToken={onSelectToken} />}
         {tab === "twap" && <EmptyTab label="No active TWAP orders" />}
@@ -447,7 +461,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
 // ─── Positions Tab ────────────────────────────────────────────────────────────
 
-function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode, triggerPrice, submitting, actionResult, triggerOrders, onSelectToken, onClose, onLimitClose, onCloseAll, onReverse, onTpSlToggle, onTriggerPriceChange, onTpSlSubmit }: {
+function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode, triggerPrice, submitting, actionResult, triggerOrders, onSelectToken, onClose, onLimitClose, onReverse, onTpSlToggle, onTriggerPriceChange, onTpSlSubmit }: {
   positions: UserPosition[]; loading: boolean; error: string | null;
   closing: string | null; closingAll: boolean; tpSlMode: TpSlMode; triggerPrice: string; submitting: boolean;
   actionResult: { coin: string; msg: string; ok: boolean } | null;
@@ -455,7 +469,6 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
   onSelectToken?: (coin: string) => void;
   onClose: (pos: UserPosition, closeSize?: number) => void;
   onLimitClose: (pos: UserPosition, size: number, price: number) => void;
-  onCloseAll: () => void;
   onReverse: (pos: UserPosition) => void;
   onTpSlToggle: (coin: string, type: "tp" | "sl") => void;
   onTriggerPriceChange: (v: string) => void;
@@ -476,8 +489,6 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
   if (positions.length === 0 && loading) return <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">Loading positions...</div>;
   if (error && positions.length === 0) return <div className="text-[10px] text-[var(--hl-red)] text-center py-2">{error}</div>;
   if (positions.length === 0) return <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">No open positions</div>;
-
-  const allResult = actionResult?.coin === "ALL" ? actionResult : null;
 
   // Find the position for the popup
   const popupPos = tpSlPopup ? positions.find(p => p.coin === tpSlPopup) : null;
@@ -642,19 +653,6 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
         );
       })()}
 
-      {/* Close All button */}
-      <div className="flex items-center justify-end px-1 py-1">
-        <div className="flex items-center gap-2">
-          {allResult && <span className={`text-[9px] ${allResult.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{allResult.msg}</span>}
-          <button
-            onClick={onCloseAll}
-            disabled={closingAll}
-            className="px-2 py-0.5 text-[9px] font-semibold rounded bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.3)] transition-colors disabled:opacity-50"
-          >
-            {closingAll ? "Closing..." : "Close All"}
-          </button>
-        </div>
-      </div>
       <table className="w-full text-[11px]">
         <thead>
           <tr className="text-[var(--hl-muted)] text-[10px] uppercase tracking-wider border-b border-[var(--hl-border)]">
