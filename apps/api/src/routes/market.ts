@@ -868,6 +868,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       status: dataHealth.smartMoney && overviewCount > 0 ? "healthy" : "degraded",
       uptime: tradeStats.uptimeHours + "h",
       tokens: overviewCount,
+      coinalyzeKey: process.env.COINALYZE_API_KEY ? "set" : "NOT SET",
       caches: cacheChecks,
       data: dataHealth,
       trades: {

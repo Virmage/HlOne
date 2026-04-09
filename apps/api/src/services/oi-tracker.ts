@@ -268,7 +268,10 @@ async function getOICandlesFromCoinalyze(
       headers: { "Accept": "application/json" },
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.warn(`[oi-tracker] Coinalyze returned ${res.status} for ${coin} ${interval}`);
+      return [];
+    }
     const json = await res.json();
     const entry = Array.isArray(json) ? json[0] : null;
     if (!entry?.history?.length) return [];
