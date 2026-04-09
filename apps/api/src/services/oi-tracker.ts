@@ -236,81 +236,15 @@ export function getOICandlesForInterval(coin: string, interval: string, count = 
 const externalOICache = new Map<string, { data: OICandle[]; fetchedAt: number }>();
 const EXTERNAL_OI_CACHE_TTL = 5 * 60_000; // 5 minutes
 
-// Coinalyze interval format
+// Coinalyze interval format (HL-specific OI data)
 const COINALYZE_INTERVAL: Record<string, string> = {
   "5m": "5min", "15m": "15min", "1h": "1hour", "4h": "4hour", "12h": "12hour",
   "1d": "1day", "1w": "1week", "1M": "1month",
 };
 
-// Binance futures interval format
-const BINANCE_INTERVAL: Record<string, string> = {
-  "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "12h": "12h",
-  "1d": "1d", "1w": "1w", "1M": "1M",
-};
-
-// Map coin names to Binance futures symbols
-function toBinanceSymbol(coin: string): string | null {
-  // Most HL coins map directly: BTC → BTCUSDT, ETH → ETHUSDT
-  const mapped = `${coin.toUpperCase()}USDT`;
-  return mapped;
-}
-
-/**
- * Fetch OI candles from Binance Futures (free, no API key needed).
- * Uses kline-style OI endpoint. Binance provides actual OI history for major pairs.
- */
-async function getOICandlesFromBinance(
-  coin: string, interval: string, fromMs: number, toMs: number
-): Promise<OICandle[]> {
-  const symbol = toBinanceSymbol(coin);
-  const period = BINANCE_INTERVAL[interval];
-  if (!symbol || !period) return [];
-
-  try {
-    // Binance futures OI statistics endpoint (free, no key)
-    const url = `https://fapi.binance.com/futures/data/openInterestHist?symbol=${symbol}&period=${period}&startTime=${fromMs}&endTime=${toMs}&limit=500`;
-    const res = await fetch(url, {
-      headers: { "Accept": "application/json" },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return [];
-    const json = await res.json();
-    if (!Array.isArray(json) || json.length === 0) return [];
-
-    // Response: [{ symbol, sumOpenInterest, sumOpenInterestValue, timestamp }]
-    // sumOpenInterestValue is in USDT — perfect for our chart
-    const candles: OICandle[] = [];
-    for (let i = 0; i < json.length; i++) {
-      const val = parseFloat(json[i].sumOpenInterestValue);
-      const time = json[i].timestamp;
-      // Build OHLC from sequential values
-      candles.push({
-        time,
-        open: val,
-        high: val,
-        low: val,
-        close: val,
-      });
-    }
-
-    // Convert point data to proper OHLC by looking at neighboring values
-    for (let i = 0; i < candles.length; i++) {
-      if (i > 0) {
-        candles[i].open = candles[i - 1].close;
-        candles[i].high = Math.max(candles[i].open, candles[i].close);
-        candles[i].low = Math.min(candles[i].open, candles[i].close);
-      }
-    }
-
-    return candles;
-  } catch (err) {
-    console.warn(`[oi-tracker] Binance OI fetch failed for ${coin}:`, (err as Error).message);
-    return [];
-  }
-}
-
 /**
  * Fetch OI candles from Coinalyze (requires COINALYZE_API_KEY env var).
+ * Returns HL-specific OI data (not proxy data from other exchanges).
  */
 async function getOICandlesFromCoinalyze(
   coin: string, interval: string, fromMs: number, toMs: number
@@ -347,8 +281,8 @@ async function getOICandlesFromCoinalyze(
 }
 
 /**
- * Get OI candles from the best available external source.
- * Priority: Coinalyze (if key set) → Binance (free) → local tracker
+ * Get OI candles from Coinalyze (HL-specific data).
+ * Falls back to local tracker if no API key is set.
  */
 export async function getExternalOICandles(
   coin: string, interval: string, fromMs: number, toMs: number
@@ -359,12 +293,7 @@ export async function getExternalOICandles(
     return cached.data;
   }
 
-  // Try Coinalyze first (HL-specific data), then Binance (proxy)
-  let candles = await getOICandlesFromCoinalyze(coin, interval, fromMs, toMs);
-  if (candles.length === 0) {
-    candles = await getOICandlesFromBinance(coin, interval, fromMs, toMs);
-  }
-
+  const candles = await getOICandlesFromCoinalyze(coin, interval, fromMs, toMs);
   if (candles.length > 0) {
     externalOICache.set(cacheKey, { data: candles, fetchedAt: Date.now() });
   }
