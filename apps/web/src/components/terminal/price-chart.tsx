@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { TokenDetail, TokenOverview, WhaleAlert, LiquidationBand } from "@/lib/api";
-import { getTokenDetail } from "@/lib/api";
+import { getTokenDetail, getOICandles as fetchOICandles } from "@/lib/api";
 import { useAccountInfo } from "@/hooks/use-account-info";
 
 interface PriceChartProps {
@@ -73,45 +73,46 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
 
     if (coinChanged || !detail) {
       // Coin change or first load:
-      // 1. Fetch candles directly from HL (~200ms) for instant chart render
-      // 2. Fetch full detail in background for OI, funding, whale data etc.
+      // 1. Fetch candles + OI in parallel (~200ms each) for instant chart render
+      // 2. Fetch full detail in background for funding, whale data etc.
       setLoading(true);
       let fastDone = false;
-      fetchCandlesDirect(coin, interval)
-        .then(candles => {
-          if (!cancelled && candles.length > 0) {
-            // Merge candles into existing detail if it's for the same coin,
-            // otherwise create a minimal detail object with safe defaults
-            setDetail(prev => {
-              if (prev && prev.coin === coin) return { ...prev, candles };
-              return {
-                coin, candles, oiCandles: [], whaleAlerts: [],
-                topTraderFills: [], funding: [], fundingRegime: "",
-                liquidationClusters: [], sharpPositions: [],
-                overview: null, score: null, bookAnalysis: null,
-                options: null, news: [], social: null, timestamp: Date.now(),
-              } as unknown as TokenDetail;
-            });
-            fastDone = true;
-            setLoading(false);
-          }
-        })
-        .catch(() => {});
+      // Fast path: candles + OI in parallel
+      Promise.all([
+        fetchCandlesDirect(coin, interval).catch(() => [] as TokenDetail["candles"]),
+        fetchOICandles(coin, interval).then(r => r.oiCandles).catch(() => []),
+      ]).then(([candles, oiCandles]) => {
+        if (cancelled) return;
+        if (candles.length > 0) {
+          setDetail(prev => {
+            if (prev && prev.coin === coin) return { ...prev, candles, ...(oiCandles.length > 0 ? { oiCandles } : {}) };
+            return {
+              coin, candles, oiCandles: oiCandles || [], whaleAlerts: [],
+              topTraderFills: [], funding: [], fundingRegime: "",
+              liquidationClusters: [], sharpPositions: [],
+              overview: null, score: null, bookAnalysis: null,
+              options: null, news: [], social: null, timestamp: Date.now(),
+            } as unknown as TokenDetail;
+          });
+          fastDone = true;
+          setLoading(false);
+        }
+      });
       getTokenDetail(coin, interval)
         .then(d => { if (!cancelled) { setDetail(d); setLoading(false); } })
         .catch(() => {})
         .finally(() => { if (!cancelled && !fastDone) setLoading(false); });
     } else if (intervalChanged) {
-      // Interval change: fetch candles fast from HL for instant update,
-      // then full detail replaces everything (including OI for new interval)
-      fetchCandlesDirect(coin, interval)
-        .then(candles => {
-          if (!cancelled && candles.length > 0) {
-            // Only update candles — keep existing OI visible until new OI arrives
-            setDetail(prev => prev ? { ...prev, candles } : prev);
-          }
-        })
-        .catch(() => {});
+      // Interval change: fetch candles + OI fast, then full detail replaces everything
+      Promise.all([
+        fetchCandlesDirect(coin, interval).catch(() => [] as TokenDetail["candles"]),
+        fetchOICandles(coin, interval).then(r => r.oiCandles).catch(() => []),
+      ]).then(([candles, oiCandles]) => {
+        if (cancelled) return;
+        if (candles.length > 0) {
+          setDetail(prev => prev ? { ...prev, candles, ...(oiCandles.length > 0 ? { oiCandles } : {}) } : prev);
+        }
+      });
       getTokenDetail(coin, interval)
         .then(d => {
           if (!cancelled) setDetail(d);

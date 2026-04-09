@@ -567,6 +567,32 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
+   * GET /api/market/oi/:coin
+   * Lightweight OI-only endpoint — loads in ~200ms instead of waiting for full token detail.
+   */
+  app.get<{ Params: { coin: string }; Querystring: { interval?: string } }>(
+    "/oi/:coin",
+    async (req) => {
+      const { coin } = req.params;
+      const interval = req.query.interval || "1h";
+      const oiCountMap: Record<string, number> = {
+        "5m": 576, "15m": 480, "1h": 336, "4h": 180,
+        "12h": 120, "1d": 365, "1w": 156, "1M": 60,
+      };
+      let oiCandles = getOICandlesForInterval(coin, interval, oiCountMap[interval] || 200);
+      try {
+        const intervalMs = { "5m": 5*60e3, "15m": 15*60e3, "1h": 60*60e3, "4h": 4*60*60e3, "12h": 12*60*60e3, "1d": 86400e3, "1w": 7*86400e3, "1M": 30*86400e3 }[interval] || 60*60e3;
+        const count = oiCountMap[interval] || 200;
+        const now = Date.now();
+        const from = now - intervalMs * count;
+        const externalOI = await getExternalOICandles(coin, interval, from, now);
+        if (externalOI.length > oiCandles.length) oiCandles = externalOI;
+      } catch { /* local data is still usable */ }
+      return { coin, interval, oiCandles, timestamp: Date.now() };
+    },
+  );
+
+  /**
    * GET /api/market/whale-alerts
    * Standalone whale alerts endpoint for polling.
    */

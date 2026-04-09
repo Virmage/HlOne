@@ -28,7 +28,9 @@ export function useTickerAnimation(
     if (!el) return;
     const firstChild = el.children[0] as HTMLElement | undefined;
     if (firstChild) {
-      contentWidthRef.current = firstChild.scrollWidth;
+      // Include any flex gap between copies so the loop distance is accurate
+      const gap = parseFloat(getComputedStyle(el).gap) || 0;
+      contentWidthRef.current = firstChild.offsetWidth + gap;
     }
   }, []);
 
@@ -97,7 +99,19 @@ export function useTickerAnimation(
   useEffect(() => {
     const handleResize = () => measure();
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+
+    // Re-measure when the track element resizes (content changes, fonts load)
+    const el = elRef.current;
+    let ro: ResizeObserver | undefined;
+    if (el) {
+      ro = new ResizeObserver(() => measure());
+      ro.observe(el);
+    }
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      ro?.disconnect();
+    };
   }, [measure]);
 
   const onMouseEnter = useCallback(() => {

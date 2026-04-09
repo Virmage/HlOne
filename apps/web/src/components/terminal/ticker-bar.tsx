@@ -27,9 +27,9 @@ export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProp
 
   return (
     <div className="overflow-hidden border-b border-[var(--hl-border)]">
-      <div ref={trackRef} className="flex py-1 px-2 gap-1" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
+      <div ref={trackRef} className="flex py-1" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
-          <div key={copy} className="flex shrink-0 gap-1" aria-hidden={copy === 1}>
+          <div key={copy} className="flex shrink-0 gap-1 px-[2px]" aria-hidden={copy === 1}>
             {items.map((t) => {
               const isPositive = t.change24h >= 0;
               return (

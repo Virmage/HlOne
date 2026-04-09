@@ -665,6 +665,12 @@ export async function getDeriveOptionsChain(coin: string) {
 // Backward compat
 export const getHypeOptionsChain = () => getDeriveOptionsChain("HYPE");
 
+export async function getOICandles(coin: string, interval = "1h") {
+  return apiFetch<{ coin: string; interval: string; oiCandles: TokenDetail["oiCandles"]; timestamp: number }>(
+    `/api/market/oi/${encodeURIComponent(coin)}?interval=${interval}`
+  );
+}
+
 export async function getWhaleAlertsFeed(limit = 50, coin?: string) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (coin) params.set("coin", coin);
