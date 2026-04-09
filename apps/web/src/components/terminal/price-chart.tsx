@@ -1356,7 +1356,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
         </div>
       )}
 
-      <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden" style={{ cursor: drawingTool !== "none" ? "crosshair" : dragRef.current ? "grabbing" : yDragRef.current ? "ns-resize" : "crosshair" }}>
+      <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden" style={{ cursor: drawingTool !== "none" ? "crosshair" : dragRef.current ? "grabbing" : yDragRef.current ? "ns-resize" : "crosshair", touchAction: "none" }}>
         <svg
           ref={svgRef}
           width="100%"
