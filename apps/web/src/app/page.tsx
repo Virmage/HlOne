@@ -12,7 +12,6 @@ import { MacroBar } from "@/components/terminal/macro-bar";
 import { PositionsPanel } from "@/components/terminal/positions-panel";
 import type { SelectedOption } from "@/components/terminal/inline-options-chain";
 import { useSafeAccount } from "@/hooks/use-safe-account";
-import { useAccountInfo } from "@/hooks/use-account-info";
 
 /* ── PanelSkeleton: placeholder while lazy panels load ────────────────────── */
 function PanelSkeleton() {
@@ -78,33 +77,6 @@ const CopyDialog = dynamic(
   () => import("@/components/traders/copy-dialog").then(mod => ({ default: mod.CopyDialog })),
   { ssr: false }
 );
-
-/* ── Portfolio sidebar (Option B — left of chart) ───────────────────────── */
-function PortfolioSidebar() {
-  const accountInfo = useAccountInfo();
-  if (!accountInfo) return null; // hide when not connected
-
-  const { accountValue, unrealizedPnl } = accountInfo;
-  const available = accountValue - Math.abs(unrealizedPnl);
-
-  const stats = [
-    { label: "Equity", value: `$${accountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, color: "" },
-    { label: "uPnL", value: `${unrealizedPnl >= 0 ? "+" : ""}$${unrealizedPnl.toFixed(2)}`, color: unrealizedPnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]" },
-    { label: "Available", value: `$${available.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, color: "" },
-  ];
-
-  return (
-    <div className="hidden md:flex w-[90px] flex-shrink-0 border-r border-[var(--hl-border)] py-2 px-1.5 flex-col gap-2">
-      <div className="text-[8px] font-bold text-[var(--hl-muted)] uppercase tracking-wider">Portfolio</div>
-      {stats.map(s => (
-        <div key={s.label}>
-          <div className="text-[7px] text-[var(--hl-muted)] uppercase tracking-wider">{s.label}</div>
-          <div className={`text-[11px] font-bold tabular-nums ${s.color || "text-[var(--foreground)]"}`}>{s.value}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 const LOADING_LINES = [
   "Ringing House of all Finance doorbell.",
@@ -240,8 +212,6 @@ export default function HomePage() {
 
       {/* Chart + Positions (left) | Order Book + Trading Panel (right) */}
       <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)]">
-        {/* Portfolio sidebar — left of chart (only when connected) */}
-        <PortfolioSidebar />
         {/* Left column: Chart stacked above Positions */}
         <div className="flex-1 min-w-0 flex flex-col">
           {/* Chart / Options Chain */}

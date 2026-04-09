@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { TokenDetail, TokenOverview, WhaleAlert, LiquidationBand } from "@/lib/api";
 import { getTokenDetail } from "@/lib/api";
+import { useAccountInfo } from "@/hooks/use-account-info";
 
 interface PriceChartProps {
   coin: string;
@@ -58,6 +59,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
   const pollRef = useRef<ReturnType<typeof globalThis.setInterval> | null>(null);
 
   const overview = tokens.find(t => t.coin === coin);
+  const accountInfo = useAccountInfo();
 
   // Full detail fetch (initial load + coin change + background poll)
   const prevCoinRef = useRef(coin);
@@ -489,6 +491,27 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
               </span>
             ) : <span className="text-[var(--hl-muted)]">—</span>}
           </div>
+
+          {/* Portfolio stats — accent-bordered pill, right of funding */}
+          {accountInfo && (
+            <>
+              <div className="w-px h-5 bg-[var(--hl-border)] shrink-0 mx-1" />
+              <div className="flex items-center gap-3 shrink-0 px-2.5 py-0.5 rounded-md border border-[var(--hl-accent)]/25 bg-[var(--hl-accent)]/[0.04]">
+                <div className="flex flex-col">
+                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">Equity</span>
+                  <span className="text-[var(--foreground)] tabular-nums font-bold text-[11px]">
+                    ${accountInfo.accountValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">uPnL</span>
+                  <span className={`tabular-nums font-bold text-[11px] ${accountInfo.unrealizedPnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                    {accountInfo.unrealizedPnl >= 0 ? "+" : ""}${accountInfo.unrealizedPnl.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
