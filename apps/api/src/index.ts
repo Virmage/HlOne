@@ -3,7 +3,7 @@ import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: resolve(__dirname, "../../.env") }); // apps/api/.env
+config({ path: resolve(__dirname, "../.env") }); // apps/api/.env
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import compress from "@fastify/compress";
