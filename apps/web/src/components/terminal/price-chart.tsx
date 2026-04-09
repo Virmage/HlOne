@@ -1748,8 +1748,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
                 const x = ML + candleIdx * candleW + candleW / 2;
                 const y = baseY - j * spacing;
                 const color = m.isBuy ? "var(--hl-green)" : "var(--hl-red)";
-                const isShark = m.size >= 5_000_000;
-                const emoji = isShark ? "\uD83E\uDD88" : "\uD83D\uDC33"; // 🦈 or 🐳
+                const emoji = m.size >= 5_000_000 ? "\uD83D\uDC0B" : "\uD83D\uDC33"; // 🐋 (big whale) or 🐳 (whale)
                 elements.push(
                   <g key={`whale-${candleIdx}-${j}`} style={{ cursor: "pointer" }} onClick={(e) => {
                     e.stopPropagation();
