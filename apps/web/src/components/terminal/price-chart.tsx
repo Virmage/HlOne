@@ -1768,7 +1768,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
                     {/* Hit area */}
                     <circle cx={x} cy={y} r={R + 6} fill="transparent" />
                     {/* Emoji */}
-                    <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={isShark ? 10 : 9} style={{ pointerEvents: "none" }}>{emoji}</text>
+                    <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={m.size >= 5_000_000 ? 10 : 9} style={{ pointerEvents: "none" }}>{emoji}</text>
                   </g>
                 );
               });
