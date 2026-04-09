@@ -131,13 +131,13 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         .catch(e => { console.error("[PriceChart] getTokenDetail failed:", e); })
         .finally(() => { if (!cancelled && !fastDone) setLoading(false); });
     } else if (intervalChanged) {
-      // Interval change: only candles + OI change per timeframe.
+      // Interval change: candles + OI change per timeframe.
       // Show cached candles instantly, then fetch fresh via backend (~200ms).
       const cached = getCachedCandles(coin, interval);
       if (cached && cached.length > 0) {
         setDetail(prev => prev ? { ...prev, candles: cached } : prev);
       }
-      // Primary: lightweight backend candles endpoint (not rate-limited like direct HL)
+      // Fetch candles + OI in parallel for the new interval
       fetchCandlesViaBackend(coin, interval)
         .then(r => {
           if (cancelled) return;
@@ -152,7 +152,6 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         })
         .catch(e => {
           console.warn("[PriceChart] backend candles failed, trying direct:", e);
-          // Fallback: direct HL API
           fetchCandlesDirect(coin, interval)
             .then(candles => {
               if (!cancelled && candles.length > 0) {
@@ -161,6 +160,14 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             })
             .catch(e2 => { console.error("[PriceChart] all candle fetches failed:", e2); });
         });
+      // Fetch OI candles for new interval
+      fetchOICandles(coin, interval)
+        .then(r => {
+          if (!cancelled && r.oiCandles?.length > 0) {
+            setDetail(prev => prev ? { ...prev, oiCandles: r.oiCandles } : prev);
+          }
+        })
+        .catch(e => { console.warn("[PriceChart] interval OI fetch failed:", e); });
     }
 
     // Poll for live candle updates via backend (skip if tab hidden)

@@ -573,7 +573,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { coin: string }; Querystring: { interval?: string } }>(
     "/oi/:coin",
     async (req) => {
-      const { coin } = req.params;
+      const coin = resolveSpotName(decodeURIComponent(req.params.coin));
       const interval = req.query.interval || "1h";
       const oiCountMap: Record<string, number> = {
         "5m": 576, "15m": 480, "1h": 336, "4h": 180,
