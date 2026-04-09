@@ -250,11 +250,17 @@ async function getOICandlesFromCoinalyze(
   coin: string, interval: string, fromMs: number, toMs: number
 ): Promise<OICandle[]> {
   const apiKey = process.env.COINALYZE_API_KEY;
-  if (!apiKey) return [];
+  if (!apiKey) {
+    console.warn(`[oi-tracker] No COINALYZE_API_KEY set`);
+    return [];
+  }
 
   const symbol = `${coin.toUpperCase()}USD_PERP.A`;
   const coinalyzeInterval = COINALYZE_INTERVAL[interval];
-  if (!coinalyzeInterval) return [];
+  if (!coinalyzeInterval) {
+    console.warn(`[oi-tracker] No Coinalyze mapping for interval "${interval}"`);
+    return [];
+  }
 
   try {
     const url = `https://api.coinalyze.net/v1/open-interest-history?symbols=${symbol}&interval=${coinalyzeInterval}&from=${Math.floor(fromMs / 1000)}&to=${Math.floor(toMs / 1000)}&api_key=${apiKey}`;
