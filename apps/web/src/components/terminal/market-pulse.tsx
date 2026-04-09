@@ -14,13 +14,13 @@ interface MarketPulseProps {
   avgCorrelation?: number | null;
 }
 
-const REGIME_STYLES: Record<string, { text: string; label: string; bg: string }> = {
-  risk_on:      { text: "text-[var(--hl-green)]",  label: "RISK ON",      bg: "bg-[rgba(80,210,193,0.12)]" },
-  risk_off:     { text: "text-[var(--hl-red)]",    label: "RISK OFF",     bg: "bg-[rgba(240,88,88,0.12)]" },
-  chop:         { text: "text-orange-400",          label: "CHOP",         bg: "bg-[rgba(251,146,60,0.12)]" },
-  rotation:     { text: "text-blue-400",            label: "ROTATION",     bg: "bg-[rgba(96,165,250,0.12)]" },
-  squeeze:      { text: "text-purple-400",          label: "SQUEEZE",      bg: "bg-[rgba(192,132,252,0.12)]" },
-  capitulation: { text: "text-yellow-400",          label: "CAPITULATION", bg: "bg-[rgba(250,204,21,0.12)]" },
+const REGIME_STYLES: Record<string, { text: string; label: string; border: string }> = {
+  risk_on:      { text: "text-[var(--hl-green)]",  label: "RISK ON",      border: "border-[rgba(80,210,193,0.4)]" },
+  risk_off:     { text: "text-[var(--hl-red)]",    label: "RISK OFF",     border: "border-[rgba(240,88,88,0.4)]" },
+  chop:         { text: "text-orange-400",          label: "CHOP",         border: "border-orange-400/30" },
+  rotation:     { text: "text-blue-400",            label: "ROTATION",     border: "border-blue-400/30" },
+  squeeze:      { text: "text-purple-400",          label: "SQUEEZE",      border: "border-purple-400/30" },
+  capitulation: { text: "text-yellow-400",          label: "CAPITULATION", border: "border-yellow-400/30" },
 };
 
 function formatOI(val: number): string {
@@ -28,6 +28,9 @@ function formatOI(val: number): string {
   if (val >= 1e6) return `$${(val / 1e6).toFixed(0)}M`;
   return `$${(val / 1e3).toFixed(0)}K`;
 }
+
+const badgeBase = "flex items-center gap-1 px-2 py-0.5 rounded-md border border-[var(--hl-border)] transition-colors text-[10px]";
+const badgeHover = "hover:border-[var(--hl-accent)] cursor-pointer";
 
 export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avgCorrelation }: MarketPulseProps) {
   const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(90, false, false);
@@ -41,20 +44,20 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
 
   return (
     <div className="overflow-hidden border-b border-[var(--hl-border)]">
-      <div ref={trackRef} className="flex py-1.5 px-2 gap-1.5" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
+      <div ref={trackRef} className="flex py-1 px-2 gap-1" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
-          <div key={copy} className="flex items-center shrink-0 gap-1.5" aria-hidden={copy === 1}>
+          <div key={copy} className="flex items-center shrink-0 gap-1" aria-hidden={copy === 1}>
             {/* Aggregate Options OI */}
             {totalOI > 0 && (
-              <div className="ticker-chip">
+              <div className={badgeBase}>
                 <span className="text-[var(--hl-muted)] font-medium">Options OI</span>
                 <span className="tabular-nums text-[var(--foreground)]">{formatOI(totalOI)}</span>
-                <span className="text-[var(--hl-green)] tabular-nums text-[10px]">C:{formatOI(totalCallOI)}</span>
-                <span className="text-[var(--hl-red)] tabular-nums text-[10px]">P:{formatOI(totalPutOI)}</span>
+                <span className="text-[var(--hl-green)] tabular-nums">C:{formatOI(totalCallOI)}</span>
+                <span className="text-[var(--hl-red)] tabular-nums">P:{formatOI(totalPutOI)}</span>
               </div>
             )}
 
-            {/* Per-coin options data — Derive coins are clickable to open chain */}
+            {/* Per-coin options data */}
             {optionCoins.map((coin) => {
               const isDerive = DERIVE_COINS.has(coin);
               const opt = options[coin];
@@ -63,24 +66,20 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
               const putCall = opt.putCallRatio ?? 0;
               const dvol = opt.dvol ?? 0;
               const skew = opt.skew25d ?? 0;
-              const gex = opt.gex ?? 0;
-              const gexLvl = opt.gexLevel ?? "neutral";
               const ivRank = opt.ivRank ?? 0;
-              const topStrikes = opt.topStrikes ?? [];
               const maxPainDist = opt.maxPainDistance ?? 0;
 
               return (
                 <button
                   key={`${copy}-${coin}`}
                   onClick={() => isDerive && onOpenOptions ? onOpenOptions(coin) : onSelectToken(coin)}
-                  className="ticker-chip cursor-pointer"
+                  className={`${badgeBase} ${badgeHover}`}
                 >
-                  <span className={`font-semibold ${isDerive ? "text-purple-400" : "text-[var(--foreground)]"}`}>{coin}</span>
-                  {isDerive && <span className="text-[8px] px-1 rounded bg-purple-500/15 text-purple-400/70">Derive</span>}
-                  <span className="text-[var(--hl-muted)] text-[10px]">MP</span>
-                  <span className="tabular-nums">${maxPain.toLocaleString()}</span>
+                  <span className={`font-bold ${isDerive ? "text-purple-400" : "text-[var(--foreground)]"}`}>{coin}</span>
+                  <span className="text-[var(--hl-muted)]">MP</span>
+                  <span className="tabular-nums font-semibold">${maxPain.toLocaleString()}</span>
                   {maxPainDist !== 0 && (
-                    <span className={`tabular-nums text-[10px] ${maxPainDist > 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                    <span className={`tabular-nums ${maxPainDist > 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                       {maxPainDist > 0 ? "+" : ""}{maxPainDist.toFixed(1)}%
                     </span>
                   )}
@@ -89,9 +88,7 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
                   </span>
                   <span className="tabular-nums">IV {dvol.toFixed(0)}%</span>
                   {ivRank > 0 && (
-                    <span className={`tabular-nums text-[10px] ${ivRank > 70 ? "text-[var(--hl-red)]" : ivRank < 30 ? "text-[var(--hl-green)]" : "text-[var(--hl-muted)]"}`}
-                      title={`IV Rank: ${ivRank}% — percentile of current IV vs 1yr range`}
-                    >
+                    <span className={`tabular-nums ${ivRank > 70 ? "text-[var(--hl-red)]" : ivRank < 30 ? "text-[var(--hl-green)]" : "text-[var(--hl-muted)]"}`}>
                       Rank:{ivRank}%
                     </span>
                   )}
@@ -100,55 +97,35 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
                       Skew {skew > 0 ? "+" : ""}{skew.toFixed(1)}
                     </span>
                   )}
-                  {gex !== 0 && (
-                    <span className={`tabular-nums ${gexLvl === "dampening" ? "text-[var(--hl-green)]" : gexLvl === "amplifying" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]"}`}>
-                      GEX {gex > 0 ? "+" : ""}{gex}M
-                    </span>
-                  )}
-                  {topStrikes.length > 0 && (
-                    <span className="text-[var(--hl-muted)] tabular-nums text-[10px]"
-                      title={`Top strikes: ${topStrikes.slice(0, 3).map(s => `$${s.strike.toLocaleString()} (C:${(s.callOI/1e6).toFixed(0)}M P:${(s.putOI/1e6).toFixed(0)}M)`).join(", ")}`}
-                    >
-                      Top:${topStrikes[0]?.strike.toLocaleString()}
-                    </span>
-                  )}
                 </button>
               );
             })}
 
             {/* Market Regime */}
-            <div className={`ticker-chip ${regimeStyle.bg}`}>
-              <span className={`font-bold text-[12px] tracking-wide ${regimeStyle.text}`}>
+            <div className={`${badgeBase} ${regimeStyle.border}`}>
+              <span className={`font-bold tracking-wide ${regimeStyle.text}`}>
                 {regimeStyle.label}
               </span>
               {regime && regime.confidence > 0 && (
-                <span className="text-[var(--hl-muted)] text-[10px] tabular-nums">
+                <span className="text-[var(--hl-muted)] tabular-nums">
                   {regime.confidence}%
                 </span>
               )}
               {regime?.action && (
-                <span className="text-[var(--hl-text)] text-[10px] whitespace-nowrap">
+                <span className="text-[var(--hl-text)] whitespace-nowrap">
                   {regime.action}
-                </span>
-              )}
-              {regime?.description && (
-                <span className="text-[var(--hl-muted)] text-[10px] whitespace-nowrap">
-                  — {regime.description}
                 </span>
               )}
             </div>
 
             {/* Market Correlation */}
             {avgCorrelation !== null && avgCorrelation !== undefined && (
-              <div className="ticker-chip">
-                <span className="text-[var(--hl-muted)] text-[10px]">Asset Corr.</span>
+              <div className={badgeBase}>
+                <span className="text-[var(--hl-muted)]">Corr.</span>
                 <span className={`font-bold tabular-nums ${
                   avgCorrelation > 0.6 ? "text-[var(--hl-red)]" : avgCorrelation > 0.3 ? "text-orange-400" : "text-[var(--hl-green)]"
                 }`}>
                   {avgCorrelation.toFixed(2)}
-                </span>
-                <span className="text-[var(--hl-muted)] text-[10px] whitespace-nowrap">
-                  {avgCorrelation > 0.6 ? "High" : avgCorrelation > 0.3 ? "Moderate" : "Low"}
                 </span>
               </div>
             )}
