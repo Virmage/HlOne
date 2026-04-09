@@ -57,6 +57,11 @@ body {
   font-family: system-ui, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", sans-serif;
 }
 
+/* Prevent overscroll bounce on mobile (scroll-jolt fix) */
+@media (max-width: 767px) {
+  html, body { overscroll-behavior-y: none; }
+}
+
 /* Prevent content flash during page transitions */
 [data-theme="dark"] body {
   background: #060a0c;
@@ -105,7 +110,8 @@ body > iframe[style*="border"][style*="z-index"] {
 
 /* Panels only scroll when hovered — prevents scroll hijacking on page scroll.
    When not hovered, overflow is hidden so mouse wheel passes through to page.
-   On hover, overflow switches to auto enabling inner scroll. */
+   On hover, overflow switches to auto enabling inner scroll.
+   On touch devices there is no hover, so always allow scroll. */
 .scroll-on-hover {
   overflow-y: hidden !important;
   overscroll-behavior: contain;
@@ -116,6 +122,12 @@ body > iframe[style*="border"][style*="z-index"] {
 }
 .scroll-on-hover:not(:hover)::-webkit-scrollbar-thumb {
   background: transparent !important;
+}
+@media (max-width: 767px) {
+  .scroll-on-hover {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 @keyframes fadeIn {

@@ -295,20 +295,20 @@ import { desc, eq, and, gte, gt } from "drizzle-orm";
 
 /** Min position value thresholds per interval — only show meaningful whale activity */
 const INTERVAL_THRESHOLDS: Record<string, number> = {
-  "5m": 100_000,     // $100K+
-  "15m": 250_000,    // $250K+
-  "1h": 500_000,     // $500K+
-  "4h": 1_000_000,   // $1M+
-  "1d": 2_500_000,   // $2.5M+
+  "5m": 50_000,      // $50K+
+  "15m": 100_000,    // $100K+
+  "1h": 200_000,     // $200K+
+  "4h": 500_000,     // $500K+
+  "1d": 1_000_000,   // $1M+
 };
 
 /** Max markers per candle to prevent visual clutter */
 const MAX_PER_CANDLE: Record<string, number> = {
   "5m": 3,
   "15m": 3,
-  "1h": 2,
-  "4h": 2,
-  "1d": 3,
+  "1h": 3,
+  "4h": 3,
+  "1d": 5,
 };
 
 /**
@@ -343,7 +343,7 @@ export async function getHistoricalWhaleEvents(
         )
       )
       .orderBy(desc(whaleEvents.detectedAt))
-      .limit(200);
+      .limit(500);
 
     // Convert DB rows to WhaleEvent format
     const result: WhaleEvent[] = rows.map((r, i) => ({

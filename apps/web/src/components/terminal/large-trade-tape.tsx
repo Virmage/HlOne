@@ -66,8 +66,8 @@ export function LargeTradeTape({ trades, onSelectToken }: LargeTradeTapeProps) {
           Large Trades (&gt;$25K)
         </h2>
         <div className="overflow-hidden">
-          {visibleTrades.map((t) => (
-            <TradeRow key={t.hash} t={t} onSelectToken={onSelectToken} />
+          {visibleTrades.map((t, i) => (
+            <TradeRow key={`${t.hash}-${i}`} t={t} onSelectToken={onSelectToken} />
           ))}
         </div>
         {trades.length > 8 && (
@@ -83,8 +83,8 @@ export function LargeTradeTape({ trades, onSelectToken }: LargeTradeTapeProps) {
               <button onClick={() => setExpanded(false)} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-[16px]">&times;</button>
             </div>
             <div className="overflow-y-auto flex-1">
-              {trades.map((t) => (
-                <TradeRow key={`exp-${t.hash}`} t={t} onSelectToken={onSelectToken} />
+              {trades.map((t, i) => (
+                <TradeRow key={`exp-${t.hash}-${i}`} t={t} onSelectToken={onSelectToken} />
               ))}
             </div>
           </div>

@@ -878,6 +878,98 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     return () => el.removeEventListener("wheel", handler);
   }, [maxVisible, totalCandles]);
 
+  // Touch interactions: 1-finger pan, 2-finger pinch-to-zoom
+  const touchRef = useRef<{
+    startX: number; startY: number; startOffset: number; startPricePan: number;
+    pinchDist?: number; pinchVisible?: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const getTouchDist = (t: TouchList) => {
+      if (t.length < 2) return 0;
+      const dx = t[1].clientX - t[0].clientX;
+      const dy = t[1].clientY - t[0].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        // Single finger — pan
+        touchRef.current = {
+          startX: e.touches[0].clientX,
+          startY: e.touches[0].clientY,
+          startOffset: offset,
+          startPricePan: pricePanOffset,
+        };
+        e.preventDefault();
+      } else if (e.touches.length === 2) {
+        // Two fingers — pinch zoom
+        touchRef.current = {
+          startX: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+          startY: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+          startOffset: offset,
+          startPricePan: pricePanOffset,
+          pinchDist: getTouchDist(e.touches),
+          pinchVisible: visibleCount,
+        };
+        e.preventDefault();
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!touchRef.current) return;
+      e.preventDefault();
+
+      if (e.touches.length === 2 && touchRef.current.pinchDist) {
+        // Pinch zoom
+        const newDist = getTouchDist(e.touches);
+        const scale = touchRef.current.pinchDist / newDist; // spread = zoom in (fewer candles)
+        const newVisible = Math.max(minVisible, Math.min(maxVisible,
+          Math.round((touchRef.current.pinchVisible || 60) * scale)
+        ));
+        setVisibleCount(newVisible);
+      } else if (e.touches.length === 1) {
+        // Pan
+        const rect = el.getBoundingClientRect();
+        const pxPerCandle = rect.width / visibleCount;
+        const dx = e.touches[0].clientX - touchRef.current.startX;
+        const candleDelta = Math.round(dx / pxPerCandle);
+        const maxOff = Math.max(0, totalCandles - 2);
+        const minOff = -visibleCount + 2;
+        setOffset(Math.max(minOff, Math.min(maxOff, touchRef.current.startOffset + candleDelta)));
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        touchRef.current = null;
+      } else if (e.touches.length === 1 && touchRef.current?.pinchDist) {
+        // Went from 2 fingers to 1 — restart as single-finger pan
+        touchRef.current = {
+          startX: e.touches[0].clientX,
+          startY: e.touches[0].clientY,
+          startOffset: offset,
+          startPricePan: pricePanOffset,
+        };
+      }
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [offset, pricePanOffset, visibleCount, totalCandles, minVisible, maxVisible]);
+
   // Convert mouse position to time/price coordinates for drawings
   const mouseToCoords = useCallback((e: React.MouseEvent): { time: number; price: number } | null => {
     if (!svgRef.current || !candles.length) return null;
@@ -1125,8 +1217,11 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
   const whaleMarkers: { candleIdx: number; isBuy: boolean; price: number; name: string; size: number; address?: string; accountValue?: number; time: number }[] = [];
   if (data.length >= 2) {
-    // Use top trader fills (preferred) or whale alerts as fallback
+    // Merge top trader fills + whale alerts into unified markers
+    // Top trader fills are preferred (more precise), whale alerts fill gaps
     const fills = topTraderFills.filter(f => f.time >= visibleStart && f.time < visibleEnd);
+    const usedCandles = new Set<number>(); // track which candles already have a marker
+
     for (const fill of fills) {
       for (let i = 0; i < data.length; i++) {
         if (fill.time >= data[i].time && fill.time < data[i].time + candleDuration) {
@@ -1140,6 +1235,30 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             accountValue: fill.accountValue,
             time: fill.time,
           });
+          usedCandles.add(i);
+          break;
+        }
+      }
+    }
+
+    // Supplement with whale alerts for candles that don't already have fills
+    const alerts = whaleAlerts.filter(a => a.detectedAt >= visibleStart && a.detectedAt < visibleEnd);
+    for (const alert of alerts) {
+      for (let i = 0; i < data.length; i++) {
+        if (alert.detectedAt >= data[i].time && alert.detectedAt < data[i].time + candleDuration) {
+          if (!usedCandles.has(i)) {
+            whaleMarkers.push({
+              candleIdx: i,
+              isBuy: alert.eventType === "opened_long" || alert.eventType === "increased_long" || alert.eventType === "closed_short",
+              price: alert.price,
+              name: alert.whaleName,
+              size: alert.positionValueUsd,
+              address: alert.whaleAddress,
+              accountValue: alert.accountValue,
+              time: alert.detectedAt,
+            });
+            usedCandles.add(i);
+          }
           break;
         }
       }
