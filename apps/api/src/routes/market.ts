@@ -593,6 +593,32 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
+   * GET /api/market/candles/:coin
+   * Lightweight candles-only endpoint — ~200ms, used for fast timeframe switching.
+   */
+  app.get<{ Params: { coin: string }; Querystring: { interval?: string } }>(
+    "/candles/:coin",
+    async (req) => {
+      const rawCoin = decodeURIComponent(req.params.coin);
+      const coin = resolveSpotName(rawCoin);
+      const interval = req.query.interval || "1h";
+      const lookbackMs: Record<string, number> = {
+        "5m": 2 * 86400_000, "15m": 5 * 86400_000, "1h": 14 * 86400_000,
+        "4h": 30 * 86400_000, "12h": 60 * 86400_000, "1d": 365 * 86400_000,
+        "1w": 3 * 365 * 86400_000, "1M": 5 * 365 * 86400_000,
+      };
+      const now = Date.now();
+      const startTime = now - (lookbackMs[interval] || 7 * 86400_000);
+      const raw = await getCandleSnapshot(coin, interval, startTime, now);
+      return {
+        coin, interval,
+        candles: raw.map(c => ({ t: c.t, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v })),
+        timestamp: now,
+      };
+    },
+  );
+
+  /**
    * GET /api/market/whale-alerts
    * Standalone whale alerts endpoint for polling.
    */

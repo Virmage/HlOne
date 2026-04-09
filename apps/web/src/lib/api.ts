@@ -671,6 +671,12 @@ export async function getOICandles(coin: string, interval = "1h") {
   );
 }
 
+export async function getCandles(coin: string, interval = "1h") {
+  return apiFetch<{ coin: string; interval: string; candles: { t: number; o: string; h: string; l: string; c: string; v: string }[]; timestamp: number }>(
+    `/api/market/candles/${encodeURIComponent(coin)}?interval=${interval}`
+  );
+}
+
 export async function getWhaleAlertsFeed(limit = 50, coin?: string) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (coin) params.set("coin", coin);

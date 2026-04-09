@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { TokenDetail, TokenOverview, WhaleAlert, LiquidationBand } from "@/lib/api";
-import { getTokenDetail, getOICandles as fetchOICandles } from "@/lib/api";
+import { getTokenDetail, getOICandles as fetchOICandles, getCandles as fetchCandlesViaBackend } from "@/lib/api";
 import { useAccountInfo } from "@/hooks/use-account-info";
 
 interface PriceChartProps {
@@ -129,30 +129,35 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         .finally(() => { if (!cancelled && !fastDone) setLoading(false); });
     } else if (intervalChanged) {
       // Interval change: only candles + OI change per timeframe.
-      // Fast path: direct HL API (~200ms). Fallback: getTokenDetail if fast path fails.
+      // Show cached candles instantly, then fetch fresh via backend (~200ms).
       const cached = getCachedCandles(coin, interval);
       if (cached && cached.length > 0) {
         setDetail(prev => prev ? { ...prev, candles: cached } : prev);
       }
-      Promise.all([
-        fetchCandlesDirect(coin, interval).catch(e => { console.warn("[PriceChart] interval candle fetch failed:", e); return [] as TokenDetail["candles"]; }),
-        fetchOICandles(coin, interval).then(r => r.oiCandles).catch(e => { console.warn("[PriceChart] interval OI fetch failed:", e); return []; }),
-      ]).then(([candles, oiCandles]) => {
-        if (cancelled) return;
-        if (candles.length > 0) {
-          setDetail(prev => prev ? { ...prev, candles, ...(oiCandles.length > 0 ? { oiCandles } : {}) } : prev);
-        } else {
-          console.warn("[PriceChart] fast path empty, falling back to getTokenDetail");
-          getTokenDetail(coin, interval)
-            .then(d => {
-              if (!cancelled) {
-                setDetail(d);
-                if (d.candles?.length) candleCache.set(`${coin}:${interval}`, { candles: d.candles, fetchedAt: Date.now() });
+      // Primary: lightweight backend candles endpoint (not rate-limited like direct HL)
+      fetchCandlesViaBackend(coin, interval)
+        .then(r => {
+          if (cancelled) return;
+          const candles = r.candles.map(c => ({
+            time: c.t, open: parseFloat(c.o), high: parseFloat(c.h),
+            low: parseFloat(c.l), close: parseFloat(c.c), volume: parseFloat(c.v),
+          }));
+          if (candles.length > 0) {
+            candleCache.set(`${coin}:${interval}`, { candles, fetchedAt: Date.now() });
+            setDetail(prev => prev ? { ...prev, candles } : prev);
+          }
+        })
+        .catch(e => {
+          console.warn("[PriceChart] backend candles failed, trying direct:", e);
+          // Fallback: direct HL API
+          fetchCandlesDirect(coin, interval)
+            .then(candles => {
+              if (!cancelled && candles.length > 0) {
+                setDetail(prev => prev ? { ...prev, candles } : prev);
               }
             })
-            .catch(e => { console.error("[PriceChart] interval getTokenDetail fallback failed:", e); });
-        }
-      });
+            .catch(e2 => { console.error("[PriceChart] all candle fetches failed:", e2); });
+        });
     }
 
     // Poll for live candle updates (skip if tab hidden)
