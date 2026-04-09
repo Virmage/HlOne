@@ -27,15 +27,28 @@ export function startBackgroundJobs() {
   if (started) return;
   started = true;
 
-  console.log("[bg] Starting background jobs (delayed 30s to let healthcheck pass)...");
+  // Phase 1: Warm prices + OI immediately so healthcheck passes quickly.
+  // Railway keeps the old instance until healthcheck returns 200.
+  console.log("[bg] Phase 1: warming prices + OI (healthcheck gates on this)...");
+  (async () => {
+    try {
+      await getCachedMids();
+      await getCachedAssetCtxs();
+      await loadOIFromDb();
+      await loadFillsFromDb();
+      await snapshotOI();
+      console.log("[bg] Phase 1 complete — healthcheck should pass now");
+    } catch (err) {
+      console.error("[bg] Phase 1 warm-up failed:", (err as Error).message);
+    }
+  })();
 
-  // Delay ALL background work by 30s so the healthcheck passes before
-  // we start hammering the Hyperliquid API. During deployment both old and
-  // new containers run simultaneously — staggering prevents 429 storms.
+  // Phase 2: Delay heavier work by 30s to avoid HL 429 storms during deploy
+  // (old + new containers both hitting API simultaneously)
   const BOOT_DELAY = 30_000;
 
   setTimeout(() => {
-    console.log("[bg] Boot delay complete, starting jobs...");
+    console.log("[bg] Phase 2: starting all background jobs...");
 
     // Start trade tape polling (every 20s, self-managed interval)
     startTradeTapeTracking();
@@ -84,7 +97,6 @@ export function startBackgroundJobs() {
     }, 5 * 60_000);
 
     // Every 30s: pre-warm token detail cache for top coins
-    // Users always hit warm cache — zero cold requests for popular coins
     setInterval(async () => {
       try {
         await prewarmTokenDetails();
@@ -93,7 +105,7 @@ export function startBackgroundJobs() {
       }
     }, 30_000);
 
-    // Daily OI cleanup (remove snapshots older than 7 days)
+    // Daily OI cleanup (remove snapshots older than 30 days)
     setInterval(async () => {
       try { await cleanupOldOISnapshots(); } catch {}
     }, 24 * 60 * 60_000);
@@ -105,22 +117,8 @@ export function startBackgroundJobs() {
       } catch { /* ignore */ }
     }, 60_000);
 
-    // Staggered initial warm-up (sequential with delays to avoid HL 429s)
+    // Staggered warm-up of remaining data
     (async () => {
-      try {
-        console.log("[bg] Initial warm-up: prices + asset contexts + OI + fills...");
-        await getCachedMids();
-        await getCachedAssetCtxs();
-        await loadOIFromDb();
-        await loadFillsFromDb();
-        await snapshotOI();
-      } catch (err) {
-        console.error("[bg] Price warm-up failed:", (err as Error).message);
-      }
-
-      // Wait 10s before next batch
-      await new Promise(r => setTimeout(r, 10_000));
-
       try {
         console.log("[bg] Initial warm-up: smart money...");
         await getSmartMoneyData();

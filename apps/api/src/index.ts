@@ -94,8 +94,17 @@ async function main() {
   await app.register(userRoutes, { prefix: "/api/users" });
   await app.register(marketRoutes, { prefix: "/api/market" });
 
-  // Health check
-  app.get("/api/health", async () => ({ status: "ok", version: "2.3.0", timestamp: Date.now() }));
+  // Health check — only returns 200 once critical data (prices) is warm.
+  // Railway keeps the old instance serving traffic until this passes.
+  app.get("/api/health", async (_req, reply) => {
+    const mids = await import("./services/market-data.js").then(m => m.getCachedMids()).catch(() => ({}));
+    const hasPrices = Object.keys(mids).length > 10;
+    if (!hasPrices) {
+      reply.status(503);
+      return { status: "warming", version: "2.4.0", timestamp: Date.now() };
+    }
+    return { status: "ok", version: "2.4.0", timestamp: Date.now() };
+  });
 
   console.log(`[startup] Routes registered, binding to port ${PORT}...`);
   await app.listen({ port: PORT, host: "0.0.0.0" });
