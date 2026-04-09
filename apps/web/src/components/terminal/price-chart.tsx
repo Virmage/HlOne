@@ -830,33 +830,14 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   }, [containerSize, candles.length]);
 
   // Pan with mouse drag on chart area, Y-zoom on price axis
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!svgRef.current) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    const svgX = ((e.clientX - rect.left) / rect.width) * containerSize.w;
-
-    // In drawing mode, don't start dragging — let onClick handle it
-    if (drawingTool !== "none" && svgX <= containerSize.w - 70) {
-      e.preventDefault();
-      return;
-    }
-
-    if (svgX > containerSize.w - 70) { // MR=70 — clicking on price axis
-      yDragRef.current = { startY: e.clientY, startZoom: priceZoom };
-    } else {
-      dragRef.current = { startX: e.clientX, startY: e.clientY, startOffset: offset, startPricePan: pricePanOffset };
-    }
-    e.preventDefault();
-  }, [offset, priceZoom, pricePanOffset, drawingTool, containerSize]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  // Use window-level listeners so dragging continues outside the chart bounds
+  const handleWindowMouseMove = useCallback((e: MouseEvent) => {
     if (!svgRef.current) return;
 
     // Y-axis drag for price zoom
     if (yDragRef.current) {
       const dy = e.clientY - yDragRef.current.startY;
       const sensitivity = 0.005;
-      // Drag up = zoom in (higher zoom), drag down = zoom out
       const newZoom = Math.max(0.3, Math.min(5, yDragRef.current.startZoom - dy * sensitivity));
       setPriceZoom(newZoom);
       return;
@@ -868,22 +849,62 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     const pxPerCandle = rect.width / visibleCount;
     const dx = e.clientX - dragRef.current.startX;
     const dy = e.clientY - dragRef.current.startY;
-    // Horizontal pan
     const candleDelta = Math.round(dx / pxPerCandle);
     const maxOff = Math.max(0, totalCandles - 2);
     const minOff = -visibleCount + 2;
     setOffset(Math.max(minOff, Math.min(maxOff, dragRef.current.startOffset + candleDelta)));
-    // Vertical pan — convert pixel drag to price units (inverted: drag down = show higher prices above)
-    const pricePxRatio = rect.height * 0.65; // approximate price area height in px
-    const priceRange = 1; // normalized — actual price range applied in domain calc
-    const priceDelta = (dy / pricePxRatio) * priceRange;
+    const pricePxRatio = rect.height * 0.65;
+    const priceDelta = (dy / pricePxRatio) * 1;
     setPricePanOffset(dragRef.current.startPricePan + priceDelta);
   }, [visibleCount, totalCandles]);
+
+  const handleWindowMouseUp = useCallback(() => {
+    dragRef.current = null;
+    yDragRef.current = null;
+    window.removeEventListener("mousemove", handleWindowMouseMove);
+    window.removeEventListener("mouseup", handleWindowMouseUp);
+  }, [handleWindowMouseMove]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const svgX = ((e.clientX - rect.left) / rect.width) * containerSize.w;
+
+    // In drawing mode, don't start dragging — let onClick handle it
+    if (drawingTool !== "none" && svgX <= containerSize.w - 70) {
+      e.preventDefault();
+      return;
+    }
+
+    if (svgX > containerSize.w - 70) {
+      yDragRef.current = { startY: e.clientY, startZoom: priceZoom };
+    } else {
+      dragRef.current = { startX: e.clientX, startY: e.clientY, startOffset: offset, startPricePan: pricePanOffset };
+    }
+    // Attach to window so drag continues outside chart
+    window.addEventListener("mousemove", handleWindowMouseMove);
+    window.addEventListener("mouseup", handleWindowMouseUp);
+    e.preventDefault();
+  }, [offset, priceZoom, pricePanOffset, drawingTool, containerSize, handleWindowMouseMove, handleWindowMouseUp]);
+
+  // React handler for SVG hover effects (not drag — drag uses window listeners)
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // Only handle hover when NOT dragging (drag is handled by window listener)
+    if (dragRef.current || yDragRef.current) return;
+  }, []);
 
   const handleMouseUp = useCallback(() => {
     dragRef.current = null;
     yDragRef.current = null;
   }, []);
+
+  // Cleanup window listeners on unmount
+  useEffect(() => {
+    return () => {
+      window.removeEventListener("mousemove", handleWindowMouseMove);
+      window.removeEventListener("mouseup", handleWindowMouseUp);
+    };
+  }, [handleWindowMouseMove, handleWindowMouseUp]);
 
   if (!candles.length) {
     return <div className="flex items-center justify-center h-full text-[var(--hl-muted)] text-[12px]">No data</div>;
@@ -1137,7 +1158,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             }
           }}
           onMouseUp={handleMouseUp}
-          onMouseLeave={() => { setHover(null); setMouseY(null); handleMouseUp(); }}
+          onMouseLeave={() => { setHover(null); setMouseY(null); }}
           onDoubleClick={() => { if (drawingTool === "none") { setPriceZoom(1); setPricePanOffset(0); } }}
           style={{ display: "block" }}
         >
