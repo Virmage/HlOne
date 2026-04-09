@@ -973,13 +973,14 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
             fee: parseFloat(f.fee || "0"),
             hash: f.hash,
           })) : [],
-        funding: Array.isArray(funding) ? (funding as { time: number; coin: string; usdc: string; szi: string; fundingRate: string }[])
+        funding: Array.isArray(funding) ? (funding as { time: number; hash: string; delta: { type: string; coin: string; usdc: string; szi: string; fundingRate: string } }[])
+          .filter(f => f.delta?.type === "funding")
           .slice(0, 200).map(f => ({
             time: f.time,
-            coin: f.coin,
-            payment: parseFloat(f.usdc),
-            size: parseFloat(f.szi),
-            rate: parseFloat(f.fundingRate),
+            coin: f.delta.coin,
+            payment: parseFloat(f.delta.usdc || "0"),
+            size: parseFloat(f.delta.szi || "0"),
+            rate: parseFloat(f.delta.fundingRate || "0"),
           })) : [],
         openOrders: Array.isArray(openOrders) ? (openOrders as { coin: string; side: string; sz: string; limitPx: string; orderType: string; oid: number }[]).slice(0, 100) : [],
         triggerOrders: Array.isArray(frontendOrders) ? (frontendOrders as { coin: string; side: string; sz: string; triggerPx: string; orderType: string; oid: number }[])

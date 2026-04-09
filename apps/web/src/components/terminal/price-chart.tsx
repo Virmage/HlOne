@@ -1130,7 +1130,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
       {/* Whale trade popup */}
       {whalePopup && (
-        <div className="fixed inset-0 z-50" onClick={() => setWhalePopup(null)}>
+        <div className="fixed inset-0 z-40" onClick={() => setWhalePopup(null)}>
           <div
             className="absolute bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl p-3 w-[220px]"
             style={{ left: Math.min(whalePopup.screenX - 110, window.innerWidth - 230), top: Math.max(whalePopup.screenY - 160, 8) }}
