@@ -172,8 +172,9 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
     return () => clearTimeout(t);
   }, [actionResult]);
 
-  const handleClose = useCallback(async (pos: UserPosition) => {
+  const handleClose = useCallback(async (pos: UserPosition, closeSize?: number) => {
     if (!address) return;
+    const size = closeSize ?? Math.abs(pos.size);
     setClosing(pos.coin);
     setActionResult(null);
     try {
@@ -184,21 +185,19 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       if (!walletClient) { setClosing(null); return; }
       let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
       if (agentResult.error) { setActionResult({ coin: pos.coin, msg: friendlyError(agentResult.error), ok: false }); setClosing(null); return; }
-      // Ensure builder fee approved
       const builderOk = await exchange.checkBuilderApproval(address);
       if (!builderOk) {
         const approveResult = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
         if (!approveResult.success) { setActionResult({ coin: pos.coin, msg: friendlyError(approveResult.error), ok: false }); setClosing(null); return; }
       }
-      let result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
-      // Auto-recover from stale agent
+      let result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, size, pos.side === "long");
       if (!result.success && result.error === exchange.STALE_AGENT_MSG) {
         agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
         if (!agentResult.error) {
-          result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, Math.abs(pos.size), pos.side === "long");
+          result = await exchange.closePosition(agentResult.agentKey, address as `0x${string}`, pos.coin, size, pos.side === "long");
         }
       }
-      setActionResult({ coin: pos.coin, msg: result.success ? "Closed" : friendlyError(result.error), ok: result.success });
+      setActionResult({ coin: pos.coin, msg: result.success ? (size < Math.abs(pos.size) ? `Closed ${size}` : "Closed") : friendlyError(result.error), ok: result.success });
       if (result.success) fetchPositions();
     } catch (err) {
       setActionResult({ coin: pos.coin, msg: friendlyError((err as Error).message), ok: false });
@@ -336,6 +335,53 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
     }
   }, [address, fetchPositions]);
 
+  const handleLimitClose = useCallback(async (pos: UserPosition, size: number, price: number) => {
+    if (!address) return;
+    setClosing(pos.coin);
+    setActionResult(null);
+    try {
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"), import("@/lib/hl-exchange"), import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) { setClosing(null); return; }
+      let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      if (agentResult.error) { setActionResult({ coin: pos.coin, msg: friendlyError(agentResult.error), ok: false }); setClosing(null); return; }
+      const builderOk = await exchange.checkBuilderApproval(address);
+      if (!builderOk) {
+        const approveResult = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
+        if (!approveResult.success) { setActionResult({ coin: pos.coin, msg: friendlyError(approveResult.error), ok: false }); setClosing(null); return; }
+      }
+      let result = await exchange.placeOrder(agentResult.agentKey, address as `0x${string}`, {
+        asset: pos.coin,
+        isBuy: pos.side === "long" ? false : true,
+        size,
+        orderType: "limit",
+        limitPrice: price,
+        reduceOnly: true,
+      });
+      if (!result.success && result.error === exchange.STALE_AGENT_MSG) {
+        agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+        if (!agentResult.error) {
+          result = await exchange.placeOrder(agentResult.agentKey, address as `0x${string}`, {
+            asset: pos.coin,
+            isBuy: pos.side === "long" ? false : true,
+            size,
+            orderType: "limit",
+            limitPrice: price,
+            reduceOnly: true,
+          });
+        }
+      }
+      setActionResult({ coin: pos.coin, msg: result.success ? `Limit close @ $${price}` : friendlyError(result.error), ok: result.success });
+      if (result.success) fetchPositions();
+    } catch (err) {
+      setActionResult({ coin: pos.coin, msg: friendlyError((err as Error).message), ok: false });
+    } finally {
+      setClosing(null);
+    }
+  }, [address, fetchPositions]);
+
   const totalPnl = positions.reduce((s, p) => s + p.unrealizedPnl, 0);
 
   const TABS: { key: Tab; label: string; count?: number }[] = [
@@ -387,7 +433,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
       {/* Tab content */}
       <div className="min-h-[40px] flex-1 overflow-hidden">
-        {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} triggerOrders={triggerOrders} onSelectToken={onSelectToken} onClose={handleClose} onCloseAll={handleCloseAll} onReverse={handleReverse} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
+        {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} triggerOrders={triggerOrders} onSelectToken={onSelectToken} onClose={handleClose} onLimitClose={handleLimitClose} onCloseAll={handleCloseAll} onReverse={handleReverse} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
         {tab === "balances" && <BalancesTab account={account} />}
         {tab === "orders" && <OpenOrdersTab orders={openOrders} onSelectToken={onSelectToken} />}
         {tab === "twap" && <EmptyTab label="No active TWAP orders" />}
@@ -401,13 +447,14 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
 // ─── Positions Tab ────────────────────────────────────────────────────────────
 
-function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode, triggerPrice, submitting, actionResult, triggerOrders, onSelectToken, onClose, onCloseAll, onReverse, onTpSlToggle, onTriggerPriceChange, onTpSlSubmit }: {
+function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode, triggerPrice, submitting, actionResult, triggerOrders, onSelectToken, onClose, onLimitClose, onCloseAll, onReverse, onTpSlToggle, onTriggerPriceChange, onTpSlSubmit }: {
   positions: UserPosition[]; loading: boolean; error: string | null;
   closing: string | null; closingAll: boolean; tpSlMode: TpSlMode; triggerPrice: string; submitting: boolean;
   actionResult: { coin: string; msg: string; ok: boolean } | null;
   triggerOrders: Record<string, { tp?: string; sl?: string }>;
   onSelectToken?: (coin: string) => void;
-  onClose: (pos: UserPosition) => void;
+  onClose: (pos: UserPosition, closeSize?: number) => void;
+  onLimitClose: (pos: UserPosition, size: number, price: number) => void;
   onCloseAll: () => void;
   onReverse: (pos: UserPosition) => void;
   onTpSlToggle: (coin: string, type: "tp" | "sl") => void;
@@ -420,6 +467,9 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
   const [popupSl, setPopupSl] = useState("");
   // Confirmation popup state
   const [confirmAction, setConfirmAction] = useState<{ type: "close" | "reverse"; pos: UserPosition } | null>(null);
+  const [closePercent, setClosePercent] = useState(100);
+  const [closeMode, setCloseMode] = useState<"market" | "limit">("market");
+  const [limitClosePrice, setLimitClosePrice] = useState("");
   const [skipConfirmClose, setSkipConfirmClose] = useState(() => typeof window !== "undefined" && localStorage.getItem("hlone_skip_confirm_close") === "1");
   const [skipConfirmReverse, setSkipConfirmReverse] = useState(() => typeof window !== "undefined" && localStorage.getItem("hlone_skip_confirm_reverse") === "1");
 
@@ -502,55 +552,98 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
         </div>
       )}
 
-      {/* Confirmation Modal */}
-      {confirmAction && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setConfirmAction(null)}>
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl p-4 w-[260px]" onClick={(e) => e.stopPropagation()}>
-            <div className="text-[12px] font-semibold text-[var(--foreground)] mb-2">
-              {confirmAction.type === "close" ? "Close Position?" : "Reverse Position?"}
-            </div>
-            <div className="text-[11px] text-[var(--hl-muted)] mb-3">
-              {confirmAction.type === "close"
-                ? `Market close ${(confirmAction.pos.coin.includes(":") ? confirmAction.pos.coin.split(":")[1] : confirmAction.pos.coin)} ${confirmAction.pos.side.toUpperCase()} ${Math.abs(confirmAction.pos.size)}`
-                : `Reverse ${(confirmAction.pos.coin.includes(":") ? confirmAction.pos.coin.split(":")[1] : confirmAction.pos.coin)} from ${confirmAction.pos.side.toUpperCase()} to ${confirmAction.pos.side === "long" ? "SHORT" : "LONG"}`
-              }
-            </div>
-            <div className="flex items-center gap-2 mb-3">
-              <input
-                type="checkbox"
-                id="skip-confirm"
-                checked={confirmAction.type === "close" ? skipConfirmClose : skipConfirmReverse}
-                onChange={(e) => {
-                  const key = confirmAction.type === "close" ? "hlone_skip_confirm_close" : "hlone_skip_confirm_reverse";
-                  if (e.target.checked) localStorage.setItem(key, "1"); else localStorage.removeItem(key);
-                  if (confirmAction.type === "close") setSkipConfirmClose(e.target.checked);
-                  else setSkipConfirmReverse(e.target.checked);
-                }}
-                className="accent-[var(--hl-accent)]"
-              />
-              <label htmlFor="skip-confirm" className="text-[10px] text-[var(--hl-muted)] cursor-pointer">Don&apos;t show again</label>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setConfirmAction(null)} className="flex-1 px-3 py-1.5 text-[10px] font-semibold rounded bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)] transition-colors">Cancel</button>
-              <button
-                onClick={() => {
-                  const { type, pos } = confirmAction;
-                  setConfirmAction(null);
-                  if (type === "close") onClose(pos); else onReverse(pos);
-                }}
-                className={`flex-1 px-3 py-1.5 text-[10px] font-semibold rounded transition-colors ${confirmAction.type === "close" ? "bg-[rgba(240,88,88,0.18)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.35)]" : "bg-[rgba(80,210,193,0.18)] text-[var(--hl-green)] hover:bg-[rgba(80,210,193,0.35)]"}`}
-              >
-                Confirm
-              </button>
+      {/* Confirmation / Close Modal */}
+      {confirmAction && (() => {
+        const { type, pos } = confirmAction;
+        const displayCoin = pos.coin.includes(":") ? pos.coin.split(":")[1] : pos.coin;
+        const fullSize = Math.abs(pos.size);
+        const closeSize = type === "close" ? fullSize * (closePercent / 100) : fullSize;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => { setConfirmAction(null); setClosePercent(100); setCloseMode("market"); setLimitClosePrice(""); }}>
+            <div className="absolute inset-0 bg-black/40" />
+            <div className="relative bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl p-4 w-[300px]" onClick={(e) => e.stopPropagation()}>
+              <div className="text-[12px] font-semibold text-[var(--foreground)] mb-2">
+                {type === "close" ? "Close Position" : "Reverse Position?"}
+              </div>
+              <div className="text-[11px] text-[var(--hl-muted)] mb-3">
+                {displayCoin} {pos.side.toUpperCase()} &middot; {fullSize} @ ${pos.entryPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </div>
+
+              {type === "close" && (
+                <>
+                  {/* Market / Limit toggle */}
+                  <div className="flex gap-px bg-[var(--hl-border)] rounded overflow-hidden mb-3">
+                    <button onClick={() => setCloseMode("market")} className={`flex-1 py-1.5 text-[10px] font-semibold transition-colors ${closeMode === "market" ? "bg-[var(--hl-accent)] text-white" : "bg-[var(--hl-surface)] text-[var(--hl-muted)]"}`}>Market</button>
+                    <button onClick={() => setCloseMode("limit")} className={`flex-1 py-1.5 text-[10px] font-semibold transition-colors ${closeMode === "limit" ? "bg-[var(--hl-accent)] text-white" : "bg-[var(--hl-surface)] text-[var(--hl-muted)]"}`}>Limit</button>
+                  </div>
+
+                  {/* Limit price input */}
+                  {closeMode === "limit" && (
+                    <div className="mb-3">
+                      <div className="text-[10px] text-[var(--hl-muted)] mb-1">Limit Price</div>
+                      <div className="flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1.5">
+                        <span className="text-[11px] text-[var(--hl-muted)] mr-1">$</span>
+                        <input type="number" value={limitClosePrice} onChange={(e) => setLimitClosePrice(e.target.value)} placeholder={pos.markPx?.toFixed(2) || "0.00"} className="flex-1 bg-transparent text-right text-[12px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none font-medium" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Close size slider */}
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between text-[10px] mb-1">
+                      <span className="text-[var(--hl-muted)]">Close Amount</span>
+                      <span className="text-[var(--foreground)] font-medium tabular-nums">{closePercent}% &middot; {closeSize.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+                    </div>
+                    <input type="range" min={1} max={100} value={closePercent} onChange={(e) => setClosePercent(parseInt(e.target.value))} className="w-full h-1.5 rounded-full appearance-none bg-[var(--hl-border)] accent-[var(--hl-accent)] cursor-pointer" />
+                    <div className="flex justify-between mt-1">
+                      {[25, 50, 75, 100].map(pct => (
+                        <button key={pct} onClick={() => setClosePercent(pct)} className={`px-2 py-0.5 text-[9px] rounded font-medium transition-colors ${closePercent === pct ? "bg-[var(--hl-accent)] text-white" : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}>{pct}%</button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {type === "reverse" && (
+                <div className="text-[11px] text-[var(--hl-muted)] mb-3">
+                  Flip from {pos.side.toUpperCase()} to {pos.side === "long" ? "SHORT" : "LONG"}
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 mb-3">
+                <input type="checkbox" id="skip-confirm" checked={type === "close" ? skipConfirmClose : skipConfirmReverse} onChange={(e) => { const key = type === "close" ? "hlone_skip_confirm_close" : "hlone_skip_confirm_reverse"; if (e.target.checked) localStorage.setItem(key, "1"); else localStorage.removeItem(key); if (type === "close") setSkipConfirmClose(e.target.checked); else setSkipConfirmReverse(e.target.checked); }} className="accent-[var(--hl-accent)]" />
+                <label htmlFor="skip-confirm" className="text-[10px] text-[var(--hl-muted)] cursor-pointer">Don&apos;t show again</label>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setConfirmAction(null); setClosePercent(100); setCloseMode("market"); setLimitClosePrice(""); }} className="flex-1 px-3 py-1.5 text-[10px] font-semibold rounded bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)] transition-colors">Cancel</button>
+                <button
+                  onClick={() => {
+                    setConfirmAction(null);
+                    if (type === "close") {
+                      if (closeMode === "limit" && limitClosePrice) {
+                        onLimitClose(pos, closeSize, parseFloat(limitClosePrice));
+                      } else {
+                        onClose(pos, closeSize);
+                      }
+                      setClosePercent(100); setCloseMode("market"); setLimitClosePrice("");
+                    } else {
+                      onReverse(pos);
+                    }
+                  }}
+                  disabled={closeMode === "limit" && !limitClosePrice}
+                  className={`flex-1 px-3 py-1.5 text-[10px] font-semibold rounded transition-colors disabled:opacity-50 ${type === "close" ? "bg-[rgba(240,88,88,0.18)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.35)]" : "bg-[rgba(80,210,193,0.18)] text-[var(--hl-green)] hover:bg-[rgba(80,210,193,0.35)]"}`}
+                >
+                  {type === "close" ? (closeMode === "limit" ? "Limit Close" : "Market Close") : "Confirm"}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Close All button */}
-      <div className="flex items-center justify-between px-1 py-1">
-        <span className="text-[10px] text-[var(--hl-muted)]">{positions.length} position{positions.length !== 1 ? "s" : ""}</span>
+      <div className="flex items-center justify-end px-1 py-1">
         <div className="flex items-center gap-2">
           {allResult && <span className={`text-[9px] ${allResult.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{allResult.msg}</span>}
           <button
