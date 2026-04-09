@@ -22,7 +22,6 @@ const WalletButton = dynamic(
 
 const navItems = [
   { href: "/", label: "Terminal" },
-  { href: "/traders", label: "Traders" },
   { href: "/portfolio", label: "Portfolio" },
 ];
 
@@ -120,7 +119,6 @@ export function Header() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <AccountDisplay />
           {/* Theme toggle — desktop only (in Account tab on mobile) */}
           <div className="hidden sm:block">
             <ThemeToggle />
