@@ -40,22 +40,29 @@ type CandleRaw = { t: number; o: string; h: string; l: string; c: string; v: str
 const candleCache = new Map<string, { candles: TokenDetail["candles"]; fetchedAt: number }>();
 const CANDLE_CACHE_TTL = 30_000; // 30s — stale candles shown instantly, refresh in background
 
-async function fetchCandlesDirect(coin: string, interval: string): Promise<TokenDetail["candles"]> {
+async function fetchCandlesDirect(coin: string, interval: string, retries = 2): Promise<TokenDetail["candles"]> {
   const now = Date.now();
   const startTime = now - (LOOKBACK[interval] || 7 * 86400_000);
-  const res = await fetch(`${HL_API}/info`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type: "candleSnapshot", req: { coin, interval, startTime, endTime: now } }),
-  });
-  if (!res.ok) return [];
-  const raw: CandleRaw[] = await res.json();
-  const candles = raw.map(c => ({
-    time: c.t, open: parseFloat(c.o), high: parseFloat(c.h),
-    low: parseFloat(c.l), close: parseFloat(c.c), volume: parseFloat(c.v),
-  }));
-  candleCache.set(`${coin}:${interval}`, { candles, fetchedAt: Date.now() });
-  return candles;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 300 * attempt));
+    try {
+      const res = await fetch(`${HL_API}/info`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "candleSnapshot", req: { coin, interval, startTime, endTime: now } }),
+      });
+      if (res.status === 429) continue; // rate limited, retry
+      if (!res.ok) return [];
+      const raw: CandleRaw[] = await res.json();
+      const candles = raw.map(c => ({
+        time: c.t, open: parseFloat(c.o), high: parseFloat(c.h),
+        low: parseFloat(c.l), close: parseFloat(c.c), volume: parseFloat(c.v),
+      }));
+      candleCache.set(`${coin}:${interval}`, { candles, fetchedAt: Date.now() });
+      return candles;
+    } catch { continue; }
+  }
+  return [];
 }
 
 function getCachedCandles(coin: string, interval: string): TokenDetail["candles"] | null {
@@ -111,7 +118,14 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         }
       });
       getTokenDetail(coin, interval)
-        .then(d => { if (!cancelled) { setDetail(d); setLoading(false); } })
+        .then(d => {
+          if (!cancelled) {
+            setDetail(d);
+            setLoading(false);
+            // Populate candle cache from backend response for instant interval switching
+            if (d.candles?.length) candleCache.set(`${coin}:${interval}`, { candles: d.candles, fetchedAt: Date.now() });
+          }
+        })
         .catch(() => {})
         .finally(() => { if (!cancelled && !fastDone) setLoading(false); });
     } else if (intervalChanged) {
@@ -131,7 +145,12 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         } else {
           // Fast path failed (rate limit / network) — fall back to full detail fetch
           getTokenDetail(coin, interval)
-            .then(d => { if (!cancelled) setDetail(d); })
+            .then(d => {
+              if (!cancelled) {
+                setDetail(d);
+                if (d.candles?.length) candleCache.set(`${coin}:${interval}`, { candles: d.candles, fetchedAt: Date.now() });
+              }
+            })
             .catch(() => {});
         }
       });
