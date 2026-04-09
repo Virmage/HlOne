@@ -1,37 +1,53 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useSyncExternalStore, useCallback } from "react";
 
 type Theme = "dark" | "light";
 
 const STORAGE_KEY = "hlone-theme";
 
-function getInitialTheme(): Theme {
-  if (typeof window === "undefined") return "dark";
+// Shared state so all useTheme() consumers stay in sync
+let currentTheme: Theme = "dark";
+const listeners = new Set<() => void>();
+
+function notify() {
+  listeners.forEach((l) => l());
+}
+
+// Initialize on first import (client only)
+if (typeof window !== "undefined") {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "light") return "light";
+    if (saved === "light") currentTheme = "light";
   } catch { /* ignore */ }
+}
+
+function getSnapshot(): Theme {
+  return currentTheme;
+}
+
+function getServerSnapshot(): Theme {
   return "dark";
 }
 
-export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(getInitialTheme);
+function subscribe(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
 
-  useEffect(() => {
-    // Sync with DOM on mount (in case SSR mismatch)
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+export function useTheme() {
+  const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const setTheme = useCallback((t: Theme) => {
-    setThemeState(t);
+    currentTheme = t;
     document.documentElement.setAttribute("data-theme", t);
     try { localStorage.setItem(STORAGE_KEY, t); } catch { /* ignore */ }
+    notify();
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setTheme(theme === "dark" ? "light" : "dark");
-  }, [theme, setTheme]);
+    setTheme(currentTheme === "dark" ? "light" : "dark");
+  }, [setTheme]);
 
   return { theme, setTheme, toggleTheme };
 }

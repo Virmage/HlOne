@@ -5,6 +5,10 @@ import { useSyncExternalStore } from "react";
 interface AccountInfo {
   accountValue: number;
   unrealizedPnl: number;
+  totalMarginUsed: number;
+  totalNotional: number;
+  withdrawable: number;
+  positionCount: number;
 }
 
 let currentInfo: AccountInfo | null = null;

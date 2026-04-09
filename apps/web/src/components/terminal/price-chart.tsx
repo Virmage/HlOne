@@ -509,6 +509,30 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
                     {accountInfo.unrealizedPnl >= 0 ? "+" : ""}${accountInfo.unrealizedPnl.toFixed(2)}
                   </span>
                 </div>
+                <div className="flex flex-col">
+                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">Margin</span>
+                  <span className="text-[var(--foreground)] tabular-nums font-medium text-[11px]">
+                    ${accountInfo.totalMarginUsed.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">Available</span>
+                  <span className="text-[var(--foreground)] tabular-nums font-medium text-[11px]">
+                    ${accountInfo.withdrawable.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">Notional</span>
+                  <span className="text-[var(--foreground)] tabular-nums font-medium text-[11px]">
+                    ${accountInfo.totalNotional.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">Positions</span>
+                  <span className="text-[var(--foreground)] tabular-nums font-medium text-[11px]">
+                    {accountInfo.positionCount}
+                  </span>
+                </div>
               </div>
             </>
           )}

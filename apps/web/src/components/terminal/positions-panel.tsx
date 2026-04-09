@@ -87,9 +87,16 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
         setAccount(data.account);
         setOpenOrders(data.openOrders || []);
         setTriggerOrders(data.triggerOrders || {});
-        // Publish to global store for header display
+        // Publish to global store for header + chart bar display
         const uPnl = data.positions.reduce((s: number, p: UserPosition) => s + p.unrealizedPnl, 0);
-        setAccountInfo(data.account ? { accountValue: data.account.accountValue, unrealizedPnl: uPnl } : null);
+        setAccountInfo(data.account ? {
+          accountValue: data.account.accountValue,
+          unrealizedPnl: uPnl,
+          totalMarginUsed: data.account.totalMarginUsed,
+          totalNotional: data.account.totalNotional,
+          withdrawable: data.account.withdrawable,
+          positionCount: data.positions.length,
+        } : null);
         setError(null);
       }
       hasFetchedRef.current = true;

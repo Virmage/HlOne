@@ -22,17 +22,22 @@ export function useTerminal() {
       const result = await getTerminalData();
       setData(result);
       setError(null);
+      setLoading(false);
       retryRef.current = 0;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch terminal data";
-      setError(msg);
       // Auto-retry up to 3 times with backoff (handles API cold starts)
+      // Keep loading=true during retries so the loading screen stays visible
+      // instead of flashing the red error bar between retries
       if (retryRef.current < 3) {
         retryRef.current++;
         setTimeout(() => fetch(), 2000 * retryRef.current);
+        // Don't set loading=false or error — stay on loading screen
+      } else {
+        // All retries exhausted — now show the error
+        setError(msg);
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
     }
   }, []);
 
