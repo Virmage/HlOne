@@ -116,13 +116,11 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         .finally(() => { if (!cancelled && !fastDone) setLoading(false); });
     } else if (intervalChanged) {
       // Interval change: only candles + OI change per timeframe.
-      // Skip the heavy getTokenDetail call — whale data, funding, social are interval-independent.
+      // Fast path: direct HL API (~200ms). Fallback: getTokenDetail if fast path fails.
       const cached = getCachedCandles(coin, interval);
       if (cached && cached.length > 0) {
-        // Show cached candles instantly
         setDetail(prev => prev ? { ...prev, candles: cached } : prev);
       }
-      // Fetch fresh candles + OI only (~200ms each)
       Promise.all([
         fetchCandlesDirect(coin, interval).catch(() => [] as TokenDetail["candles"]),
         fetchOICandles(coin, interval).then(r => r.oiCandles).catch(() => []),
@@ -130,6 +128,11 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         if (cancelled) return;
         if (candles.length > 0) {
           setDetail(prev => prev ? { ...prev, candles, ...(oiCandles.length > 0 ? { oiCandles } : {}) } : prev);
+        } else {
+          // Fast path failed (rate limit / network) — fall back to full detail fetch
+          getTokenDetail(coin, interval)
+            .then(d => { if (!cancelled) setDetail(d); })
+            .catch(() => {});
         }
       });
     }
