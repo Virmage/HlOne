@@ -98,8 +98,8 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
       let fastDone = false;
       // Fast path: candles + OI in parallel
       Promise.all([
-        fetchCandlesDirect(coin, interval).catch(() => [] as TokenDetail["candles"]),
-        fetchOICandles(coin, interval).then(r => r.oiCandles).catch(() => []),
+        fetchCandlesDirect(coin, interval).catch(e => { console.warn("[PriceChart] fast candle fetch failed:", e); return [] as TokenDetail["candles"]; }),
+        fetchOICandles(coin, interval).then(r => r.oiCandles).catch(e => { console.warn("[PriceChart] OI fetch failed:", e); return []; }),
       ]).then(([candles, oiCandles]) => {
         if (cancelled) return;
         if (candles.length > 0) {
@@ -122,11 +122,10 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
           if (!cancelled) {
             setDetail(d);
             setLoading(false);
-            // Populate candle cache from backend response for instant interval switching
             if (d.candles?.length) candleCache.set(`${coin}:${interval}`, { candles: d.candles, fetchedAt: Date.now() });
           }
         })
-        .catch(() => {})
+        .catch(e => { console.error("[PriceChart] getTokenDetail failed:", e); })
         .finally(() => { if (!cancelled && !fastDone) setLoading(false); });
     } else if (intervalChanged) {
       // Interval change: only candles + OI change per timeframe.
@@ -136,14 +135,14 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         setDetail(prev => prev ? { ...prev, candles: cached } : prev);
       }
       Promise.all([
-        fetchCandlesDirect(coin, interval).catch(() => [] as TokenDetail["candles"]),
-        fetchOICandles(coin, interval).then(r => r.oiCandles).catch(() => []),
+        fetchCandlesDirect(coin, interval).catch(e => { console.warn("[PriceChart] interval candle fetch failed:", e); return [] as TokenDetail["candles"]; }),
+        fetchOICandles(coin, interval).then(r => r.oiCandles).catch(e => { console.warn("[PriceChart] interval OI fetch failed:", e); return []; }),
       ]).then(([candles, oiCandles]) => {
         if (cancelled) return;
         if (candles.length > 0) {
           setDetail(prev => prev ? { ...prev, candles, ...(oiCandles.length > 0 ? { oiCandles } : {}) } : prev);
         } else {
-          // Fast path failed (rate limit / network) — fall back to full detail fetch
+          console.warn("[PriceChart] fast path empty, falling back to getTokenDetail");
           getTokenDetail(coin, interval)
             .then(d => {
               if (!cancelled) {
@@ -151,7 +150,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
                 if (d.candles?.length) candleCache.set(`${coin}:${interval}`, { candles: d.candles, fetchedAt: Date.now() });
               }
             })
-            .catch(() => {});
+            .catch(e => { console.error("[PriceChart] interval getTokenDetail fallback failed:", e); });
         }
       });
     }
@@ -165,7 +164,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
               setDetail(prev => prev ? { ...prev, candles } : prev);
             }
           })
-          .catch(() => {});
+          .catch(e => { console.warn("[PriceChart] poll failed:", e); });
       }
     }, POLL_INTERVAL);
 
@@ -1117,10 +1116,6 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     };
   }, [handleWindowMouseMove, handleWindowMouseUp]);
 
-  if (!candles.length) {
-    return <div className="flex items-center justify-center h-full text-[var(--hl-muted)] text-[12px]">No data</div>;
-  }
-
   // Visible slice: offset is from the RIGHT (0 = latest at edge, negative = padding right)
   // When offset < 0, we still show latest candles but leave empty space on right
   const effectiveOffset = Math.max(0, offset);
@@ -1153,8 +1148,8 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   }
 
   // Price domain — apply Y-axis zoom and vertical pan
-  const rawPriceMin = Math.min(...data.map(c => c.low));
-  const rawPriceMax = Math.max(...data.map(c => c.high));
+  const rawPriceMin = data.length > 0 ? Math.min(...data.map(c => c.low)) : 0;
+  const rawPriceMax = data.length > 0 ? Math.max(...data.map(c => c.high)) : 1;
   const rawPad = (rawPriceMax - rawPriceMin) * 0.04 || 1;
   const rawRange = rawPriceMax - rawPriceMin + rawPad * 2;
   const midPrice = (rawPriceMin + rawPriceMax) / 2;
@@ -1164,7 +1159,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const domainMin = midPrice - halfRange + panAmount;
   const domainMax = midPrice + halfRange + panAmount;
 
-  const maxVol = Math.max(...data.map(c => c.volume));
+  const maxVol = data.length > 0 ? Math.max(...data.map(c => c.volume)) : 0;
   // Hide volume section if >70% of visible candles have 0 volume (e.g. older monthly data)
   const volCandlesWithData = data.filter(c => c.volume > 0).length;
   const hasVolume = volCandlesWithData > data.length * 0.3;
@@ -1268,6 +1263,10 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     const id = window.setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [data.length > 0 ? data[data.length - 1].time : 0, candleDuration]);
+
+  if (!candles.length) {
+    return <div className="flex items-center justify-center h-full text-[var(--hl-muted)] text-[12px]">No data</div>;
+  }
 
   // Map top trader fills to candle indices for chart dots
   // Visible time range
