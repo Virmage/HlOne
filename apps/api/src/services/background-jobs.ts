@@ -27,9 +27,9 @@ export function startBackgroundJobs() {
   if (started) return;
   started = true;
 
-  // Phase 1: Warm prices + OI immediately so healthcheck passes quickly.
+  // Phase 1: Warm critical data before healthcheck passes.
   // Railway keeps the old instance until healthcheck returns 200.
-  console.log("[bg] Phase 1: warming prices + OI (healthcheck gates on this)...");
+  console.log("[bg] Phase 1: warming prices + OI + smart money (healthcheck gates on prices)...");
   (async () => {
     try {
       await getCachedMids();
@@ -37,7 +37,12 @@ export function startBackgroundJobs() {
       await loadOIFromDb();
       await loadFillsFromDb();
       await snapshotOI();
-      console.log("[bg] Phase 1 complete — healthcheck should pass now");
+      console.log("[bg] Phase 1a complete — prices warm, healthcheck should pass now");
+      // Smart money right after prices — sharps vs squares needs this
+      await getSmartMoneyData();
+      await getTokenScores();
+      await getSignals();
+      console.log("[bg] Phase 1b complete — smart money + signals warm");
     } catch (err) {
       console.error("[bg] Phase 1 warm-up failed:", (err as Error).message);
     }
@@ -117,17 +122,8 @@ export function startBackgroundJobs() {
       } catch { /* ignore */ }
     }, 60_000);
 
-    // Staggered warm-up of remaining data
+    // Staggered warm-up of remaining data (smart money already done in Phase 1)
     (async () => {
-      try {
-        console.log("[bg] Initial warm-up: smart money...");
-        await getSmartMoneyData();
-      } catch (err) {
-        console.error("[bg] Smart money warm-up failed:", (err as Error).message);
-      }
-
-      await new Promise(r => setTimeout(r, 10_000));
-
       try {
         console.log("[bg] Initial warm-up: HIP-3 builder perps...");
         await getCachedHip3Tokens();
