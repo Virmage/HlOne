@@ -936,7 +936,7 @@ export async function withdraw(
 // Move USDC between spot wallet and perps wallet on HL.
 
 export async function transferBetweenSpotAndPerp(
-  agentKey: `0x${string}`,
+  walletClient: WalletClient,
   address: `0x${string}`,
   amount: number,
   toPerp: boolean, // true = spot→perp, false = perp→spot
@@ -952,9 +952,48 @@ export async function transferBetweenSpotAndPerp(
       nonce,
     };
 
-    const signature = await signL1Action(agentKey, action, nonce);
-    const result = await submitToExchange(action, nonce, signature);
+    // usdClassTransfer is a user L1 action — must be signed by the actual wallet, not an agent
+    const signature = await walletClient.signTypedData({
+      account: address,
+      domain: {
+        name: "HyperliquidSignTransaction",
+        version: "1",
+        chainId: 42161,
+        verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+      },
+      types: {
+        "HyperliquidTransaction:UsdClassTransfer": [
+          { name: "hyperliquidChain", type: "string" },
+          { name: "amount", type: "string" },
+          { name: "toPerp", type: "bool" },
+          { name: "nonce", type: "uint64" },
+        ],
+      },
+      primaryType: "HyperliquidTransaction:UsdClassTransfer",
+      message: {
+        hyperliquidChain: "Mainnet",
+        amount: floatToWire(amount),
+        toPerp,
+        nonce: BigInt(nonce),
+      },
+    });
 
+    const r = signature.slice(0, 66);
+    const s = `0x${signature.slice(66, 130)}`;
+    const v = normalizeV(parseInt(signature.slice(130, 132), 16));
+
+    const res = await fetch(`${HL_API}/exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        nonce,
+        signature: { r, s, v },
+        vaultAddress: null,
+      }),
+    });
+
+    const result = await res.json();
     if ((result as { status?: string }).status === "ok") {
       return { success: true };
     }
@@ -963,10 +1002,6 @@ export async function transferBetweenSpotAndPerp(
       || JSON.stringify(result);
     return { success: false, error: apiErr };
   } catch (err) {
-    if (err instanceof StaleAgentError) {
-      clearStoredAgent(address);
-      return { success: false, error: STALE_AGENT_MSG };
-    }
     return { success: false, error: extractError(err) };
   }
 }

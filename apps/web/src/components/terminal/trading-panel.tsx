@@ -1036,9 +1036,7 @@ function DepositWithdrawBar({ address }: { address: string }) {
       ]);
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) { setResult({ ok: false, msg: "No wallet" }); return; }
-      const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
-      if (agentResult.error) { setResult({ ok: false, msg: agentResult.error }); return; }
-      const res = await exchange.transferBetweenSpotAndPerp(agentResult.agentKey, address as `0x${string}`, amt, toPerp);
+      const res = await exchange.transferBetweenSpotAndPerp(walletClient, address as `0x${string}`, amt, toPerp);
       setResult(res.success
         ? { ok: true, msg: `Transferred $${amt} ${toPerp ? "Spot → Perps" : "Perps → Spot"}` }
         : { ok: false, msg: res.error || "Failed" }
