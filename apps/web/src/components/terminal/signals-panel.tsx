@@ -46,7 +46,7 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
                     {item.side === "LONG" ? "L" : "S"}
                   </span>
                   <span className="font-medium text-[var(--foreground)]">{displayCoin(item.coin)}</span>
-                  <span className="text-[var(--hl-muted)] tabular-nums ml-auto">{item.count} · {item.pct}%</span>
+                  <span className="text-[var(--hl-muted)] tabular-nums ml-auto">{item.pct}%</span>
                 </button>
               ))
             )}

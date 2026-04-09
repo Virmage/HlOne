@@ -96,9 +96,12 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
       // 2. Fetch full detail in background for funding, whale data etc.
       setLoading(true);
       let fastDone = false;
-      // Fast path: candles + OI in parallel
+      // Fast path: candles via backend + OI in parallel
       Promise.all([
-        fetchCandlesDirect(coin, interval).catch(e => { console.warn("[PriceChart] fast candle fetch failed:", e); return [] as TokenDetail["candles"]; }),
+        fetchCandlesViaBackend(coin, interval).then(r => r.candles.map(c => ({
+          time: c.t, open: parseFloat(c.o), high: parseFloat(c.h),
+          low: parseFloat(c.l), close: parseFloat(c.c), volume: parseFloat(c.v),
+        }))).catch(e => { console.warn("[PriceChart] fast candle fetch failed:", e); return [] as TokenDetail["candles"]; }),
         fetchOICandles(coin, interval).then(r => r.oiCandles).catch(e => { console.warn("[PriceChart] OI fetch failed:", e); return []; }),
       ]).then(([candles, oiCandles]) => {
         if (cancelled) return;
@@ -160,12 +163,18 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         });
     }
 
-    // Poll for live candle updates (skip if tab hidden)
+    // Poll for live candle updates via backend (skip if tab hidden)
     pollRef.current = globalThis.setInterval(() => {
       if (!cancelled && !document.hidden) {
-        fetchCandlesDirect(coin, interval)
-          .then(candles => {
-            if (!cancelled && candles.length > 0) {
+        fetchCandlesViaBackend(coin, interval)
+          .then(r => {
+            if (cancelled) return;
+            const candles = r.candles.map(c => ({
+              time: c.t, open: parseFloat(c.o), high: parseFloat(c.h),
+              low: parseFloat(c.l), close: parseFloat(c.c), volume: parseFloat(c.v),
+            }));
+            if (candles.length > 0) {
+              candleCache.set(`${coin}:${interval}`, { candles, fetchedAt: Date.now() });
               setDetail(prev => prev ? { ...prev, candles } : prev);
             }
           })
