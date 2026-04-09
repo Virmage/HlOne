@@ -28,12 +28,15 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  retryCount: number;
 }
+
+const MAX_AUTO_RETRIES = 3;
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, retryCount: 0 };
   }
 
   static getDerivedStateFromError(error: Error) {
@@ -43,10 +46,20 @@ export class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: { componentStack?: string | null }) {
     console.error("[ErrorBoundary] Caught render error:", error, info.componentStack);
     reportClientError(error, "ErrorBoundary", info.componentStack);
+    // Auto-retry transient errors (e.g. empty data during initial load)
+    if (this.state.retryCount < MAX_AUTO_RETRIES) {
+      setTimeout(() => {
+        this.setState(prev => ({ hasError: false, error: null, retryCount: prev.retryCount + 1 }));
+      }, 200);
+    }
   }
 
   render() {
     if (this.state.hasError) {
+      // Still auto-retrying — render nothing briefly instead of flashing error UI
+      if (this.state.retryCount < MAX_AUTO_RETRIES) {
+        return null;
+      }
       return (
         <div className="min-h-[50vh] flex items-center justify-center">
           <div className="text-center space-y-4 max-w-md px-4">
@@ -58,7 +71,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </p>
             <button
               onClick={() => {
-                this.setState({ hasError: false, error: null });
+                this.setState({ hasError: false, error: null, retryCount: 0 });
                 window.location.reload();
               }}
               className="px-4 py-2 text-sm bg-[var(--hl-accent)] text-[var(--background)] rounded hover:opacity-80 transition-opacity"
