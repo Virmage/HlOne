@@ -1150,8 +1150,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const priceTicks = 6;
   const priceStep = (domainMax - domainMin) / priceTicks;
 
-  // X-axis labels
-  const xLabelInterval = Math.max(Math.floor(data.length / 6), 1);
+  // X-axis labels — fewer on narrow screens to prevent overlap
+  const xLabelCount = W < 500 ? 3 : W < 700 ? 4 : 6;
+  const xLabelInterval = Math.max(Math.floor(data.length / xLabelCount), 1);
 
   return (
     <div className="h-full flex flex-col relative overflow-hidden">
@@ -1583,7 +1584,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             if (i % xLabelInterval !== 0) return null;
             const x = ML + i * candleW + candleW / 2;
             return (
-              <text key={`x-${i}`} x={x} y={H - 4} fill="var(--foreground)" fontSize={11} textAnchor="middle" fontFamily="monospace">
+              <text key={`x-${i}`} x={x} y={H - 4} fill="var(--foreground)" fontSize={W < 500 ? 9 : 11} textAnchor="middle" fontFamily="monospace">
                 {formatTime(c.time)}
               </text>
             );

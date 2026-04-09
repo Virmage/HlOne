@@ -12,6 +12,8 @@ import { MacroBar } from "@/components/terminal/macro-bar";
 import { PositionsPanel } from "@/components/terminal/positions-panel";
 import type { SelectedOption } from "@/components/terminal/inline-options-chain";
 import { useSafeAccount } from "@/hooks/use-safe-account";
+import { useAccountInfo } from "@/hooks/use-account-info";
+import { useTheme } from "@/hooks/use-theme";
 
 /* ── PanelSkeleton: placeholder while lazy panels load ────────────────────── */
 function PanelSkeleton() {
@@ -78,6 +80,77 @@ const CopyDialog = dynamic(
   { ssr: false }
 );
 
+/* ── Mobile tab types ────────────────────────────────────────────────────── */
+type MobileTab = "perps" | "options" | "data" | "account";
+
+const MOBILE_TABS: { key: MobileTab; label: string; icon: string }[] = [
+  { key: "perps", label: "Perps", icon: "M3 3h18v18H3z" },       // chart icon placeholder
+  { key: "options", label: "Options", icon: "M12 2l9 4.5v11L12 22l-9-4.5v-11z" },
+  { key: "data", label: "Data", icon: "M4 6h16M4 12h16M4 18h16" },
+  { key: "account", label: "Account", icon: "M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-5.33 0-8 2.67-8 4v2h16v-2c0-1.33-2.67-4-8-4z" },
+];
+
+/* ── Mobile Account Tab ──────────────────────────────────────────────────── */
+function MobileAccountTab() {
+  const { theme, toggleTheme } = useTheme();
+  const accountInfo = useAccountInfo();
+  const { address, isConnected } = useSafeAccount();
+
+  return (
+    <div className="px-4 py-4 space-y-4">
+      <h2 className="text-[14px] font-bold text-[var(--foreground)]">Account</h2>
+
+      {/* Wallet */}
+      <div className="rounded-lg border border-[var(--hl-border)] bg-[var(--hl-surface)] p-3">
+        <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-2">Wallet</div>
+        {isConnected && address ? (
+          <div className="text-[12px] text-[var(--foreground)] font-mono">{address.slice(0, 6)}...{address.slice(-4)}</div>
+        ) : (
+          <div className="text-[12px] text-[var(--hl-muted)]">Not connected</div>
+        )}
+      </div>
+
+      {/* Portfolio stats */}
+      {accountInfo && (
+        <div className="rounded-lg border border-[var(--hl-border)] bg-[var(--hl-surface)] p-3">
+          <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-2">Portfolio</div>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: "Equity", value: `$${accountInfo.accountValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}` },
+              { label: "uPnL", value: `${accountInfo.unrealizedPnl >= 0 ? "+" : ""}$${accountInfo.unrealizedPnl.toFixed(2)}`, color: accountInfo.unrealizedPnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]" },
+              { label: "Margin Used", value: `$${accountInfo.totalMarginUsed.toLocaleString(undefined, { maximumFractionDigits: 0 })}` },
+              { label: "Available", value: `$${accountInfo.withdrawable.toLocaleString(undefined, { maximumFractionDigits: 0 })}` },
+              { label: "Notional", value: `$${accountInfo.totalNotional.toLocaleString(undefined, { maximumFractionDigits: 0 })}` },
+              { label: "Positions", value: `${accountInfo.positionCount}` },
+            ].map(s => (
+              <div key={s.label}>
+                <div className="text-[9px] text-[var(--hl-muted)] uppercase">{s.label}</div>
+                <div className={`text-[13px] font-bold tabular-nums ${s.color || "text-[var(--foreground)]"}`}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Theme */}
+      <div className="rounded-lg border border-[var(--hl-border)] bg-[var(--hl-surface)] p-3">
+        <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-2">Appearance</div>
+        <button
+          onClick={toggleTheme}
+          className="flex items-center justify-between w-full py-1.5"
+        >
+          <span className="text-[12px] text-[var(--foreground)]">
+            {theme === "dark" ? "Dark Mode" : "Light Mode"}
+          </span>
+          <div className="w-10 h-5 rounded-full bg-[var(--hl-border)] relative transition-colors">
+            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-[var(--hl-accent)] transition-transform ${theme === "light" ? "left-5" : "left-0.5"}`} />
+          </div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const LOADING_LINES = [
   "Ringing House of all Finance doorbell.",
   "Considering Derive options.",
@@ -119,6 +192,7 @@ export default function HomePage() {
   const [optionsChainCoin, setOptionsChainCoin] = useState<string | null>(null);
   const [tradingMode, setTradingMode] = useState<"perp" | "options">("perp");
   const [selectedOption, setSelectedOption] = useState<SelectedOption | null>(null);
+  const [mobileTab, setMobileTab] = useState<MobileTab>("perps");
 
   // Defer below-fold grid rendering until the main thread is idle
   const [showBelow, setShowBelow] = useState(false);
@@ -184,224 +258,167 @@ export default function HomePage() {
   }
 
   return (
-    <div className="-mx-2 sm:-mx-6 lg:-mx-8 -mt-2 sm:-mt-6">
-      {/* Row 1: TradFi Macro — desktop only */}
+    <div className="-mx-2 sm:-mx-6 lg:-mx-8 -mt-2 sm:-mt-6 md:pb-0 pb-14">
+      {/* ═══ DESKTOP: full layout (unchanged) ═══════════════════════════════ */}
       <div className="hidden md:block">
         <MacroBar macro={data?.macro || []} onSelectToken={handleSelectToken} />
+        <TickerBar tokens={data?.tokens || []} options={data?.options} onSelectToken={handleSelectToken} />
+        <MarketPulse regime={data?.regime || null} options={data?.options || {}} onSelectToken={handleSelectToken} onOpenOptions={handleOpenOptions} avgCorrelation={data?.correlationMatrix?.avgCorrelation ?? null} />
       </div>
 
-      {/* Row 2: Crypto Ticker — desktop only */}
-      <div className="hidden md:block">
-        <TickerBar
-          tokens={data?.tokens || []}
-          options={data?.options}
-          onSelectToken={handleSelectToken}
-        />
-      </div>
-
-      {/* Row 3: Market Regime + Deribit Options — desktop only */}
-      <div className="hidden md:block">
-        <MarketPulse
-          regime={data?.regime || null}
-          options={data?.options || {}}
-          onSelectToken={handleSelectToken}
-          onOpenOptions={handleOpenOptions}
-          avgCorrelation={data?.correlationMatrix?.avgCorrelation ?? null}
-        />
-      </div>
-
-      {/* Chart + Positions (left) | Order Book + Trading Panel (right) */}
-      <div className="flex flex-col md:flex-row border-b border-[var(--hl-border)]">
-        {/* Left column: Chart stacked above Positions */}
+      {/* Chart + Positions + Trading (desktop always, mobile only on perps tab) */}
+      <div className={`${mobileTab !== "perps" ? "hidden md:flex" : "flex"} flex-col md:flex-row border-b border-[var(--hl-border)]`}>
         <div className="flex-1 min-w-0 flex flex-col">
-          {/* Chart / Options Chain */}
           <div className="border-b border-[var(--hl-border)] overflow-hidden">
             {tradingMode === "options" ? (
               <div className="h-[300px] md:h-[510px] overflow-hidden">
-                <InlineOptionsChain
-                  coin={chartCoin.includes(":") ? chartCoin.split(":")[1] : chartCoin}
-                  onSelectOption={setSelectedOption}
-                  selectedOption={selectedOption}
-                  onChangeCoin={handleChangeCoin}
-                />
+                <InlineOptionsChain coin={chartCoin.includes(":") ? chartCoin.split(":")[1] : chartCoin} onSelectOption={setSelectedOption} selectedOption={selectedOption} onChangeCoin={handleChangeCoin} />
               </div>
             ) : (
               <div className="h-[300px] md:h-[510px] overflow-hidden">
-                <PriceChart
-                  coin={chartCoin}
-                  tokens={data?.tokens || []}
-                  onSelectToken={handleSelectToken}
-                  whaleAlerts={data?.whaleAlerts || []}
-                  liquidationBands={data?.liquidationHeatmap?.find(h => h.coin === chartCoin)?.bands}
-                />
+                <PriceChart coin={chartCoin} tokens={data?.tokens || []} onSelectToken={handleSelectToken} whaleAlerts={data?.whaleAlerts || []} liquidationBands={data?.liquidationHeatmap?.find(h => h.coin === chartCoin)?.bands} />
               </div>
             )}
           </div>
-          {/* Positions — below chart */}
           <div className="px-2">
             <PositionsPanel onSelectToken={handleSelectToken} />
           </div>
         </div>
 
-        {/* Right column: Order Book + Trading Panel — stretches to match left column */}
+        {/* Desktop right column */}
         <div className="hidden md:flex flex-shrink-0 border-l border-[var(--hl-border)]">
-          {/* Order Book */}
           {tradingMode !== "options" && (
             <div className="hidden lg:block w-[180px] flex-shrink-0 overflow-y-auto border-r border-[var(--hl-border)]">
               <OrderBook coin={chartCoin} />
             </div>
           )}
-          {/* Trading Panel */}
           <div className="w-[260px] flex-shrink-0 overflow-y-auto">
-            <TradingPanel
-              coin={chartCoin}
-              overview={chartOverview}
-              score={chartOverview?.score ?? null}
-              onOpenOptionsChain={handleOpenOptions}
-              tradingMode={tradingMode}
-              onTradingModeChange={setTradingMode}
-              selectedOption={selectedOption}
-              onClearOption={() => setSelectedOption(null)}
-            />
+            <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} />
           </div>
         </div>
 
-        {/* Mobile: Trading Panel full width (only mounted on mobile) */}
-        <div className="md:hidden w-full border-t border-[var(--hl-border)]">
-          <TradingPanel
-            coin={chartCoin}
-            overview={chartOverview}
-            score={chartOverview?.score ?? null}
-            onOpenOptionsChain={handleOpenOptions}
-            tradingMode={tradingMode}
-            onTradingModeChange={setTradingMode}
-            selectedOption={selectedOption}
-            onClearOption={() => setSelectedOption(null)}
-          />
-        </div>
+        {/* Mobile trading panel — only on perps tab */}
+        {mobileTab === "perps" && (
+          <div className="md:hidden w-full border-t border-[var(--hl-border)]">
+            <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} />
+          </div>
+        )}
       </div>
 
-      {/* Below-fold content — deferred until main thread is idle */}
-      {showBelow && (
-        <>
-          {/* Sharps vs Squares + Funding Arb + Signals — 3 columns */}
-          <SignalsPanel
-            signals={data?.signals || []}
-            fundingOpps={data?.fundingOpps || []}
-            callout={data?.callout || null}
-            onSelectToken={handleSelectToken}
-          />
-
-          {/* Mobile: App coming soon */}
-          <div className="md:hidden border-t border-[var(--hl-border)] py-12 px-4 text-center">
-            <div className="text-[var(--hl-muted)] text-[14px] font-medium mb-1">App coming soon.</div>
-            <div className="text-[var(--hl-muted)] text-[11px] opacity-60">Full dashboard available on desktop</div>
+      {/* ═══ MOBILE: Options tab ═══════════════════════════════════════════ */}
+      {mobileTab === "options" && (
+        <div className="md:hidden">
+          <div className="h-[calc(100vh-6rem)] overflow-hidden">
+            <InlineOptionsChain coin={chartCoin.includes(":") ? chartCoin.split(":")[1] : chartCoin} onSelectOption={setSelectedOption} selectedOption={selectedOption} onChangeCoin={handleChangeCoin} />
           </div>
+        </div>
+      )}
 
-          {/* Main Grid — desktop only, seamless divider layout */}
-          <div className="hidden md:grid grid-cols-1 lg:grid-cols-2">
-            {/* Left: Sharp Flow */}
+      {/* ═══ MOBILE: Data tab ══════════════════════════════════════════════ */}
+      {mobileTab === "data" && (
+        <div className="md:hidden space-y-0">
+          <div className="p-3 border-b border-[var(--hl-border)]">
+            <SignalsPanel signals={data?.signals || []} fundingOpps={data?.fundingOpps || []} callout={data?.callout || null} onSelectToken={handleSelectToken} />
+          </div>
+          <div className="p-3 border-b border-[var(--hl-border)]">
+            <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
+          </div>
+          <div className="p-3 border-b border-[var(--hl-border)]">
+            <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
+          </div>
+          <div className="p-3 border-b border-[var(--hl-border)]">
+            <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
+          </div>
+          <div className="p-3 border-b border-[var(--hl-border)]">
+            <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
+          </div>
+          <div className="p-3 border-b border-[var(--hl-border)]">
+            <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
+          </div>
+          <div className="p-3 border-b border-[var(--hl-border)]">
+            <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
+          </div>
+          <div className="p-3 border-b border-[var(--hl-border)]">
+            <LendingRatesPanel />
+          </div>
+          <div className="p-3 border-b border-[var(--hl-border)]">
+            <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MOBILE: Account tab ═══════════════════════════════════════════ */}
+      {mobileTab === "account" && (
+        <div className="md:hidden">
+          <MobileAccountTab />
+        </div>
+      )}
+
+      {/* ═══ DESKTOP: Below-fold data grid (unchanged) ═════════════════════ */}
+      {showBelow && (
+        <div className="hidden md:block">
+          <SignalsPanel signals={data?.signals || []} fundingOpps={data?.fundingOpps || []} callout={data?.callout || null} onSelectToken={handleSelectToken} />
+          <div className="grid grid-cols-1 lg:grid-cols-2">
             <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
-              <SharpFlowTable
-                flows={data?.sharpFlow || []}
-                onSelectToken={handleSelectToken}
-              />
+              <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
             </div>
-
-            {/* Right: Whale Feed */}
             <div className="p-3 border-b border-[var(--hl-border)]">
-              <WhaleFeed
-                alerts={data?.whaleAlerts || []}
-                onSelectToken={handleSelectToken}
-                onSelectTrader={handleSelectTrader}
-                onCopy={handleCopy}
-              />
+              <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
             </div>
-
-            {/* News Feed */}
             <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
-              <NewsFeed
-                news={data?.news || []}
-                onSelectToken={handleSelectToken}
-              />
+              <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
             </div>
-
-            {/* Social Sentiment */}
             <div className="p-3 border-b border-[var(--hl-border)]">
-              <SocialPanel
-                social={data?.social || []}
-                onSelectToken={handleSelectToken}
-              />
+              <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
             </div>
-
-            {/* Funding Leaderboard */}
             <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
-              <FundingLeaderboardPanel
-                funding={data?.funding || { topPositive: [], topNegative: [] }}
-                onSelectToken={handleSelectToken}
-              />
+              <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
             </div>
-
-            {/* Large Trade Tape */}
             <div className="p-3 border-b border-[var(--hl-border)]">
-              <LargeTradeTape
-                trades={data?.largeTrades || []}
-                onSelectToken={handleSelectToken}
-              />
+              <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
             </div>
-
-            {/* Lending & Borrowing Rates */}
             <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
               <LendingRatesPanel />
             </div>
-
-            {/* Position Concentration */}
             <div className="p-3 border-b border-[var(--hl-border)]">
-              <PositionConcentrationPanel
-                data={data?.positionConcentration || []}
-                onSelectToken={handleSelectToken}
-              />
+              <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
             </div>
           </div>
-        </>
-      )}
-
-      {/* Token Drawer Slide-in */}
-      {selectedToken && (
-        <TokenDrawer
-          coin={selectedToken}
-          onClose={() => setSelectedToken(null)}
-          onCopy={handleCopy}
-        />
-      )}
-
-      {/* Trader Detail Slide-in */}
-      {selectedTrader && !selectedToken && (
-        <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[480px] overflow-y-auto bg-[var(--background)] border-l border-[var(--hl-border)] shadow-2xl">
-          <TraderDetailPanel
-            address={selectedTrader}
-            onClose={() => setSelectedTrader(null)}
-            onCopy={handleCopy}
-          />
         </div>
       )}
 
-      {/* Options Chain (Derive) */}
-      <OptionsChainModal
-        coin={optionsChainCoin || "BTC"}
-        isOpen={!!optionsChainCoin}
-        onClose={() => setOptionsChainCoin(null)}
-      />
+      {/* ═══ MOBILE: Bottom Tab Bar ════════════════════════════════════════ */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[var(--hl-nav)] border-t border-[var(--hl-border)] flex items-center justify-around h-14">
+        {MOBILE_TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setMobileTab(t.key)}
+            className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors ${
+              mobileTab === t.key
+                ? "text-[var(--hl-accent)]"
+                : "text-[var(--hl-muted)]"
+            }`}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              {t.key === "perps" && <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M7 17V13M12 17V7M17 17V11" /></>}
+              {t.key === "options" && <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" /></>}
+              {t.key === "data" && <><path d="M4 6h16M4 12h10M4 18h14" /></>}
+              {t.key === "account" && <><circle cx="12" cy="8" r="4" /><path d="M5 20c0-3 3.5-5 7-5s7 2 7 5" /></>}
+            </svg>
+            <span className="text-[9px] font-medium">{t.label}</span>
+          </button>
+        ))}
+      </nav>
 
-      {/* Copy Dialog — only mount when needed to avoid wagmi hook crash */}
-      {copyTrader && (
-        <CopyDialog
-          open={true}
-          onOpenChange={handleClearCopy}
-          traderAddress={copyTrader}
-          walletAddress={walletAddress}
-        />
+      {/* ═══ Modals & drawers (shared) ═════════════════════════════════════ */}
+      {selectedToken && <TokenDrawer coin={selectedToken} onClose={() => setSelectedToken(null)} onCopy={handleCopy} />}
+      {selectedTrader && !selectedToken && (
+        <div className="fixed inset-y-0 right-0 z-50 w-full max-w-[480px] overflow-y-auto bg-[var(--background)] border-l border-[var(--hl-border)] shadow-2xl">
+          <TraderDetailPanel address={selectedTrader} onClose={() => setSelectedTrader(null)} onCopy={handleCopy} />
+        </div>
       )}
+      <OptionsChainModal coin={optionsChainCoin || "BTC"} isOpen={!!optionsChainCoin} onClose={() => setOptionsChainCoin(null)} />
+      {copyTrader && <CopyDialog open={true} onOpenChange={handleClearCopy} traderAddress={copyTrader} walletAddress={walletAddress} />}
     </div>
   );
 }

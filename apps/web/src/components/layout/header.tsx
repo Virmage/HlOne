@@ -26,7 +26,7 @@ const navItems = [
   { href: "/portfolio", label: "Portfolio" },
 ];
 
-function ThemeToggle() {
+export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
 
   return (
@@ -98,6 +98,8 @@ export function Header() {
           <Link href="/" className="flex items-center shrink-0">
             <Logo />
           </Link>
+          {/* Desktop nav — hidden on mobile (bottom tabs used instead) */}
+          <div className="hidden sm:block">
           <nav className="nav-pills">
             {navItems.map((item) => (
               <Link
@@ -111,16 +113,18 @@ export function Header() {
                     : "text-[var(--hl-muted)] hover:text-[var(--hl-text)]"
                 )}
               >
-                {/* Shorten labels on mobile */}
-                <span className="sm:hidden">{item.label === "Terminal" ? "Term" : item.label === "Portfolio" ? "Port" : item.label}</span>
-                <span className="hidden sm:inline">{item.label}</span>
+                {item.label}
               </Link>
             ))}
           </nav>
+          </div>
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <AccountDisplay />
-          <ThemeToggle />
+          {/* Theme toggle — desktop only (in Account tab on mobile) */}
+          <div className="hidden sm:block">
+            <ThemeToggle />
+          </div>
           <WalletButton />
         </div>
       </div>
