@@ -25,6 +25,7 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 async function main() {
   console.log(`[startup] Starting API server (PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || "development"})...`);
+  console.log(`[startup] COINALYZE_API_KEY: ${process.env.COINALYZE_API_KEY ? "set (" + process.env.COINALYZE_API_KEY.slice(0, 8) + "...)" : "NOT SET"}`);
 
   // ─── Auto-run DB migrations (non-blocking — don't delay server start) ───────
   runMigrations(DATABASE_URL)
