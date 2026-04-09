@@ -56,6 +56,17 @@ function ThemeToggle() {
   );
 }
 
+function Logo() {
+  const { theme } = useTheme();
+  return (
+    <img
+      src={theme === "light" ? "/logo-light.png" : "/logo-dark.png"}
+      alt="HLOne"
+      className="h-[22px] w-auto"
+    />
+  );
+}
+
 function AccountDisplay() {
   const info = useAccountInfo();
   if (!info) return null;
@@ -84,14 +95,8 @@ export function Header() {
     <header className="sticky top-0 z-40 border-b border-[var(--hl-border)] bg-[var(--hl-nav)]">
       <div className="flex h-10 items-center justify-between px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-3 sm:gap-5">
-          <Link href="/" className="flex items-center gap-1.5 shrink-0">
-            <svg width="20" height="14" viewBox="0 0 24 16" fill="none">
-              <path d="M0 0C4 0 8 3.5 12 8C8 12.5 4 16 0 16C4 12 4 4 0 0Z" fill="var(--hl-accent, var(--hl-green))" />
-              <path d="M24 0C20 0 16 3.5 12 8C16 12.5 20 16 24 16C20 12 20 4 24 0Z" fill="var(--hl-accent, var(--hl-green))" />
-            </svg>
-            <span className="text-[13px] font-semibold text-[var(--foreground)]">
-              HLOne
-            </span>
+          <Link href="/" className="flex items-center shrink-0">
+            <Logo />
           </Link>
           <nav className="nav-pills">
             {navItems.map((item) => (
