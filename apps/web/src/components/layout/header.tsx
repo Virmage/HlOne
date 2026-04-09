@@ -62,7 +62,7 @@ function Logo() {
     <img
       src={theme === "light" ? "/logo-light.png" : "/logo-dark.png"}
       alt="HlOne"
-      className="h-[28px] w-auto"
+      className="h-[22px] sm:h-[28px] w-auto"
     />
   );
 }
@@ -93,8 +93,8 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--hl-border)] bg-[var(--hl-nav)]">
-      <div className="flex h-10 items-center justify-between px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3 sm:gap-5">
+      <div className="flex h-10 items-center justify-between px-2 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-2 sm:gap-5 min-w-0">
           <Link href="/" className="flex items-center shrink-0">
             <Logo />
           </Link>
@@ -111,12 +111,14 @@ export function Header() {
                     : "text-[var(--hl-muted)] hover:text-[var(--hl-text)]"
                 )}
               >
-                {item.label}
+                {/* Shorten labels on mobile */}
+                <span className="sm:hidden">{item.label === "Terminal" ? "Term" : item.label === "Portfolio" ? "Port" : item.label}</span>
+                <span className="hidden sm:inline">{item.label}</span>
               </Link>
             ))}
           </nav>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <AccountDisplay />
           <ThemeToggle />
           <WalletButton />

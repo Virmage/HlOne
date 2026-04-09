@@ -56,7 +56,7 @@ export default function RootLayout({
       >
         <Providers>
           <Header />
-          <main className="w-full px-4 sm:px-6 lg:px-8 py-6">{children}</main>
+          <main className="w-full px-2 sm:px-6 lg:px-8 py-2 sm:py-6">{children}</main>
         </Providers>
       </body>
     </html>

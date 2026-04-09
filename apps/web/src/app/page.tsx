@@ -184,7 +184,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-6">
+    <div className="-mx-2 sm:-mx-6 lg:-mx-8 -mt-2 sm:-mt-6">
       {/* Row 1: TradFi Macro — desktop only */}
       <div className="hidden md:block">
         <MacroBar macro={data?.macro || []} onSelectToken={handleSelectToken} />

@@ -391,14 +391,14 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
   const totalPnl = positions.reduce((s, p) => s + p.unrealizedPnl, 0);
 
-  const TABS: { key: Tab; label: string; count?: number }[] = [
-    { key: "positions", label: "Positions", count: positions.length },
-    { key: "balances", label: "Balances" },
-    { key: "orders", label: "Open Orders", count: openOrders.length },
+  const TABS: { key: Tab; label: string; shortLabel?: string; count?: number }[] = [
+    { key: "positions", label: "Positions", shortLabel: "Pos", count: positions.length },
+    { key: "balances", label: "Balances", shortLabel: "Bal" },
+    { key: "orders", label: "Open Orders", shortLabel: "Orders", count: openOrders.length },
     { key: "twap", label: "TWAP" },
-    { key: "tradeHistory", label: "Trade History" },
-    { key: "fundingHistory", label: "Funding History" },
-    { key: "orderHistory", label: "Order History" },
+    { key: "tradeHistory", label: "Trade History", shortLabel: "Trades" },
+    { key: "fundingHistory", label: "Funding History", shortLabel: "Funding" },
+    { key: "orderHistory", label: "Order History", shortLabel: "Hist" },
   ];
 
   if (!isConnected) {
@@ -425,15 +425,16 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
+              className={`px-1.5 sm:px-2.5 py-1.5 text-[10px] sm:text-[11px] font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
                 tab === t.key
                   ? "border-[var(--foreground)] text-[var(--foreground)]"
                   : "border-transparent text-[var(--hl-muted)] hover:text-[var(--hl-text)]"
               }`}
             >
-              {t.label}
+              <span className="sm:hidden">{t.shortLabel || t.label}</span>
+              <span className="hidden sm:inline">{t.label}</span>
               {t.count !== undefined && t.count > 0 && (
-                <span className="ml-1 text-[9px] text-[var(--hl-muted)]">({t.count})</span>
+                <span className="ml-0.5 sm:ml-1 text-[8px] sm:text-[9px] text-[var(--hl-muted)]">({t.count})</span>
               )}
             </button>
           ))}
@@ -660,18 +661,18 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
         );
       })()}
 
-      <table className="w-full text-[11px]">
+      <table className="w-full text-[10px] sm:text-[11px] min-w-[640px]">
         <thead>
-          <tr className="text-[var(--hl-muted)] text-[10px] uppercase tracking-wider border-b border-[var(--hl-border)]">
+          <tr className="text-[var(--hl-muted)] text-[9px] sm:text-[10px] uppercase tracking-wider border-b border-[var(--hl-border)]">
             <th className="text-left py-1 pr-2">Asset</th>
             <th className="text-right py-1 pr-2">Size</th>
             <th className="text-right py-1 pr-2">Value</th>
             <th className="text-right py-1 pr-2">Entry</th>
             <th className="text-right py-1 pr-2">Mark</th>
-            <th className="text-right py-1 pr-2">PnL (ROE)</th>
+            <th className="text-right py-1 pr-2">PnL</th>
             <th className="text-right py-1 pr-2">Liq.</th>
             <th className="text-right py-1 pr-2">Margin</th>
-            <th className="text-right py-1 pr-2">TP / SL</th>
+            <th className="text-right py-1 pr-2">TP/SL</th>
             <th className="text-right py-1">Actions</th>
           </tr>
         </thead>

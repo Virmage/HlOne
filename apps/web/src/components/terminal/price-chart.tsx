@@ -328,14 +328,14 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Row 1: Coin selector + stats bar (like HL) */}
-      <div className="flex items-center border-b border-[var(--hl-border)] px-3 py-1.5 shrink-0">
+      <div className="flex items-center border-b border-[var(--hl-border)] px-1.5 sm:px-3 py-1 sm:py-1.5 shrink-0">
         {/* Coin dropdown */}
         <div className="relative flex-shrink-0" ref={dropdownRef}>
           <button
             onClick={() => setCoinDropdownOpen(!coinDropdownOpen)}
-            className="flex items-center gap-1.5 pr-3 mr-3 border-r border-[var(--hl-border)]"
+            className="flex items-center gap-1 sm:gap-1.5 pr-2 sm:pr-3 mr-2 sm:mr-3 border-r border-[var(--hl-border)]"
           >
-            <span className="text-[15px] font-bold text-[var(--foreground)]">{coin.includes(":") ? coin.split(":")[1] : coin}-USDC</span>
+            <span className="text-[13px] sm:text-[15px] font-bold text-[var(--foreground)]">{coin.includes(":") ? coin.split(":")[1] : coin}-USDC</span>
             <svg width="10" height="6" viewBox="0 0 10 6" fill="none" className="mt-0.5">
               <path d="M1 1L5 5L9 1" stroke="var(--hl-muted)" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
@@ -454,17 +454,17 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         </div>
 
         {/* Stats bar — like HL's Mark/Oracle/24h/Vol/OI/Funding row */}
-        <div className="flex items-center gap-3 sm:gap-4 text-[11px] overflow-x-auto flex-1 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-4 text-[10px] sm:text-[11px] overflow-x-auto scrollbar-none flex-1 min-w-0">
           <div className="flex flex-col shrink-0">
-            <span className="text-[9px] text-[var(--hl-muted)] uppercase">Mark</span>
+            <span className="text-[8px] sm:text-[9px] text-[var(--hl-muted)] uppercase">Mark</span>
             <span className="text-[var(--foreground)] tabular-nums font-medium">{formatPrice(markPx)}</span>
           </div>
-          <div className="flex flex-col shrink-0">
+          <div className="flex flex-col shrink-0 hidden sm:flex">
             <span className="text-[9px] text-[var(--hl-muted)] uppercase">Oracle</span>
             <span className="text-[var(--foreground)] tabular-nums font-medium">{formatPrice(oraclePx)}</span>
           </div>
           <div className="flex flex-col shrink-0">
-            <span className="text-[9px] text-[var(--hl-muted)] uppercase">24h Change</span>
+            <span className="text-[8px] sm:text-[9px] text-[var(--hl-muted)] uppercase">24h</span>
             {overview ? (
               <span className={`tabular-nums font-medium ${overview.change24h >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                 {overview.change24h >= 0 ? "+" : ""}{overview.change24h.toFixed(2)}%
@@ -472,19 +472,19 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             ) : <span className="text-[var(--hl-muted)]">—</span>}
           </div>
           <div className="flex flex-col shrink-0">
-            <span className="text-[9px] text-[var(--hl-muted)] uppercase">24h Vol</span>
+            <span className="text-[8px] sm:text-[9px] text-[var(--hl-muted)] uppercase">Vol</span>
             <span className="text-[var(--foreground)] tabular-nums font-medium">
-              ${overview ? (overview.volume24h / 1e6).toFixed(2) + "M" : "—"}
+              ${overview ? (overview.volume24h / 1e6).toFixed(1) + "M" : "—"}
             </span>
           </div>
-          <div className="flex flex-col shrink-0">
+          <div className="flex flex-col shrink-0 hidden sm:flex">
             <span className="text-[9px] text-[var(--hl-muted)] uppercase">Open Interest</span>
             <span className="text-[var(--foreground)] tabular-nums font-medium">
               ${overview ? (overview.openInterest / 1e6).toFixed(2) + "M" : "—"}
             </span>
           </div>
           <div className="flex flex-col shrink-0">
-            <span className="text-[9px] text-[var(--hl-muted)] uppercase">Funding</span>
+            <span className="text-[8px] sm:text-[9px] text-[var(--hl-muted)] uppercase">Fund</span>
             {overview ? (
               <span className={`tabular-nums font-medium ${overview.fundingRate >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                 {(overview.fundingRate * 100).toFixed(4)}%
@@ -492,11 +492,11 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             ) : <span className="text-[var(--hl-muted)]">—</span>}
           </div>
 
-          {/* Portfolio stats — accent-bordered pill, right of funding */}
+          {/* Portfolio stats — accent-bordered pill, right of funding (desktop only) */}
           {accountInfo && (
             <>
-              <div className="w-px h-5 bg-[var(--hl-border)] shrink-0 mx-1" />
-              <div className="flex items-center gap-3 shrink-0 px-2.5 py-0.5 rounded-md border border-[var(--hl-accent)]/25 bg-[var(--hl-accent)]/[0.04]">
+              <div className="w-px h-5 bg-[var(--hl-border)] shrink-0 mx-1 hidden sm:block" />
+              <div className="hidden sm:flex items-center gap-3 shrink-0 px-2.5 py-0.5 rounded-md border border-[var(--hl-accent)]/25 bg-[var(--hl-accent)]/[0.04]">
                 <div className="flex flex-col">
                   <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">Equity</span>
                   <span className="text-[var(--foreground)] tabular-nums font-bold text-[11px]">
@@ -540,13 +540,13 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
       </div>
 
       {/* Row 2: Timeframes */}
-      <div className="flex items-center border-b border-[var(--hl-border)] px-3 py-0.5 shrink-0">
-        <div className="flex items-center gap-0.5">
+      <div className="flex items-center border-b border-[var(--hl-border)] px-1.5 sm:px-3 py-0.5 shrink-0 overflow-x-auto scrollbar-none">
+        <div className="flex items-center gap-0">
           {(["5m", "15m", "1h", "4h", "12h", "1d", "1w", "1M"] as Interval[]).map(i => (
             <button
               key={i}
               onClick={() => setInterval(i)}
-              className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors ${
+              className={`px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-[11px] font-medium rounded transition-colors shrink-0 ${
                 i === interval
                   ? "text-[var(--foreground)] bg-[var(--hl-surface)]"
                   : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
@@ -557,10 +557,10 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
           ))}
         </div>
         {/* SMA + Heatmap toggles */}
-        <div className="flex items-center ml-3 border-l border-[var(--hl-border)] pl-3 gap-1.5">
+        <div className="flex items-center ml-1.5 sm:ml-3 border-l border-[var(--hl-border)] pl-1.5 sm:pl-3 gap-1 sm:gap-1.5 shrink-0">
           <button
             onClick={toggleSMAs}
-            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+            className={`px-1.5 sm:px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
               smasOn ? "bg-[var(--hl-accent)] text-[var(--background)]" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
             }`}
           >
@@ -568,20 +568,21 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
           </button>
           <button
             onClick={() => setShowHeatmap(prev => !prev)}
-            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+            className={`px-1.5 sm:px-2 py-0.5 text-[10px] font-medium rounded transition-colors shrink-0 ${
               showHeatmap ? "bg-orange-500/80 text-white" : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
             }`}
             title={showHeatmap ? "Hide Liquidation Heatmap" : "Show Liquidation Heatmap"}
           >
-            Heatmap
+            <span className="sm:hidden">HM</span>
+            <span className="hidden sm:inline">Heatmap</span>
           </button>
         </div>
       </div>
 
       {/* Chart area with left toolbar */}
       <div className="flex-1 min-h-0 flex">
-        {/* Left-side drawing toolbar (TradingView style) */}
-        <div className="flex flex-col items-center gap-0.5 py-2 px-1 border-r border-[var(--hl-border)] bg-[var(--background)] shrink-0" style={{ width: 32 }}>
+        {/* Left-side drawing toolbar (TradingView style) — hidden on mobile */}
+        <div className="hidden sm:flex flex-col items-center gap-0.5 py-2 px-1 border-r border-[var(--hl-border)] bg-[var(--background)] shrink-0" style={{ width: 32 }}>
           {/* Cross / Cursor — deselect all drawing tools (TV style) */}
           <button
             onClick={() => { setDrawingTool("none"); setPendingDrawing(null); }}
