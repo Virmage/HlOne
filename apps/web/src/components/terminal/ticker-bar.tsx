@@ -10,7 +10,7 @@ interface TickerBarProps {
 }
 
 export function TickerBar({ tokens, options = {}, onSelectToken }: TickerBarProps) {
-  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(110, false);
+  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(110, true); // scroll RIGHT
 
   if (!tokens.length) return null;
 

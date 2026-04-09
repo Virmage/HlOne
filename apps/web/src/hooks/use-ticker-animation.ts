@@ -60,19 +60,23 @@ export function useTickerAnimation(
             if (startOffscreen) {
               // Start with content off-screen: positive offset pushes content right
               offsetRef.current = el.parentElement?.clientWidth ?? window.innerWidth;
+            } else if (reverse) {
+              // For right-scrolling: start at -contentWidth so content fills viewport
+              // Two copies [A][A] at -W shows copy2 in viewport, scrolls right to 0, then resets
+              offsetRef.current = -contentWidthRef.current;
             } else {
               offsetRef.current = 0;
             }
           }
 
           if (reverse) {
-            // Scroll right: offset increases
+            // Scroll right: offset goes from -contentWidth toward 0, then resets
             offsetRef.current += movement;
-            if (offsetRef.current >= contentWidthRef.current) {
+            if (offsetRef.current >= 0) {
               offsetRef.current -= contentWidthRef.current;
             }
           } else {
-            // Scroll left: offset decreases
+            // Scroll left: offset goes from 0 toward -contentWidth, then resets
             offsetRef.current -= movement;
             if (offsetRef.current <= -contentWidthRef.current) {
               offsetRef.current += contentWidthRef.current;

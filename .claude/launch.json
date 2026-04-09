@@ -21,7 +21,7 @@
     {
       "name": "jobboard",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "cd '/Users/jack/iCloud Drive (Archive) - 1/Documents/BOt/Job Tool' && npx next dev --turbopack --port 3002"],
+      "runtimeArgs": ["-c", "export PATH=/opt/homebrew/bin:$PATH && cd '/Users/jack/iCloud Drive (Archive) - 1/Documents/BOt/Job Tool' && npx next dev --turbopack --port 3002"],
       "port": 3002
     }
   ]

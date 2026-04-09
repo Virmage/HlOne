@@ -1,0 +1,1587 @@
+{
+  "lastBuilt": "2026-03-18T05:10:36.216Z",
+  "totalProjects": 398,
+  "withCareerPages": 158,
+  "projects": [
+    {
+      "id": "bitcoin",
+      "name": "Bitcoin",
+      "symbol": "BTC",
+      "rank": 1,
+      "homepage": "http://www.bitcoin.org",
+      "careerUrl": "http://www.bitcoin.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "tether",
+      "name": "Tether",
+      "symbol": "USDT",
+      "rank": 3,
+      "homepage": "https://tether.to",
+      "careerUrl": "https://tether.to/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "solana",
+      "name": "Solana",
+      "symbol": "SOL",
+      "rank": 7,
+      "homepage": "https://solana.com",
+      "careerUrl": "https://solana.com/jobs",
+      "atsType": "lever",
+      "atsId": "vedatechlabs"
+    },
+    {
+      "id": "tron",
+      "name": "TRON",
+      "symbol": "TRX",
+      "rank": 8,
+      "homepage": "https://tron.network",
+      "careerUrl": "https://tron.network/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "figure-heloc",
+      "name": "Figure Heloc",
+      "symbol": "FIGR_HELOC",
+      "rank": 9,
+      "homepage": "https://www.figure.com",
+      "careerUrl": "https://www.figure.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "usds",
+      "name": "USDS",
+      "symbol": "USDS",
+      "rank": 12,
+      "homepage": "https://sky.money",
+      "careerUrl": "https://sky.money/careers",
+      "atsType": "ashby",
+      "atsId": "skyecosystem"
+    },
+    {
+      "id": "hyperliquid",
+      "name": "Hyperliquid",
+      "symbol": "HYPE",
+      "rank": 14,
+      "homepage": "https://hyperliquid.xyz",
+      "careerUrl": "https://hyperliquid.xyz/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "ethena-usde",
+      "name": "Ethena USDe",
+      "symbol": "USDE",
+      "rank": 19,
+      "homepage": "https://app.ethena.fi",
+      "careerUrl": "https://app.ethena.fi/join",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "stellar",
+      "name": "Stellar",
+      "symbol": "XLM",
+      "rank": 20,
+      "homepage": "https://www.stellar.org",
+      "careerUrl": "https://www.stellar.org/careers",
+      "atsType": "ashby",
+      "atsId": "stellar"
+    },
+    {
+      "id": "canton-network",
+      "name": "Canton",
+      "symbol": "CC",
+      "rank": 21,
+      "homepage": "https://www.canton.network",
+      "careerUrl": "https://www.canton.network/join",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "avalanche-2",
+      "name": "Avalanche",
+      "symbol": "AVAX",
+      "rank": 25,
+      "homepage": "https://www.avax.network",
+      "careerUrl": "https://www.avax.network",
+      "atsType": "greenhouse",
+      "atsId": "avalanchefoundation"
+    },
+    {
+      "id": "hedera-hashgraph",
+      "name": "Hedera",
+      "symbol": "HBAR",
+      "rank": 26,
+      "homepage": "https://www.hedera.com",
+      "careerUrl": "https://www.hedera.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "sui",
+      "name": "Sui",
+      "symbol": "SUI",
+      "rank": 30,
+      "homepage": "https://sui.io",
+      "careerUrl": "https://sui.io",
+      "atsType": "ashby",
+      "atsId": "Sui"
+    },
+    {
+      "id": "crypto-com-chain",
+      "name": "Cronos",
+      "symbol": "CRO",
+      "rank": 34,
+      "homepage": "https://cronos.org",
+      "careerUrl": "https://cronos.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "tether-gold",
+      "name": "Tether Gold",
+      "symbol": "XAUT",
+      "rank": 36,
+      "homepage": "https://gold.tether.to",
+      "careerUrl": "https://gold.tether.to/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "mantle",
+      "name": "Mantle",
+      "symbol": "MNT",
+      "rank": 38,
+      "homepage": "https://group.mantle.xyz",
+      "careerUrl": "https://group.mantle.xyz/jobs",
+      "atsType": "ashby",
+      "atsId": "windranger"
+    },
+    {
+      "id": "uniswap",
+      "name": "Uniswap",
+      "symbol": "UNI",
+      "rank": 40,
+      "homepage": "https://uniswap.org",
+      "careerUrl": "https://uniswap.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "blackrock-usd-institutional-digital-liquidity-fund",
+      "name": "BlackRock USD Institutional Digital Liquidity Fund",
+      "symbol": "BUIDL",
+      "rank": 43,
+      "homepage": "https://www.blackrock.com/corporate",
+      "careerUrl": "https://www.blackrock.com/corporate/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "okb",
+      "name": "OKB",
+      "symbol": "OKB",
+      "rank": 44,
+      "homepage": "https://www.okx.com",
+      "careerUrl": "https://www.okx.com/join",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "near",
+      "name": "NEAR Protocol",
+      "symbol": "NEAR",
+      "rank": 45,
+      "homepage": "https://near.org",
+      "careerUrl": "https://near.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "global-dollar",
+      "name": "Global Dollar",
+      "symbol": "USDG",
+      "rank": 48,
+      "homepage": "https://globaldollar.com",
+      "careerUrl": "https://globaldollar.com/join",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "falcon-finance",
+      "name": "Falcon USD",
+      "symbol": "USDF",
+      "rank": 49,
+      "homepage": "https://falcon.finance",
+      "careerUrl": "https://falcon.finance/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "sky",
+      "name": "Sky",
+      "symbol": "SKY",
+      "rank": 50,
+      "homepage": "https://sky.money",
+      "careerUrl": "https://sky.money/careers",
+      "atsType": "ashby",
+      "atsId": "skyecosystem"
+    },
+    {
+      "id": "pi-network",
+      "name": "Pi Network",
+      "symbol": "PI",
+      "rank": 51,
+      "homepage": "https://minepi.com",
+      "careerUrl": "https://minepi.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "worldcoin-wld",
+      "name": "Worldcoin",
+      "symbol": "WLD",
+      "rank": 62,
+      "homepage": "https://worldcoin.org",
+      "careerUrl": "https://worldcoin.org/careers",
+      "atsType": "ashby",
+      "atsId": "Tools"
+    },
+    {
+      "id": "kucoin-shares",
+      "name": "KuCoin",
+      "symbol": "KCS",
+      "rank": 64,
+      "homepage": "https://www.kucoin.com/ucenter/signup",
+      "careerUrl": "https://www.kucoin.com/ucenter/signup/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "superstate-short-duration-us-government-securities-fund-ustb",
+      "name": "Superstate Short Duration U.S. Government Securities Fund (USTB)",
+      "symbol": "USTB",
+      "rank": 65,
+      "homepage": "https://superstate.co",
+      "careerUrl": "https://superstate.co/careers",
+      "atsType": "lever",
+      "atsId": "superstate"
+    },
+    {
+      "id": "polygon-ecosystem-token",
+      "name": "POL (ex-MATIC)",
+      "symbol": "POL",
+      "rank": 66,
+      "homepage": "https://polygon.technology",
+      "careerUrl": "https://polygon.technology/careers",
+      "atsType": "ashby",
+      "atsId": "polygon-labs"
+    },
+    {
+      "id": "morpho",
+      "name": "Morpho",
+      "symbol": "MORPHO",
+      "rank": 69,
+      "homepage": "https://morpho.org",
+      "careerUrl": "https://morpho.org/jobs",
+      "atsType": "ashby",
+      "atsId": "morpho"
+    },
+    {
+      "id": "cosmos",
+      "name": "Cosmos Hub",
+      "symbol": "ATOM",
+      "rank": 70,
+      "homepage": "http://cosmos.network",
+      "careerUrl": "http://cosmos.network/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "ethena",
+      "name": "Ethena",
+      "symbol": "ENA",
+      "rank": 71,
+      "homepage": "https://www.ethena.fi",
+      "careerUrl": "https://www.ethena.fi",
+      "atsType": "lever",
+      "atsId": "ethenalabs"
+    },
+    {
+      "id": "render-token",
+      "name": "Render",
+      "symbol": "RENDER",
+      "rank": 73,
+      "homepage": "http://renderfoundation.com",
+      "careerUrl": "http://renderfoundation.com/jobs",
+      "atsType": "ashby",
+      "atsId": "renderfoundation"
+    },
+    {
+      "id": "nexo",
+      "name": "NEXO",
+      "symbol": "NEXO",
+      "rank": 74,
+      "homepage": "https://nexo.com",
+      "careerUrl": "https://nexo.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "algorand",
+      "name": "Algorand",
+      "symbol": "ALGO",
+      "rank": 76,
+      "homepage": "https://algorand.foundation",
+      "careerUrl": "https://algorand.foundation/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "usdd",
+      "name": "USDD",
+      "symbol": "USDD",
+      "rank": 81,
+      "homepage": "https://usdd.io",
+      "careerUrl": "https://usdd.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "flare-networks",
+      "name": "Flare",
+      "symbol": "FLR",
+      "rank": 82,
+      "homepage": "https://flare.network",
+      "careerUrl": "https://flare.network/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "vechain",
+      "name": "VeChain",
+      "symbol": "VET",
+      "rank": 88,
+      "homepage": "https://www.vechain.org",
+      "careerUrl": "https://www.vechain.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "bonk",
+      "name": "Bonk",
+      "symbol": "BONK",
+      "rank": 89,
+      "homepage": "https://www.bonkcoin.com",
+      "careerUrl": "https://www.bonkcoin.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "beldex",
+      "name": "Beldex",
+      "symbol": "BDX",
+      "rank": 90,
+      "homepage": "https://beldex.io",
+      "careerUrl": "https://beldex.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "gho",
+      "name": "GHO",
+      "symbol": "GHO",
+      "rank": 92,
+      "homepage": "https://gho.xyz",
+      "careerUrl": "https://gho.xyz/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "ylds",
+      "name": "YLDS",
+      "symbol": "YLDS",
+      "rank": 94,
+      "homepage": "https://www.figuremarkets.com/c/ylds",
+      "careerUrl": "https://www.figuremarkets.com/c/ylds/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "just",
+      "name": "JUST",
+      "symbol": "JST",
+      "rank": 100,
+      "homepage": "https://www.just.network",
+      "careerUrl": "https://www.just.network/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "true-usd",
+      "name": "TrueUSD",
+      "symbol": "TUSD",
+      "rank": 101,
+      "homepage": "https://tusd.io",
+      "careerUrl": "https://tusd.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "pancakeswap-token",
+      "name": "PancakeSwap",
+      "symbol": "CAKE",
+      "rank": 102,
+      "homepage": "https://pancakeswap.finance/affiliates-program",
+      "careerUrl": "https://pancakeswap.finance/affiliates-program/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "blockstack",
+      "name": "Stacks",
+      "symbol": "STX",
+      "rank": 103,
+      "homepage": "http://stacks.co",
+      "careerUrl": "http://stacks.co/jobs",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "layerzero",
+      "name": "LayerZero",
+      "symbol": "ZRO",
+      "rank": 104,
+      "homepage": "https://layerzero.network",
+      "careerUrl": "https://layerzero.network/careers",
+      "atsType": "greenhouse",
+      "atsId": "layerzerolabs"
+    },
+    {
+      "id": "a7a5",
+      "name": "A7A5",
+      "symbol": "A7A5",
+      "rank": 105,
+      "homepage": "https://a7a5.io",
+      "careerUrl": "https://a7a5.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "sei-network",
+      "name": "Sei",
+      "symbol": "SEI",
+      "rank": 108,
+      "homepage": "https://www.sei.io",
+      "careerUrl": "https://www.sei.io",
+      "atsType": "ashby",
+      "atsId": "seifoundation"
+    },
+    {
+      "id": "ether-fi",
+      "name": "Ether.fi",
+      "symbol": "ETHFI",
+      "rank": 110,
+      "homepage": "https://www.ether.fi",
+      "careerUrl": "https://www.ether.fi/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "dash",
+      "name": "Dash",
+      "symbol": "DASH",
+      "rank": 111,
+      "homepage": "https://www.dash.org",
+      "careerUrl": "https://www.dash.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "euro-coin",
+      "name": "EURC",
+      "symbol": "EURC",
+      "rank": 113,
+      "homepage": "https://www.circle.com",
+      "careerUrl": "https://www.circle.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "chiliz",
+      "name": "Chiliz",
+      "symbol": "CHZ",
+      "rank": 115,
+      "homepage": "https://www.chiliz.com",
+      "careerUrl": "https://www.chiliz.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "kinesis-gold",
+      "name": "Kinesis Gold",
+      "symbol": "KAU",
+      "rank": 116,
+      "homepage": "https://kinesis.money",
+      "careerUrl": "https://kinesis.money/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "gnosis",
+      "name": "Gnosis",
+      "symbol": "GNO",
+      "rank": 118,
+      "homepage": "https://www.gnosis.io",
+      "careerUrl": "https://www.gnosis.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "curve-dao-token",
+      "name": "Curve DAO",
+      "symbol": "CRV",
+      "rank": 119,
+      "homepage": "https://curve.finance",
+      "careerUrl": "https://curve.finance/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "sun-token",
+      "name": "Sun Token",
+      "symbol": "SUN",
+      "rank": 123,
+      "homepage": "https://sun.io",
+      "careerUrl": "https://sun.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "celestia",
+      "name": "Celestia",
+      "symbol": "TIA",
+      "rank": 124,
+      "homepage": "https://celestia.org",
+      "careerUrl": "https://celestia.org/careers",
+      "atsType": "lever",
+      "atsId": "celestia"
+    },
+    {
+      "id": "hastra-prime",
+      "name": "PRIME",
+      "symbol": "PRIME",
+      "rank": 127,
+      "homepage": "https://hastra.io",
+      "careerUrl": "https://hastra.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "adi-token",
+      "name": "ADI",
+      "symbol": "ADI",
+      "rank": 131,
+      "homepage": "https://token.adi.foundation",
+      "careerUrl": "https://token.adi.foundation/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "aerodrome-finance",
+      "name": "Aerodrome Finance",
+      "symbol": "AERO",
+      "rank": 133,
+      "homepage": "https://aerodrome.finance",
+      "careerUrl": "https://aerodrome.finance/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "the-graph",
+      "name": "The Graph",
+      "symbol": "GRT",
+      "rank": 137,
+      "homepage": "https://thegraph.com",
+      "careerUrl": "https://thegraph.com/jobs",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "iota",
+      "name": "IOTA",
+      "symbol": "IOTA",
+      "rank": 140,
+      "homepage": "https://iota.org",
+      "careerUrl": "https://iota.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "optimism",
+      "name": "Optimism",
+      "symbol": "OP",
+      "rank": 142,
+      "homepage": "https://www.optimism.io",
+      "careerUrl": "https://www.optimism.io/careers",
+      "atsType": "ashby",
+      "atsId": "opfoundation"
+    },
+    {
+      "id": "doublezero",
+      "name": "DoubleZero",
+      "symbol": "2Z",
+      "rank": 143,
+      "homepage": "https://doublezero.xyz",
+      "careerUrl": "https://doublezero.xyz/careers",
+      "atsType": "ashby",
+      "atsId": "DoubleZero"
+    },
+    {
+      "id": "frax",
+      "name": "Legacy Frax Dollar",
+      "symbol": "FRAX",
+      "rank": 146,
+      "homepage": "https://frax.finance",
+      "careerUrl": "https://frax.finance/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "plasma",
+      "name": "Plasma",
+      "symbol": "XPL",
+      "rank": 147,
+      "homepage": "https://www.plasma.to",
+      "careerUrl": "https://www.plasma.to",
+      "atsType": "ashby",
+      "atsId": "plasma"
+    },
+    {
+      "id": "crvusd",
+      "name": "crvUSD",
+      "symbol": "CRVUSD",
+      "rank": 150,
+      "homepage": "https://curve.finance",
+      "careerUrl": "https://curve.finance/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "ape-and-pepe",
+      "name": "Ape and Pepe",
+      "symbol": "APEPE",
+      "rank": 151,
+      "homepage": "https://apepe.lol",
+      "careerUrl": "https://apepe.lol/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "btse-token",
+      "name": "BTSE Token",
+      "symbol": "BTSE",
+      "rank": 157,
+      "homepage": "https://www.btse.com/en/ref",
+      "careerUrl": "https://www.btse.com/en/ref/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "telcoin",
+      "name": "Telcoin",
+      "symbol": "TEL",
+      "rank": 158,
+      "homepage": "http://www.telco.in",
+      "careerUrl": "http://www.telco.in/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "helium",
+      "name": "Helium",
+      "symbol": "HNT",
+      "rank": 161,
+      "homepage": "https://www.helium.com",
+      "careerUrl": "https://www.helium.com",
+      "atsType": "greenhouse",
+      "atsId": "helium"
+    },
+    {
+      "id": "terra-luna",
+      "name": "Terra Luna Classic",
+      "symbol": "LUNC",
+      "rank": 164,
+      "homepage": "https://www.terra-classic.io",
+      "careerUrl": "https://www.terra-classic.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "starknet",
+      "name": "Starknet",
+      "symbol": "STRK",
+      "rank": 165,
+      "homepage": "https://starknet.io",
+      "careerUrl": "https://starknet.io/jobs",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "trust-wallet-token",
+      "name": "Trust Wallet",
+      "symbol": "TWT",
+      "rank": 169,
+      "homepage": "https://trustwallet.com",
+      "careerUrl": "https://trustwallet.com/careers",
+      "atsType": "ashby",
+      "atsId": "trust-wallet"
+    },
+    {
+      "id": "newton-project",
+      "name": "AB",
+      "symbol": "AB",
+      "rank": 174,
+      "homepage": "https://ab.org",
+      "careerUrl": "https://ab.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "the9bit",
+      "name": "The9bit",
+      "symbol": "9BIT",
+      "rank": 176,
+      "homepage": "https://the9bit.com",
+      "careerUrl": "https://the9bit.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "reallink",
+      "name": "RealLink",
+      "symbol": "REAL",
+      "rank": 182,
+      "homepage": "https://www.reallink.vip",
+      "careerUrl": "https://www.reallink.vip/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "instadapp",
+      "name": "Fluid",
+      "symbol": "FLUID",
+      "rank": 188,
+      "homepage": "https://fluid.io",
+      "careerUrl": "https://fluid.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "dogwifcoin",
+      "name": "dogwifhat",
+      "symbol": "WIF",
+      "rank": 189,
+      "homepage": "https://dogwifcoin.org",
+      "careerUrl": "https://dogwifcoin.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "tradable-na-rent-financing-platform-sstn",
+      "name": "Tradable NA Rent Financing Platform SSTN",
+      "symbol": "PC0000031",
+      "rank": 190,
+      "homepage": "https://www.tradable.xyz",
+      "careerUrl": "https://www.tradable.xyz/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "decentraland",
+      "name": "Decentraland",
+      "symbol": "MANA",
+      "rank": 191,
+      "homepage": "https://decentraland.org",
+      "careerUrl": "https://decentraland.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "theta-token",
+      "name": "Theta Network",
+      "symbol": "THETA",
+      "rank": 192,
+      "homepage": "https://www.thetatoken.org",
+      "careerUrl": "https://www.thetatoken.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "sonic-3",
+      "name": "Sonic",
+      "symbol": "S",
+      "rank": 195,
+      "homepage": "https://soniclabs.com",
+      "careerUrl": "https://soniclabs.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "compound-governance-token",
+      "name": "Compound",
+      "symbol": "COMP",
+      "rank": 196,
+      "homepage": "https://compound.finance",
+      "careerUrl": "https://compound.finance/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "gala",
+      "name": "GALA",
+      "symbol": "GALA",
+      "rank": 201,
+      "homepage": "https://gala.com",
+      "careerUrl": "https://gala.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "ribbita-by-virtuals",
+      "name": "Ribbita by Virtuals",
+      "symbol": "TIBBIR",
+      "rank": 204,
+      "homepage": "https://app.virtuals.io/virtuals/18820",
+      "careerUrl": "https://app.virtuals.io/virtuals/18820/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "bnb48-club-token",
+      "name": "KOGE",
+      "symbol": "KOGE",
+      "rank": 205,
+      "homepage": "https://www.48.club",
+      "careerUrl": "https://www.48.club/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "ultima",
+      "name": "Ultima",
+      "symbol": "ULTIMA",
+      "rank": 206,
+      "homepage": "https://ultima.io/en",
+      "careerUrl": "https://ultima.io/en/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "gusd",
+      "name": "GUSD",
+      "symbol": "GUSD",
+      "rank": 216,
+      "homepage": "https://www.gate.com",
+      "careerUrl": "https://www.gate.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "ecash",
+      "name": "eCash",
+      "symbol": "XEC",
+      "rank": 217,
+      "homepage": "https://e.cash",
+      "careerUrl": "https://e.cash/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "golem",
+      "name": "Golem",
+      "symbol": "GLM",
+      "rank": 218,
+      "homepage": "https://golem.network",
+      "careerUrl": "https://golem.network/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "1inch",
+      "name": "1INCH",
+      "symbol": "1INCH",
+      "rank": 219,
+      "homepage": "https://1inch.com",
+      "careerUrl": "https://1inch.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "gekko",
+      "name": "GEKKO",
+      "symbol": "GEKKO",
+      "rank": 220,
+      "homepage": "https://gekkohq.com",
+      "careerUrl": "https://gekkohq.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "eigenlayer",
+      "name": "EigenCloud (prev. EigenLayer)",
+      "symbol": "EIGEN",
+      "rank": 221,
+      "homepage": "https://www.eigencloud.xyz",
+      "careerUrl": "https://www.eigencloud.xyz",
+      "atsType": "ashby",
+      "atsId": "eigen-labs"
+    },
+    {
+      "id": "akash-network",
+      "name": "Akash Network",
+      "symbol": "AKT",
+      "rank": 222,
+      "homepage": "https://akash.network",
+      "careerUrl": "https://akash.network/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "cow-protocol",
+      "name": "CoW Protocol",
+      "symbol": "COW",
+      "rank": 226,
+      "homepage": "https://cow.fi",
+      "careerUrl": "https://cow.fi/careers",
+      "atsType": "ashby",
+      "atsId": "cow-dao"
+    },
+    {
+      "id": "apollo-diversified-credit-securitize-fund",
+      "name": "Apollo Diversified Credit Securitize Fund",
+      "symbol": "ACRED",
+      "rank": 231,
+      "homepage": "https://securitize.io/primary-market/apollo-diversified-credit-securitize-fund",
+      "careerUrl": "https://securitize.io/primary-market/apollo-diversified-credit-securitize-fund/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "elrond-erd-2",
+      "name": "MultiversX",
+      "symbol": "EGLD",
+      "rank": 233,
+      "homepage": "https://multiversx.com",
+      "careerUrl": "https://multiversx.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "qubic-network",
+      "name": "Qubic",
+      "symbol": "QUBIC",
+      "rank": 235,
+      "homepage": "https://qubic.org",
+      "careerUrl": "https://qubic.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "gmt-token",
+      "name": "GoMining Token",
+      "symbol": "GOMINING",
+      "rank": 236,
+      "homepage": "https://gomining.com",
+      "careerUrl": "https://gomining.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "frax-usd",
+      "name": "Frax USD",
+      "symbol": "FRXUSD",
+      "rank": 237,
+      "homepage": "https://frax.com",
+      "careerUrl": "https://frax.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "derive",
+      "name": "Derive",
+      "symbol": "DRV",
+      "rank": 241,
+      "homepage": "https://derive.xyz",
+      "careerUrl": "https://derive.xyz/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "zero-gravity",
+      "name": "0G",
+      "symbol": "0G",
+      "rank": 242,
+      "homepage": "https://www.0gfoundation.ai",
+      "careerUrl": "https://www.0gfoundation.ai",
+      "atsType": "ashby",
+      "atsId": "0g"
+    },
+    {
+      "id": "arweave",
+      "name": "Arweave",
+      "symbol": "AR",
+      "rank": 243,
+      "homepage": "https://arweave.org",
+      "careerUrl": "https://arweave.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "pleasing-usd",
+      "name": "Pleasing USD",
+      "symbol": "PUSD",
+      "rank": 245,
+      "homepage": "https://www.pleasinggold.com",
+      "careerUrl": "https://www.pleasinggold.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "zencash",
+      "name": "Horizen",
+      "symbol": "ZEN",
+      "rank": 246,
+      "homepage": "https://www.horizen.io",
+      "careerUrl": "https://www.horizen.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "aethir",
+      "name": "Aethir",
+      "symbol": "ATH",
+      "rank": 247,
+      "homepage": "https://www.aethir.com",
+      "careerUrl": "https://www.aethir.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "livepeer",
+      "name": "Livepeer",
+      "symbol": "LPT",
+      "rank": 248,
+      "homepage": "https://livepeer.org",
+      "careerUrl": "https://livepeer.org/jobs",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "melania-meme",
+      "name": "Melania Meme",
+      "symbol": "MELANIA",
+      "rank": 252,
+      "homepage": "https://melaniameme.com",
+      "careerUrl": "https://melaniameme.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "chutes",
+      "name": "Chutes",
+      "symbol": "SN64",
+      "rank": 253,
+      "homepage": "https://chutes.ai",
+      "careerUrl": "https://chutes.ai/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "tradable-singapore-fintech-ssl-2",
+      "name": "Tradable Singapore Fintech SSL",
+      "symbol": "PC0000023",
+      "rank": 254,
+      "homepage": "https://www.tradable.xyz",
+      "careerUrl": "https://www.tradable.xyz/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "securitize-tokenized-aaa-clo-fund",
+      "name": "Securitize Tokenized AAA CLO Fund",
+      "symbol": "STAC",
+      "rank": 262,
+      "homepage": "https://www.bny.com/corporate/global/en/about-us/newsroom/company-news/securitize-launches-tokenized-aaa-clo-fund-with-services-provided-by-bny-bringing-institutional-structured-credit-on-chain.html",
+      "careerUrl": "https://www.bny.com/corporate/global/en/about-us/newsroom/company-news/securitize-launches-tokenized-aaa-clo-fund-with-services-provided-by-bny-bringing-institutional-structured-credit-on-chain.html/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "cheems-token",
+      "name": "Cheems Token",
+      "symbol": "CHEEMS",
+      "rank": 273,
+      "homepage": "https://www.cheems.pet",
+      "careerUrl": "https://www.cheems.pet/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "grx-chain",
+      "name": "GRX Chain",
+      "symbol": "GRX",
+      "rank": 274,
+      "homepage": "https://grxchain.io",
+      "careerUrl": "https://grxchain.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "ring-usd",
+      "name": "Ring USD",
+      "symbol": "USDR",
+      "rank": 278,
+      "homepage": "https://ring.exchange",
+      "careerUrl": "https://ring.exchange/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "yearn-finance",
+      "name": "yearn.finance",
+      "symbol": "YFI",
+      "rank": 283,
+      "homepage": "https://yearn.fi",
+      "careerUrl": "https://yearn.fi/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "pleasing-gold",
+      "name": "Pleasing Gold",
+      "symbol": "PGOLD",
+      "rank": 284,
+      "homepage": "https://www.pleasinggold.com",
+      "careerUrl": "https://www.pleasinggold.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "theta-fuel",
+      "name": "Theta Fuel",
+      "symbol": "TFUEL",
+      "rank": 285,
+      "homepage": "https://www.thetatoken.org",
+      "careerUrl": "https://www.thetatoken.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "unifai-network",
+      "name": "UnifAI Network",
+      "symbol": "UAI",
+      "rank": 286,
+      "homepage": "https://chat.unifai.network",
+      "careerUrl": "https://chat.unifai.network/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "kamino",
+      "name": "Kamino",
+      "symbol": "KMNO",
+      "rank": 290,
+      "homepage": "https://kamino.com",
+      "careerUrl": "https://kamino.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "lovebit",
+      "name": "LoveBit",
+      "symbol": "LB",
+      "rank": 294,
+      "homepage": "https://www.lovebit.org",
+      "careerUrl": "https://www.lovebit.org/join",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "xdai",
+      "name": "XDAI",
+      "symbol": "XDAI",
+      "rank": 297,
+      "homepage": "https://www.gnosischain.com",
+      "careerUrl": "https://www.gnosischain.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "impossible-cloud-network-token",
+      "name": "Impossible Cloud Network Token",
+      "symbol": "ICNT",
+      "rank": 298,
+      "homepage": "https://www.icn.global",
+      "careerUrl": "https://www.icn.global/careers",
+      "atsType": "lever",
+      "atsId": "impossiblecloud"
+    },
+    {
+      "id": "creditcoin-2",
+      "name": "Creditcoin",
+      "symbol": "CTC",
+      "rank": 301,
+      "homepage": "https://creditcoin.org",
+      "careerUrl": "https://creditcoin.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "unitas",
+      "name": "Unitas",
+      "symbol": "UP",
+      "rank": 303,
+      "homepage": "https://unitas.so",
+      "careerUrl": "https://unitas.so/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "usda-3",
+      "name": "USDA",
+      "symbol": "USDA",
+      "rank": 304,
+      "homepage": "https://alphapartner.vip",
+      "careerUrl": "https://alphapartner.vip/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "brz",
+      "name": "Brazilian Digital",
+      "symbol": "BRZ",
+      "rank": 305,
+      "homepage": "https://www.brztoken.io",
+      "careerUrl": "https://www.brztoken.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "centrifuge-2",
+      "name": "Centrifuge",
+      "symbol": "CFG",
+      "rank": 307,
+      "homepage": "https://centrifuge.io",
+      "careerUrl": "https://centrifuge.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "coredaoorg",
+      "name": "Core",
+      "symbol": "CORE",
+      "rank": 308,
+      "homepage": "https://coredao.org",
+      "careerUrl": "https://coredao.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "jusd",
+      "name": "JUSD",
+      "symbol": "JUSD",
+      "rank": 311,
+      "homepage": "https://jusd.app",
+      "careerUrl": "https://jusd.app/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "usdu",
+      "name": "USDu",
+      "symbol": "USDU",
+      "rank": 313,
+      "homepage": "https://unitas.so",
+      "careerUrl": "https://unitas.so/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "safe",
+      "name": "Safe",
+      "symbol": "SAFE",
+      "rank": 319,
+      "homepage": "https://safe.global",
+      "careerUrl": "https://safe.global/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "debridge",
+      "name": "deBridge",
+      "symbol": "DBR",
+      "rank": 324,
+      "homepage": "https://debridge.com",
+      "careerUrl": "https://debridge.com/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "holotoken",
+      "name": "Holo",
+      "symbol": "HOT",
+      "rank": 331,
+      "homepage": "https://holo.host",
+      "careerUrl": "https://holo.host/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "mina-protocol",
+      "name": "Mina Protocol",
+      "symbol": "MINA",
+      "rank": 333,
+      "homepage": "https://minaprotocol.com",
+      "careerUrl": "https://minaprotocol.com/jobs",
+      "atsType": "greenhouse",
+      "atsId": "o1labs"
+    },
+    {
+      "id": "cysic",
+      "name": "Cysic",
+      "symbol": "CYS",
+      "rank": 334,
+      "homepage": "https://cysic.xyz",
+      "careerUrl": "https://cysic.xyz/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "zora",
+      "name": "Zora",
+      "symbol": "ZORA",
+      "rank": 336,
+      "homepage": "https://zora.co",
+      "careerUrl": "https://zora.co/careers",
+      "atsType": "greenhouse",
+      "atsId": "zora"
+    },
+    {
+      "id": "templar",
+      "name": "τemplar",
+      "symbol": "SN3",
+      "rank": 337,
+      "homepage": "https://www.tplr.ai",
+      "careerUrl": "https://www.tplr.ai/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "railgun",
+      "name": "Railgun",
+      "symbol": "RAIL",
+      "rank": 341,
+      "homepage": "https://railgun.org",
+      "careerUrl": "https://railgun.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "dydx-chain",
+      "name": "dYdX",
+      "symbol": "DYDX",
+      "rank": 343,
+      "homepage": "https://dydx.trade",
+      "careerUrl": "https://dydx.trade/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "home",
+      "name": "HOME",
+      "symbol": "HOME",
+      "rank": 345,
+      "homepage": "https://defi.app",
+      "careerUrl": "https://defi.app/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "nexpace",
+      "name": "Nexpace",
+      "symbol": "NXPC",
+      "rank": 351,
+      "homepage": "https://msu.io",
+      "careerUrl": "https://msu.io/join",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "zetachain",
+      "name": "ZetaChain",
+      "symbol": "ZETA",
+      "rank": 357,
+      "homepage": "https://www.zetachain.com",
+      "careerUrl": "https://www.zetachain.com/careers",
+      "atsType": "greenhouse",
+      "atsId": "zetachain"
+    },
+    {
+      "id": "temple",
+      "name": "TempleDAO",
+      "symbol": "TEMPLE",
+      "rank": 358,
+      "homepage": "https://www.templedao.link/rituals",
+      "careerUrl": "https://www.templedao.link/rituals/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "gmx",
+      "name": "GMX",
+      "symbol": "GMX",
+      "rank": 362,
+      "homepage": "https://gmx.io",
+      "careerUrl": "https://gmx.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "agentfun-ai",
+      "name": "AgentFun.AI",
+      "symbol": "AGENTFUN",
+      "rank": 364,
+      "homepage": "https://agentfun.ai",
+      "careerUrl": "https://agentfun.ai/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "bc-token",
+      "name": "BCGame Coin",
+      "symbol": "BC",
+      "rank": 367,
+      "homepage": "https://bc.game",
+      "careerUrl": "https://bc.game/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "edu-coin",
+      "name": "Open Campus",
+      "symbol": "EDU",
+      "rank": 368,
+      "homepage": "https://www.opencampus.xyz",
+      "careerUrl": "https://www.opencampus.xyz/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "audiera",
+      "name": "Audiera",
+      "symbol": "BEAT",
+      "rank": 375,
+      "homepage": "https://audiera.fi",
+      "careerUrl": "https://audiera.fi/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "axelar",
+      "name": "Axelar",
+      "symbol": "AXL",
+      "rank": 383,
+      "homepage": "https://axelar.network",
+      "careerUrl": "https://axelar.network/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "sign-global",
+      "name": "Sign",
+      "symbol": "SIGN",
+      "rank": 385,
+      "homepage": "https://sign.global",
+      "careerUrl": "https://sign.global/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "vvs-finance",
+      "name": "VVS Finance",
+      "symbol": "VVS",
+      "rank": 386,
+      "homepage": "https://vvs.finance",
+      "careerUrl": "https://vvs.finance/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "kava",
+      "name": "Kava",
+      "symbol": "KAVA",
+      "rank": 387,
+      "homepage": "https://www.kava.io",
+      "careerUrl": "https://www.kava.io",
+      "atsType": "lever",
+      "atsId": "kavalabs"
+    },
+    {
+      "id": "gamer-tag",
+      "name": "The Game Company",
+      "symbol": "GMRT",
+      "rank": 388,
+      "homepage": "https://www.gmrtag.io",
+      "careerUrl": "https://www.gmrtag.io/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "soon-2",
+      "name": "SOON",
+      "symbol": "SOON",
+      "rank": 393,
+      "homepage": "https://soo.network",
+      "careerUrl": "https://soo.network/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "myx-finance",
+      "name": "MYX Finance",
+      "symbol": "MYX",
+      "rank": 394,
+      "homepage": "https://www.myx.finance/en",
+      "careerUrl": "https://www.myx.finance/en/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "vaneck-treasury-fund",
+      "name": "VanEck Treasury Fund",
+      "symbol": "VBILL",
+      "rank": 398,
+      "homepage": "https://securitize.io/primary-market/vaneck-vbill",
+      "careerUrl": "https://securitize.io/primary-market/vaneck-vbill/careers",
+      "atsType": "generic",
+      "atsId": null
+    },
+    {
+      "id": "aleo",
+      "name": "ALEO",
+      "symbol": "ALEO",
+      "rank": 400,
+      "homepage": "https://www.aleo.org",
+      "careerUrl": "https://www.aleo.org/careers",
+      "atsType": "generic",
+      "atsId": null
+    }
+  ]
+}

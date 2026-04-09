@@ -28,8 +28,16 @@ export default function RootLayout({
           window.addEventListener('error',function(e){if(isLSError(e)||isWalletError(e)){e.stopImmediatePropagation();e.preventDefault();return false}reportErr(e.message,e.error&&e.error.stack,'window.onerror')},true);
           window.addEventListener('unhandledrejection',function(e){if(isLSError(e)||isWalletError(e)){e.stopImmediatePropagation();e.preventDefault();return false}var r=e.reason;reportErr(r&&r.message||String(r),r&&r.stack,'unhandledrejection')},true);
           // Aggressively remove Next.js error overlay — it causes a red bar flash
-          (function(){var o=new MutationObserver(function(m){m.forEach(function(r){r.addedNodes.forEach(function(n){if(n.tagName&&n.tagName.toLowerCase()==='nextjs-portal'){n.remove()}})})});o.observe(document.documentElement,{childList:true,subtree:true})})();
-          setInterval(function(){document.querySelectorAll('nextjs-portal').forEach(function(el){el.remove()})},100);
+          (function(){
+            var sel='nextjs-portal,[data-nextjs-dialog-overlay],[data-nextjs-toast],[class*="nextjs-container-errors"],#__next-build-indicator';
+            function nuke(){document.querySelectorAll(sel).forEach(function(el){el.remove()});
+              // Also kill any body>iframe overlays Next.js injects
+              document.querySelectorAll('body>iframe').forEach(function(f){if(f.style&&(f.style.zIndex>9000||f.style.position==='fixed'))f.remove()});
+            }
+            var o=new MutationObserver(function(m){m.forEach(function(r){r.addedNodes.forEach(function(n){if(!n.tagName)return;var t=n.tagName.toLowerCase();if(t==='nextjs-portal'||t==='iframe'||(n.dataset&&(n.dataset.nextjsDialogOverlay!==undefined||n.dataset.nextjsToast!==undefined))){n.remove()}})});nuke()});
+            o.observe(document.documentElement,{childList:true,subtree:true});
+            setInterval(nuke,80);
+          })();
         ` }} />
       </head>
       <body

@@ -35,7 +35,15 @@
       "Bash(nvm use:*)",
       "Bash(/opt/homebrew/bin/node scan.mjs)",
       "Bash(export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\")",
-      "Bash(export PATH=\"/opt/homebrew/bin:$PATH\")"
+      "Bash(export PATH=\"/opt/homebrew/bin:$PATH\")",
+      "Read(//Users/jack/**)",
+      "Read(//usr/local/bin/**)",
+      "Bash(command -v nvm)",
+      "Bash(nvm ls:*)",
+      "Bash(brew list:*)",
+      "Bash(brew install:*)",
+      "Bash(pdftoppm -v)",
+      "Bash(pdftotext \"/Users/jack/Downloads/Tretidal_Internal_Deck.pdf\" -)"
     ]
   }
 }

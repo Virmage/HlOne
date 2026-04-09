@@ -67,12 +67,26 @@ body {
 
 /* Kill Next.js error overlay — prevents red bar flash on load */
 nextjs-portal,
-nextjs-portal * {
+nextjs-portal *,
+[data-nextjs-dialog-overlay],
+[data-nextjs-dialog-overlay] *,
+[data-nextjs-toast],
+[data-nextjs-toast] *,
+#__next-build-indicator,
+#__next-build-indicator *,
+[class*="nextjs-container-errors"],
+[class*="nextjs-container-errors"] *,
+[data-nextjs-scroll-focus-boundary] > [role="dialog"],
+body > iframe[style*="border"][style*="z-index"] {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
   height: 0 !important;
+  width: 0 !important;
   overflow: hidden !important;
+  position: absolute !important;
+  pointer-events: none !important;
+  max-height: 0 !important;
 }
 
 ::-webkit-scrollbar {

@@ -1,0 +1,65 @@
+{
+  "timestamp": "2026-04-08T23:08:17.143Z",
+  "ai": [
+    {
+      "title": "Director of Marketing",
+      "company": "Comet",
+      "location": "United States",
+      "link": "https://www.linkedin.com/jobs/view/director-of-marketing-at-comet-4398345868",
+      "source": "LinkedIn"
+    },
+    {
+      "title": "Marketing Director",
+      "company": "Flerish Hydration",
+      "location": "United States",
+      "link": "https://www.linkedin.com/jobs/view/marketing-director-at-flerish-hydration-4398267495",
+      "source": "LinkedIn"
+    }
+  ],
+  "crypto": [
+    {
+      "title": "Business Marketing Lead",
+      "company": "Monad Foundation",
+      "location": "Remote",
+      "link": "https://cryptocurrencyjobs.co/marketing/monad-foundation-business-marketing-lead/",
+      "source": "cryptocurrencyjobs.co"
+    }
+  ],
+  "advertising": [
+    {
+      "title": "Brand Director",
+      "company": "Billini",
+      "location": "Marrickville, New South Wales, Australia",
+      "link": "https://au.linkedin.com/jobs/view/brand-director-at-billini-4398217192",
+      "source": "LinkedIn"
+    },
+    {
+      "title": "Marketing Director",
+      "company": "Fulcrum",
+      "location": "Sydney, New South Wales, Australia",
+      "link": "https://au.linkedin.com/jobs/view/marketing-director-at-fulcrum-4394735686",
+      "source": "LinkedIn"
+    },
+    {
+      "title": "Group Creative Director",
+      "company": "Dentsu Creative ANZ",
+      "location": "Sydney, New South Wales, Australia",
+      "link": "https://au.linkedin.com/jobs/view/group-creative-director-at-dentsu-creative-anz-4396370375",
+      "source": "LinkedIn"
+    },
+    {
+      "title": "Brand Manager - Creative Strategy & Content",
+      "company": "Vinarchy",
+      "location": "Sydney, New South Wales, Australia",
+      "link": "https://au.linkedin.com/jobs/view/brand-manager-creative-strategy-content-at-vinarchy-4398207255",
+      "source": "LinkedIn"
+    },
+    {
+      "title": "Brand Manager Creative Strategy & Content",
+      "company": "Vinarchy",
+      "location": "Sydney, New South Wales, Australia",
+      "link": "https://au.linkedin.com/jobs/view/brand-manager-creative-strategy-content-at-vinarchy-4394781530",
+      "source": "LinkedIn"
+    }
+  ]
+}
