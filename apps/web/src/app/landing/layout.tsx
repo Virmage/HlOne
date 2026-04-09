@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "HLOne — Your Hyperliquid Homepage",
+  title: "HlOne — Your Hyperliquid Homepage",
   description: "One terminal for everything on Hyperliquid. Markets, positions, whale flow, copy trading, and signals — all in one place. Coming soon.",
 };
 

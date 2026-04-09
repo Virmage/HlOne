@@ -4,7 +4,7 @@ import { Header } from "@/components/layout/header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "HLOne — Hyperliquid Trading Terminal",
+  title: "HlOne — Hyperliquid Trading Terminal",
   description: "Smart money flow, whale alerts, and copy trading for Hyperliquid",
 };
 
