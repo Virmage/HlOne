@@ -13,6 +13,7 @@ import { getOptionsData, getAllOptionsData, type OptionsSnapshot } from "../serv
 import { getDeriveOptionsData, getAllDeriveOptionsData, getDeriveOptionsChain, getDeriveSupportedCoins } from "../services/derive-options.js";
 import { getSignals, getSignalsCached } from "../services/signals.js";
 import { getOICandlesForInterval, getExternalOICandles } from "../services/oi-tracker.js";
+import { cacheGet, cacheSet, isRedisConnected } from "../services/cache.js";
 import { getNewsFeedCached, getCoinNews, type NewsPost } from "../services/crypto-panic.js";
 import { getAllSocialMetricsCached, getSocialMetricsCached, type SocialMetrics } from "../services/lunar-crush.js";
 import { getLargeTradesCached } from "../services/trade-tape.js";
@@ -72,6 +73,28 @@ async function buildFundingLeaderboard() {
   return { topPositive, topNegative };
 }
 
+// ─── Pre-warm top coin token details (called by background jobs) ────────────
+// Fetches token detail for top coins so user requests always hit cache.
+const TOP_COINS_TO_PREWARM = ["BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE", "AVAX", "SUI", "LINK", "ADA"];
+let prewarmPort = 0;
+
+export function setPrewarmPort(port: number) { prewarmPort = port; }
+
+export async function prewarmTokenDetails(): Promise<void> {
+  if (!prewarmPort) return;
+  const interval = "1h"; // default chart interval
+  for (const coin of TOP_COINS_TO_PREWARM) {
+    try {
+      await fetch(`http://127.0.0.1:${prewarmPort}/api/market/token/${coin}?interval=${interval}`, {
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch {
+      // Non-critical — just warming cache
+    }
+  }
+  console.log(`[prewarm] Warmed token detail cache for ${TOP_COINS_TO_PREWARM.length} coins`);
+}
+
 // ─── Terminal response cache ────────────────────────────────────────────────
 // Cache the full /terminal response for 10s so N concurrent users = 1 computation.
 let terminalCache: { data: unknown; fetchedAt: number } | null = null;
@@ -108,12 +131,17 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
    * Returns everything the main dashboard needs in one call.
    */
   app.get("/terminal", async (req) => {
-    // Serve cached terminal response if fresh (10s TTL).
-    // This means 100 concurrent users = 1 computation, not 100.
+    // 1. Local memory cache (fastest)
     if (terminalCache && Date.now() - terminalCache.fetchedAt < TERMINAL_CACHE_TTL) {
       return terminalCache.data;
     }
-    // Deduplicate: if already computing, wait for that result
+    // 2. Redis cache (shared across instances)
+    const redisCached = await cacheGet<unknown>("terminal");
+    if (redisCached) {
+      terminalCache = { data: redisCached, fetchedAt: Date.now() };
+      return redisCached;
+    }
+    // 3. Deduplicate in-flight requests
     if (terminalInFlight) return terminalInFlight;
 
     terminalInFlight = (async () => {
@@ -312,6 +340,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       timestamp: Date.now(),
     };
     terminalCache = { data: result, fetchedAt: Date.now() };
+    cacheSet("terminal", result, TERMINAL_CACHE_TTL).catch(() => {});
     return result;
     })().finally(() => { terminalInFlight = null; });
 
@@ -331,12 +360,18 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       const interval = (req.query.interval as string) || "1h";
       const cacheKey = `${coin}_${interval}`;
 
-      // Return cached response if fresh
+      // 1. Local memory cache
       const cached = tokenDetailCache.get(cacheKey);
       if (cached && Date.now() - cached.fetchedAt < TOKEN_DETAIL_CACHE_TTL) {
         return cached.data;
       }
-      // Dedup in-flight requests for same coin+interval
+      // 2. Redis cache (shared across instances)
+      const redisCached = await cacheGet<unknown>(`token:${cacheKey}`);
+      if (redisCached) {
+        tokenDetailCache.set(cacheKey, { data: redisCached, fetchedAt: Date.now() });
+        return redisCached;
+      }
+      // 3. Dedup in-flight requests
       if (tokenDetailInFlight.has(cacheKey)) return tokenDetailInFlight.get(cacheKey);
 
       const flight = (async () => {
@@ -521,6 +556,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       tokenDetailInFlight.set(cacheKey, flight);
       const result = await flight.finally(() => tokenDetailInFlight.delete(cacheKey));
       tokenDetailCache.set(cacheKey, { data: result, fetchedAt: Date.now() });
+      cacheSet(`token:${cacheKey}`, result, TOKEN_DETAIL_CACHE_TTL).catch(() => {});
       // Evict stale entries (keep cache bounded)
       if (tokenDetailCache.size > 100) {
         const cutoff = Date.now() - TOKEN_DETAIL_CACHE_TTL * 3;
@@ -869,6 +905,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       uptime: tradeStats.uptimeHours + "h",
       tokens: overviewCount,
       coinalyzeKey: process.env.COINALYZE_API_KEY ? "set" : "NOT SET",
+      redis: isRedisConnected() ? "connected" : "not connected (using in-memory)",
       caches: cacheChecks,
       data: dataHealth,
       trades: {

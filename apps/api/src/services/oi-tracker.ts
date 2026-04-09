@@ -236,6 +236,14 @@ export function getOICandlesForInterval(coin: string, interval: string, count = 
 const externalOICache = new Map<string, { data: OICandle[]; fetchedAt: number }>();
 const EXTERNAL_OI_CACHE_TTL = 5 * 60_000; // 5 minutes
 
+// Coinalyze rate limiter — serialize requests to avoid hitting API limits
+let coinalyzeQueue: Promise<void> = Promise.resolve();
+function enqueueCoinalyze<T>(fn: () => Promise<T>): Promise<T> {
+  const task = coinalyzeQueue.then(() => fn(), () => fn());
+  coinalyzeQueue = task.then(() => new Promise(r => setTimeout(r, 200)), () => {}); // 200ms gap between calls
+  return task;
+}
+
 // Coinalyze interval format (HL-specific OI data)
 const COINALYZE_INTERVAL: Record<string, string> = {
   "5m": "5min", "15m": "15min", "1h": "1hour", "4h": "4hour", "12h": "12hour",
@@ -302,7 +310,7 @@ export async function getExternalOICandles(
     return cached.data;
   }
 
-  const candles = await getOICandlesFromCoinalyze(coin, interval, fromMs, toMs);
+  const candles = await enqueueCoinalyze(() => getOICandlesFromCoinalyze(coin, interval, fromMs, toMs));
   if (candles.length > 0) {
     externalOICache.set(cacheKey, { data: candles, fetchedAt: Date.now() });
   }

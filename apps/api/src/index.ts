@@ -13,10 +13,11 @@ import { traderRoutes } from "./routes/traders.js";
 import { portfolioRoutes } from "./routes/portfolio.js";
 import { copyRoutes } from "./routes/copy.js";
 import { userRoutes } from "./routes/users.js";
-import { marketRoutes } from "./routes/market.js";
+import { marketRoutes, setPrewarmPort } from "./routes/market.js";
 import { startBackgroundJobs } from "./services/background-jobs.js";
 import { initWhaleTrackerDb } from "./services/whale-tracker.js";
 import { initOITrackerDb } from "./services/oi-tracker.js";
+import { initRedis } from "./services/cache.js";
 
 const DATABASE_URL =
   process.env.DATABASE_URL || "postgresql://localhost:5432/hl_copy";
@@ -26,6 +27,9 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 async function main() {
   console.log(`[startup] Starting API server (PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || "development"})...`);
   console.log(`[startup] COINALYZE_API_KEY: ${process.env.COINALYZE_API_KEY ? "set (" + process.env.COINALYZE_API_KEY.slice(0, 8) + "...)" : "NOT SET"}`);
+
+  // ─── Redis (optional — enables multi-instance caching) ──────────────────────
+  initRedis();
 
   // ─── Auto-run DB migrations (non-blocking — don't delay server start) ───────
   runMigrations(DATABASE_URL)
@@ -96,6 +100,7 @@ async function main() {
   console.log(`[startup] API server running on port ${PORT}`);
 
   // Start background jobs after server is listening
+  setPrewarmPort(PORT);
   startBackgroundJobs();
 }
 

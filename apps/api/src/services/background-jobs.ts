@@ -19,6 +19,7 @@ import { startOrderFlowTracking, warmOrderFlowMids } from "./order-flow.js";
 import { warmLiquidationMids } from "./liquidation-heatmap.js";
 import { getCachedHip3Tokens } from "./market-data.js";
 import { getAllDeriveOptionsData } from "./derive-options.js";
+import { prewarmTokenDetails } from "../routes/market.js";
 
 let started = false;
 
@@ -81,6 +82,16 @@ export function startBackgroundJobs() {
         console.error("[bg] Smart money refresh failed:", (err as Error).message);
       }
     }, 5 * 60_000);
+
+    // Every 30s: pre-warm token detail cache for top coins
+    // Users always hit warm cache — zero cold requests for popular coins
+    setInterval(async () => {
+      try {
+        await prewarmTokenDetails();
+      } catch (err) {
+        console.error("[bg] Token pre-warm failed:", (err as Error).message);
+      }
+    }, 30_000);
 
     // Daily OI cleanup (remove snapshots older than 7 days)
     setInterval(async () => {
