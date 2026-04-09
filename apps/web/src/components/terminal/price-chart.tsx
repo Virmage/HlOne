@@ -72,10 +72,20 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
     prevIntervalRef.current = interval;
 
     if (coinChanged || !detail) {
-      // Coin change or first load: fetch full detail (candles + positions + funding etc.)
+      // Coin change or first load:
+      // 1. Fetch candles directly from HL (~200ms) for instant chart render
+      // 2. Fetch full detail in background for OI, funding, whale data etc.
       setLoading(true);
+      fetchCandlesDirect(coin, interval)
+        .then(candles => {
+          if (!cancelled && candles.length > 0) {
+            setDetail(prev => prev ? { ...prev, candles, coin } : { candles, coin } as unknown as TokenDetail);
+            setLoading(false);
+          }
+        })
+        .catch(() => {});
       getTokenDetail(coin, interval)
-        .then(d => { if (!cancelled) setDetail(d); })
+        .then(d => { if (!cancelled) { setDetail(d); setLoading(false); } })
         .catch(() => {})
         .finally(() => { if (!cancelled) setLoading(false); });
     } else if (intervalChanged) {
