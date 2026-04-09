@@ -315,3 +315,24 @@ export const oiSnapshots = pgTable(
     index("idx_oi_snapshots_coin_time").on(table.coin, table.snapshotAt),
   ]
 );
+
+// ─── Top Trader Fills (persisted chart markers, survives server restarts) ───
+
+export const topTraderFills = pgTable(
+  "top_trader_fills",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    coin: text("coin").notNull(),
+    side: text("side").notNull(), // "buy" or "sell"
+    price: numeric("price", { precision: 20, scale: 6 }).notNull(),
+    sizeUsd: numeric("size_usd", { precision: 20, scale: 2 }).notNull(),
+    trader: text("trader").notNull(), // display name
+    address: text("address").notNull(), // wallet address
+    accountValue: numeric("account_value", { precision: 20, scale: 2 }),
+    fillTime: timestamp("fill_time").notNull(),
+  },
+  (table) => [
+    index("idx_top_trader_fills_coin_time").on(table.coin, table.fillTime),
+    index("idx_top_trader_fills_time").on(table.fillTime),
+  ]
+);

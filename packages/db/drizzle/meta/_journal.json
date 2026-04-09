@@ -15,6 +15,13 @@
       "when": 1775525943958,
       "tag": "0001_graceful_lockheed",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775721071984,
+      "tag": "0002_regular_runaways",
+      "breakpoints": true
     }
   ]
 }

@@ -13,7 +13,7 @@ import { getNewsFeed } from "./crypto-panic.js";
 import { getBatchSocialMetrics } from "./lunar-crush.js";
 import { startTradeTapeTracking } from "./trade-tape.js";
 import { getMacroData } from "./macro-data.js";
-import { startTopTraderFillsTracking } from "./top-trader-fills.js";
+import { startTopTraderFillsTracking, loadFillsFromDb } from "./top-trader-fills.js";
 import { computeCorrelationMatrix } from "./correlation-matrix.js";
 import { startOrderFlowTracking, warmOrderFlowMids } from "./order-flow.js";
 import { warmLiquidationMids } from "./liquidation-heatmap.js";
@@ -108,10 +108,11 @@ export function startBackgroundJobs() {
     // Staggered initial warm-up (sequential with delays to avoid HL 429s)
     (async () => {
       try {
-        console.log("[bg] Initial warm-up: prices + asset contexts + OI...");
+        console.log("[bg] Initial warm-up: prices + asset contexts + OI + fills...");
         await getCachedMids();
         await getCachedAssetCtxs();
         await loadOIFromDb();
+        await loadFillsFromDb();
         await snapshotOI();
       } catch (err) {
         console.error("[bg] Price warm-up failed:", (err as Error).message);

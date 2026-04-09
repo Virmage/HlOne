@@ -17,6 +17,7 @@ import { marketRoutes, setPrewarmPort } from "./routes/market.js";
 import { startBackgroundJobs } from "./services/background-jobs.js";
 import { initWhaleTrackerDb } from "./services/whale-tracker.js";
 import { initOITrackerDb } from "./services/oi-tracker.js";
+import { initTopTraderFillsDb, loadFillsFromDb } from "./services/top-trader-fills.js";
 import { initRedis } from "./services/cache.js";
 
 const DATABASE_URL =
@@ -84,6 +85,7 @@ async function main() {
   // Initialize DB-backed services
   initWhaleTrackerDb(db);
   initOITrackerDb(db);
+  initTopTraderFillsDb(db);
 
   // Register routes
   await app.register(traderRoutes, { prefix: "/api/traders" });
