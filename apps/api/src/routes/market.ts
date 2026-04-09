@@ -462,6 +462,8 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         price: f.price,
         sizeUsd: f.sizeUsd,
         trader: f.trader,
+        address: f.address,
+        accountValue: f.accountValue,
       }));
 
       // Coin-specific news + social

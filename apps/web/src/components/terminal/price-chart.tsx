@@ -77,11 +77,19 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
         .catch(() => {})
         .finally(() => { if (!cancelled) setLoading(false); });
     } else if (intervalChanged) {
-      // Interval change only: fetch just candles directly from HL (fast!)
+      // Interval change: fetch candles fast from HL, and OI from backend in parallel
       fetchCandlesDirect(coin, interval)
         .then(candles => {
           if (!cancelled && candles.length > 0) {
             setDetail(prev => prev ? { ...prev, candles } : prev);
+          }
+        })
+        .catch(() => {});
+      // Also fetch full detail for OI candles (slightly slower but keeps OI in sync)
+      getTokenDetail(coin, interval)
+        .then(d => {
+          if (!cancelled && d?.oiCandles) {
+            setDetail(prev => prev ? { ...prev, oiCandles: d.oiCandles } : prev);
           }
         })
         .catch(() => {});
@@ -728,6 +736,8 @@ interface TopTraderFillData {
   price: number;
   sizeUsd: number;
   trader: string;
+  address?: string;
+  accountValue?: number;
 }
 
 function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], liquidationBands, drawings = [], pendingDrawing, drawingTool = "none", magnetMode = false, enabledSMAs = new Set(), smaColors = {}, onDrawingClick, onDrawingHover, onRemoveDrawing }: {
@@ -753,6 +763,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const [hover, setHover] = useState<number | null>(null);
   const [mouseY, setMouseY] = useState<number | null>(null); // raw SVG Y for free crosshair
   const [countdown, setCountdown] = useState(""); // candle close countdown
+  const [whalePopup, setWhalePopup] = useState<{ isBuy: boolean; price: number; name: string; size: number; address?: string; accountValue?: number; time: number; screenX: number; screenY: number } | null>(null);
   const [visibleCount, setVisibleCount] = useState(60);
   const [offset, setOffset] = useState(0); // 0 = latest candles visible at right edge
   const [priceZoom, setPriceZoom] = useState(1); // 1 = auto-fit, >1 = zoomed in
@@ -867,6 +878,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!svgRef.current) return;
+    setWhalePopup(null);
     const rect = svgRef.current.getBoundingClientRect();
     const svgX = ((e.clientX - rect.left) / rect.width) * containerSize.w;
 
@@ -1063,7 +1075,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const visibleStart = data[0].time;
   const visibleEnd = data[data.length - 1].time + candleDuration;
 
-  const whaleMarkers: { candleIdx: number; isBuy: boolean; price: number; name: string; size: number }[] = [];
+  const whaleMarkers: { candleIdx: number; isBuy: boolean; price: number; name: string; size: number; address?: string; accountValue?: number; time: number }[] = [];
   if (data.length >= 2) {
     // Use top trader fills (preferred) or whale alerts as fallback
     const fills = topTraderFills.filter(f => f.time >= visibleStart && f.time < visibleEnd);
@@ -1076,6 +1088,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             price: fill.price,
             name: fill.trader,
             size: fill.sizeUsd,
+            address: fill.address,
+            accountValue: fill.accountValue,
+            time: fill.time,
           });
           break;
         }
@@ -1112,6 +1127,66 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
           </span>
         )}
       </div>
+
+      {/* Whale trade popup */}
+      {whalePopup && (
+        <div className="fixed inset-0 z-50" onClick={() => setWhalePopup(null)}>
+          <div
+            className="absolute bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl p-3 w-[220px]"
+            style={{ left: Math.min(whalePopup.screenX - 110, window.innerWidth - 230), top: Math.max(whalePopup.screenY - 160, 8) }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className={`text-[11px] font-bold ${whalePopup.isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                {whalePopup.isBuy ? "BUY" : "SELL"}
+              </span>
+              <button onClick={() => setWhalePopup(null)} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-[14px] leading-none">&times;</button>
+            </div>
+            <div className="space-y-1.5 text-[11px]">
+              <div className="flex justify-between">
+                <span className="text-[var(--hl-muted)]">Trader</span>
+                <span className="text-[var(--foreground)] font-medium">{whalePopup.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--hl-muted)]">Size</span>
+                <span className="text-[var(--foreground)] font-medium tabular-nums">
+                  ${whalePopup.size >= 1_000_000 ? `${(whalePopup.size / 1e6).toFixed(2)}M` : `${(whalePopup.size / 1e3).toFixed(1)}K`}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[var(--hl-muted)]">Price</span>
+                <span className="text-[var(--foreground)] font-medium tabular-nums">${formatPrice(whalePopup.price)}</span>
+              </div>
+              {whalePopup.accountValue && (
+                <div className="flex justify-between">
+                  <span className="text-[var(--hl-muted)]">Account</span>
+                  <span className="text-[var(--foreground)] font-medium tabular-nums">
+                    ${whalePopup.accountValue >= 1_000_000 ? `${(whalePopup.accountValue / 1e6).toFixed(2)}M` : `${(whalePopup.accountValue / 1e3).toFixed(0)}K`}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-[var(--hl-muted)]">Time</span>
+                <span className="text-[var(--foreground)] tabular-nums text-[10px]">
+                  {new Date(whalePopup.time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </div>
+              {whalePopup.address && (
+                <div className="pt-1 border-t border-[var(--hl-border)]">
+                  <a
+                    href={`https://app.hyperliquid.xyz/explorer/address/${whalePopup.address}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-[var(--hl-accent)] hover:underline"
+                  >
+                    View on Explorer &rarr;
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden" style={{ cursor: drawingTool !== "none" ? "crosshair" : dragRef.current ? "grabbing" : yDragRef.current ? "ns-resize" : "crosshair" }}>
         <svg
@@ -1429,11 +1504,23 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
                 const isShark = m.size >= 5_000_000;
                 const emoji = isShark ? "\uD83E\uDD88" : "\uD83D\uDC33"; // 🦈 or 🐳
                 elements.push(
-                  <g key={`whale-${candleIdx}-${j}`}>
-                    <title>{`${m.name}: ${m.isBuy ? "BUY" : "SELL"} $${(m.size / 1e6).toFixed(1)}M @ ${formatPrice(m.price)}`}</title>
+                  <g key={`whale-${candleIdx}-${j}`} style={{ cursor: "pointer" }} onClick={(e) => {
+                    e.stopPropagation();
+                    const rect = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect();
+                    const svgScaleX = rect.width / W;
+                    const svgScaleY = rect.height / H;
+                    setWhalePopup({
+                      isBuy: m.isBuy, price: m.price, name: m.name, size: m.size,
+                      address: m.address, accountValue: m.accountValue, time: m.time,
+                      screenX: rect.left + x * svgScaleX,
+                      screenY: rect.top + y * svgScaleY,
+                    });
+                  }}>
                     {/* Buy/sell colored ring */}
                     <circle cx={x} cy={y} r={R + 2} fill="none" stroke={color} strokeWidth={1.5} opacity={0.9} />
                     <circle cx={x} cy={y} r={R + 3} fill="none" stroke={color} strokeWidth={0.5} opacity={0.3} />
+                    {/* Hit area */}
+                    <circle cx={x} cy={y} r={R + 6} fill="transparent" />
                     {/* Emoji */}
                     <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={isShark ? 10 : 9} style={{ pointerEvents: "none" }}>{emoji}</text>
                   </g>

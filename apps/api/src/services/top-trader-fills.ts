@@ -16,6 +16,7 @@ export interface TopTraderFill {
   sizeUsd: number;
   trader: string;
   address: string;
+  accountValue?: number;
 }
 
 // Cache: coin -> fills[]
@@ -84,6 +85,7 @@ async function refreshTopTraderFills(): Promise<void> {
             sizeUsd: px * sz,
             trader: displayName,
             address: trader.address,
+            accountValue: trader.accountValue,
           });
         }
       }
