@@ -675,6 +675,24 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
   const [optOrderType, setOptOrderType] = useState<"limit" | "market">("limit");
   const [limitPrice, setLimitPrice] = useState("");
   const [amount, setAmount] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [orderResult, setOrderResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [deriveSubaccount, setDeriveSubaccount] = useState<number | null>(null);
+  const [deriveChecked, setDeriveChecked] = useState(false);
+  const [postOnly, setPostOnly] = useState(true);
+  const [timeInForce, setTimeInForce] = useState<"gtc" | "ioc">("gtc");
+  const { address } = useSafeAccount();
+
+  // Check for Derive subaccount when wallet connects
+  useEffect(() => {
+    if (!isConnected || !address || deriveChecked) return;
+    setDeriveChecked(true);
+    import("@/lib/derive-exchange").then(derive => {
+      derive.getSubaccounts(address).then(subs => {
+        if (subs.length > 0) setDeriveSubaccount(subs[0].subaccountId);
+      });
+    }).catch(() => {});
+  }, [isConnected, address, deriveChecked]);
 
   // When a new option is selected from the chain, update the form
   useEffect(() => {
@@ -682,6 +700,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       setOptionSide(selectedOption.side);
       setLimitPrice(selectedOption.price > 0 ? selectedOption.price.toFixed(2) : "");
       setAmount("");
+      setOrderResult(null);
     }
   }, [selectedOption]);
 
@@ -803,37 +822,93 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
             </div>
           </div>
 
-          {/* Post Only + GTC */}
+          {/* Post Only + TIF */}
           <div className="flex items-center gap-4 mb-3 text-[10px]">
             <label className="flex items-center gap-1.5 text-[var(--hl-muted)] cursor-pointer">
-              <input type="checkbox" defaultChecked className="accent-purple-500 w-3 h-3" />
-              Post
+              <input type="checkbox" checked={postOnly} onChange={e => setPostOnly(e.target.checked)} className="accent-purple-500 w-3 h-3" />
+              Post Only
             </label>
-            <label className="flex items-center gap-1.5 text-[var(--hl-muted)] cursor-pointer">
-              <input type="checkbox" defaultChecked className="accent-purple-500 w-3 h-3" />
-              GTC
-            </label>
+            <select value={timeInForce} onChange={e => setTimeInForce(e.target.value as "gtc" | "ioc")} className="text-[10px] bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-1.5 py-0.5 text-[var(--foreground)] outline-none">
+              <option value="gtc">GTC</option>
+              <option value="ioc">IOC</option>
+            </select>
           </div>
 
-          {/* Connect wallet or Trade button */}
-          {isConnected ? (
-            <a
-              href={`https://derive.xyz/trade/options/${coin}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-2.5 rounded font-semibold text-[12px] text-center block transition-colors bg-[#0ea5e9] text-white hover:brightness-110"
+          {/* Execute button */}
+          {!isConnected ? (
+            <button
+              disabled
+              className="w-full py-2.5 rounded font-semibold text-[12px] bg-[var(--hl-surface)] text-[var(--hl-muted)] border border-[var(--hl-border)] cursor-not-allowed"
             >
-              {optionSide === "buy" ? `Buy ${typeLabel}` : `Sell ${typeLabel}`} on Derive
-            </a>
+              Connect Wallet
+            </button>
+          ) : deriveSubaccount === null ? (
+            <div className="space-y-2">
+              <a
+                href="https://derive.xyz/portfolio"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-2.5 rounded font-semibold text-[12px] text-center block transition-colors bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30"
+              >
+                Set Up Derive Account &rarr;
+              </a>
+              <p className="text-[9px] text-[var(--hl-muted)] text-center">Deposit USDC on Derive to start trading options</p>
+            </div>
           ) : (
-            <a
-              href={`https://derive.xyz/trade/options/${coin}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-2.5 rounded font-semibold text-[12px] bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 transition-colors text-center block"
+            <button
+              onClick={async () => {
+                if (!opt || !address || submitting || deriveSubaccount === null) return;
+                setSubmitting(true);
+                setOrderResult(null);
+                try {
+                  const [wagmiCore, derive, wagmiConfig] = await Promise.all([
+                    import("@wagmi/core"),
+                    import("@/lib/derive-exchange"),
+                    import("@/config/wagmi"),
+                  ]);
+                  const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+                  if (!walletClient) { setSubmitting(false); return; }
+
+                  const result = await derive.placeOrder(walletClient, address as `0x${string}`, {
+                    instrumentName: opt.instrument,
+                    direction: optionSide,
+                    amount: amount || "1",
+                    limitPrice: optOrderType === "market"
+                      ? (optionSide === "buy" ? (opt.askPrice * 1.05).toFixed(2) : (opt.bidPrice * 0.95).toFixed(2))
+                      : limitPrice,
+                    maxFee: "10",
+                    subaccountId: deriveSubaccount,
+                    timeInForce: postOnly ? "post_only" : timeInForce,
+                    orderType: optOrderType,
+                    label: "hlone",
+                  });
+
+                  setOrderResult({
+                    ok: result.success,
+                    msg: result.success ? `Order placed${result.orderId ? ` #${result.orderId}` : ""}` : (result.error || "Order failed"),
+                  });
+                } catch (err) {
+                  setOrderResult({ ok: false, msg: (err as Error).message || "Unknown error" });
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+              disabled={submitting || !limitPrice && optOrderType === "limit" || !amount}
+              className={`w-full py-2.5 rounded font-semibold text-[12px] transition-colors disabled:opacity-50 ${
+                optionSide === "buy"
+                  ? "bg-[var(--hl-green)] text-white hover:brightness-110"
+                  : "bg-[var(--hl-red)] text-white hover:brightness-110"
+              }`}
             >
-              Connect a Wallet
-            </a>
+              {submitting ? "Signing..." : `${optionSide === "buy" ? "Buy" : "Sell"} ${typeLabel}`}
+            </button>
+          )}
+
+          {/* Order result */}
+          {orderResult && (
+            <div className={`mt-2 text-[10px] text-center ${orderResult.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+              {orderResult.msg}
+            </div>
           )}
 
           {/* Order summary */}
