@@ -756,9 +756,10 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const [visibleCount, setVisibleCount] = useState(60);
   const [offset, setOffset] = useState(0); // 0 = latest candles visible at right edge
   const [priceZoom, setPriceZoom] = useState(1); // 1 = auto-fit, >1 = zoomed in
+  const [pricePanOffset, setPricePanOffset] = useState(0); // vertical pan in price units
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ startX: number; startOffset: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; startOffset: number; startPricePan: number } | null>(null);
   const yDragRef = useRef<{ startY: number; startZoom: number } | null>(null);
   const [containerSize, setContainerSize] = useState({ w: 900, h: 400 });
 
@@ -795,6 +796,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     // Start with negative offset to show padding to the right of the latest candle
     setOffset(-RIGHT_PAD_CANDLES);
     setPriceZoom(1);
+    setPricePanOffset(0);
   }, [candles.length > 0 ? candles[0].time : 0]);
 
   // Zoom with mouse wheel — use native event to properly preventDefault
@@ -842,10 +844,10 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     if (svgX > containerSize.w - 70) { // MR=70 — clicking on price axis
       yDragRef.current = { startY: e.clientY, startZoom: priceZoom };
     } else {
-      dragRef.current = { startX: e.clientX, startOffset: offset };
+      dragRef.current = { startX: e.clientX, startY: e.clientY, startOffset: offset, startPricePan: pricePanOffset };
     }
     e.preventDefault();
-  }, [offset, priceZoom, drawingTool, containerSize]);
+  }, [offset, priceZoom, pricePanOffset, drawingTool, containerSize]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!svgRef.current) return;
@@ -860,15 +862,22 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
       return;
     }
 
-    // X-axis drag for panning
+    // X+Y axis drag for panning
     if (!dragRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const pxPerCandle = rect.width / visibleCount;
     const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    // Horizontal pan
     const candleDelta = Math.round(dx / pxPerCandle);
-    const maxOff = Math.max(0, totalCandles - 2); // can scroll far back in time
-    const minOff = -visibleCount + 2; // can scroll far right past latest candle
+    const maxOff = Math.max(0, totalCandles - 2);
+    const minOff = -visibleCount + 2;
     setOffset(Math.max(minOff, Math.min(maxOff, dragRef.current.startOffset + candleDelta)));
+    // Vertical pan — convert pixel drag to price units (inverted: drag down = show higher prices above)
+    const pricePxRatio = rect.height * 0.65; // approximate price area height in px
+    const priceRange = 1; // normalized — actual price range applied in domain calc
+    const priceDelta = (dy / pricePxRatio) * priceRange;
+    setPricePanOffset(dragRef.current.startPricePan + priceDelta);
   }, [visibleCount, totalCandles]);
 
   const handleMouseUp = useCallback(() => {
@@ -911,14 +920,17 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     });
   }
 
-  // Price domain — apply Y-axis zoom around midpoint
+  // Price domain — apply Y-axis zoom and vertical pan
   const rawPriceMin = Math.min(...data.map(c => c.low));
   const rawPriceMax = Math.max(...data.map(c => c.high));
   const rawPad = (rawPriceMax - rawPriceMin) * 0.04 || 1;
+  const rawRange = rawPriceMax - rawPriceMin + rawPad * 2;
   const midPrice = (rawPriceMin + rawPriceMax) / 2;
   const halfRange = ((rawPriceMax - rawPriceMin) / 2 + rawPad) / priceZoom;
-  const domainMin = midPrice - halfRange;
-  const domainMax = midPrice + halfRange;
+  // Apply vertical pan: pricePanOffset is normalized (0-1 range maps to full price range)
+  const panAmount = pricePanOffset * rawRange;
+  const domainMin = midPrice - halfRange + panAmount;
+  const domainMax = midPrice + halfRange + panAmount;
 
   const maxVol = Math.max(...data.map(c => c.volume));
   // Hide volume section if >70% of visible candles have 0 volume (e.g. older monthly data)
@@ -1126,7 +1138,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
           }}
           onMouseUp={handleMouseUp}
           onMouseLeave={() => { setHover(null); setMouseY(null); handleMouseUp(); }}
-          onDoubleClick={() => { if (drawingTool === "none") setPriceZoom(1); }}
+          onDoubleClick={() => { if (drawingTool === "none") { setPriceZoom(1); setPricePanOffset(0); } }}
           style={{ display: "block" }}
         >
           {/* Grid lines */}
