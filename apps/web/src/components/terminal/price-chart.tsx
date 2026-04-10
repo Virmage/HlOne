@@ -168,6 +168,20 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
           }
         })
         .catch(e => { console.warn("[PriceChart] interval OI fetch failed:", e); });
+      // Refetch full detail in background for fills/whale events matching new timeframe
+      getTokenDetail(coin, interval)
+        .then(d => {
+          if (!cancelled) {
+            setDetail(prev => prev ? {
+              ...prev,
+              topTraderFills: d.topTraderFills,
+              whaleAlerts: d.whaleAlerts,
+              funding: d.funding,
+              fundingRegime: d.fundingRegime,
+            } : prev);
+          }
+        })
+        .catch(e => { console.warn("[PriceChart] interval detail fetch failed:", e); });
     }
 
     // Poll for live candle updates via backend (skip if tab hidden)

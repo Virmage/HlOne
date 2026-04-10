@@ -174,23 +174,32 @@ async function refreshTopTraderFills(): Promise<void> {
       }
     }
 
-    // Group by coin and store in cache
-    fillsCache.clear();
+    // Merge new fills with existing cache (preserves DB-loaded historical fills)
+    // Deduplicate by time+address+coin
     for (const fill of allFills) {
       const existing = fillsCache.get(fill.coin) || [];
       existing.push(fill);
       fillsCache.set(fill.coin, existing);
     }
 
-    // Sort by time, keep biggest fills when capping
+    // Deduplicate, sort by time, keep biggest fills when capping
     for (const [coin, fills] of fillsCache) {
-      if (fills.length > MAX_FILLS_PER_COIN) {
-        fills.sort((a, b) => b.sizeUsd - a.sizeUsd);
-        const kept = fills.slice(0, MAX_FILLS_PER_COIN);
+      // Deduplicate by time+address (same trader, same timestamp = same fill)
+      const seen = new Set<string>();
+      const unique = fills.filter(f => {
+        const key = `${f.time}:${f.address}:${f.price}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (unique.length > MAX_FILLS_PER_COIN) {
+        unique.sort((a, b) => b.sizeUsd - a.sizeUsd);
+        const kept = unique.slice(0, MAX_FILLS_PER_COIN);
         kept.sort((a, b) => a.time - b.time);
         fillsCache.set(coin, kept);
       } else {
-        fills.sort((a, b) => a.time - b.time);
+        unique.sort((a, b) => a.time - b.time);
+        fillsCache.set(coin, unique);
       }
     }
 
