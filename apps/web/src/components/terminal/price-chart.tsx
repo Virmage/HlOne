@@ -1297,9 +1297,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const whaleMarkers: { candleIdx: number; isBuy: boolean; price: number; name: string; size: number; address?: string; accountValue?: number; time: number }[] = [];
   if (data.length >= 2) {
     // Merge top trader fills + whale alerts into unified markers
-    // Top trader fills are preferred (more precise), whale alerts fill gaps
-    const fills = topTraderFills.filter(f => f.time >= visibleStart && f.time < visibleEnd);
-    const usedCandles = new Set<number>(); // track which candles already have a marker
+    // Allow multiple markers per candle (grouped & stacked in rendering)
+    const MIN_FILL_SIZE = 10_000; // Only show fills >= $10K
+    const fills = topTraderFills.filter(f => f.time >= visibleStart && f.time < visibleEnd && f.sizeUsd >= MIN_FILL_SIZE);
 
     for (const fill of fills) {
       for (let i = 0; i < data.length; i++) {
@@ -1314,30 +1314,26 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             accountValue: fill.accountValue,
             time: fill.time,
           });
-          usedCandles.add(i);
           break;
         }
       }
     }
 
-    // Supplement with whale alerts for candles that don't already have fills
+    // Also include whale alerts (may overlap with fills — rendering dedupes per candle)
     const alerts = whaleAlerts.filter(a => a.detectedAt >= visibleStart && a.detectedAt < visibleEnd);
     for (const alert of alerts) {
       for (let i = 0; i < data.length; i++) {
         if (alert.detectedAt >= data[i].time && alert.detectedAt < data[i].time + candleDuration) {
-          if (!usedCandles.has(i)) {
-            whaleMarkers.push({
-              candleIdx: i,
-              isBuy: alert.eventType === "opened_long" || alert.eventType === "increased_long" || alert.eventType === "closed_short",
-              price: alert.price,
-              name: alert.whaleName,
-              size: alert.positionValueUsd,
-              address: alert.whaleAddress,
-              accountValue: alert.accountValue,
-              time: alert.detectedAt,
-            });
-            usedCandles.add(i);
-          }
+          whaleMarkers.push({
+            candleIdx: i,
+            isBuy: alert.eventType === "opened_long" || alert.eventType === "increased_long" || alert.eventType === "closed_short",
+            price: alert.price,
+            name: alert.whaleName,
+            size: alert.positionValueUsd,
+            address: alert.whaleAddress,
+            accountValue: alert.accountValue,
+            time: alert.detectedAt,
+          });
           break;
         }
       }

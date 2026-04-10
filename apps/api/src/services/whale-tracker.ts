@@ -295,11 +295,13 @@ import { desc, eq, and, gte, gt } from "drizzle-orm";
 
 /** Min position value thresholds per interval — only show meaningful whale activity */
 const INTERVAL_THRESHOLDS: Record<string, number> = {
-  "5m": 50_000,      // $50K+
-  "15m": 100_000,    // $100K+
-  "1h": 200_000,     // $200K+
-  "4h": 500_000,     // $500K+
-  "1d": 1_000_000,   // $1M+
+  "5m": 25_000,      // $25K+
+  "15m": 50_000,     // $50K+
+  "1h": 100_000,     // $100K+
+  "4h": 250_000,     // $250K+
+  "1d": 500_000,     // $500K+
+  "1w": 1_000_000,   // $1M+
+  "1M": 2_000_000,   // $2M+
 };
 
 /** Max markers per candle to prevent visual clutter */
