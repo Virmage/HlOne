@@ -8,7 +8,7 @@ import { MarketPulse } from "@/components/terminal/market-pulse";
 import { PriceChart } from "@/components/terminal/price-chart";
 import { TradingPanel } from "@/components/terminal/trading-panel";
 import { OrderBook } from "@/components/terminal/order-book";
-import { MacroBar } from "@/components/terminal/macro-bar";
+// MacroBar merged into TickerBar
 import { PositionsPanel } from "@/components/terminal/positions-panel";
 import type { SelectedOption } from "@/components/terminal/inline-options-chain";
 import { useSafeAccount } from "@/hooks/use-safe-account";
@@ -182,6 +182,17 @@ function LoadingScreen() {
   );
 }
 
+type DataTab = "flow" | "whales" | "funding" | "news" | "social" | "more";
+
+const DATA_TABS: { key: DataTab; label: string }[] = [
+  { key: "flow", label: "Sharp Flow" },
+  { key: "whales", label: "Whales" },
+  { key: "funding", label: "Funding" },
+  { key: "news", label: "News" },
+  { key: "social", label: "Social" },
+  { key: "more", label: "More" },
+];
+
 export default function HomePage() {
   const { data, loading, error } = useTerminal();
   const { address: walletAddress } = useSafeAccount();
@@ -193,6 +204,7 @@ export default function HomePage() {
   const [tradingMode, setTradingMode] = useState<"perp" | "options">("perp");
   const [selectedOption, setSelectedOption] = useState<SelectedOption | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>("perps");
+  const [dataTab, setDataTab] = useState<DataTab>("flow");
 
   // Defer below-fold grid rendering until the main thread is idle
   const [showBelow, setShowBelow] = useState(false);
@@ -261,8 +273,7 @@ export default function HomePage() {
     <div className="-mx-2 sm:-mx-6 lg:-mx-8 -mt-2 sm:-mt-6 md:pb-0 pb-14">
       {/* ═══ DESKTOP: full layout (unchanged) ═══════════════════════════════ */}
       <div className="hidden md:block">
-        <MacroBar macro={data?.macro || []} onSelectToken={handleSelectToken} />
-        <TickerBar tokens={data?.tokens || []} options={data?.options} onSelectToken={handleSelectToken} />
+        <TickerBar tokens={data?.tokens || []} options={data?.options} macro={data?.macro || []} onSelectToken={handleSelectToken} />
         <MarketPulse regime={data?.regime || null} options={data?.options || {}} onSelectToken={handleSelectToken} onOpenOptions={handleOpenOptions} avgCorrelation={data?.correlationMatrix?.avgCorrelation ?? null} />
       </div>
 
@@ -354,35 +365,62 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ═══ DESKTOP: Below-fold data grid (unchanged) ═════════════════════ */}
+      {/* ═══ DESKTOP: Below-fold signals + tabbed data ═════════════════════ */}
       {showBelow && (
         <div className="hidden md:block">
           <SignalsPanel signals={data?.signals || []} fundingOpps={data?.fundingOpps || []} callout={data?.callout || null} onSelectToken={handleSelectToken} />
-          <div className="grid grid-cols-1 lg:grid-cols-2">
-            <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
+
+          {/* Tab bar */}
+          <div className="flex border-b border-[var(--hl-border)] bg-[var(--background)]">
+            {DATA_TABS.map(t => (
+              <button
+                key={t.key}
+                onClick={() => setDataTab(t.key)}
+                className={`px-4 py-2 text-[11px] font-medium transition-colors border-b-2 ${
+                  dataTab === t.key
+                    ? "text-[var(--hl-accent)] border-[var(--hl-accent)]"
+                    : "text-[var(--hl-muted)] border-transparent hover:text-[var(--foreground)]"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab content */}
+          <div className="p-3">
+            {dataTab === "flow" && (
               <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
-            </div>
-            <div className="p-3 border-b border-[var(--hl-border)]">
-              <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
-            </div>
-            <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
+            )}
+            {dataTab === "whales" && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]">
+                <div className="bg-[var(--background)] p-3">
+                  <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
+                </div>
+                <div className="bg-[var(--background)] p-3">
+                  <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
+                </div>
+              </div>
+            )}
+            {dataTab === "funding" && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]">
+                <div className="bg-[var(--background)] p-3">
+                  <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
+                </div>
+                <div className="bg-[var(--background)] p-3">
+                  <LendingRatesPanel />
+                </div>
+              </div>
+            )}
+            {dataTab === "news" && (
               <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
-            </div>
-            <div className="p-3 border-b border-[var(--hl-border)]">
+            )}
+            {dataTab === "social" && (
               <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
-            </div>
-            <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
-              <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
-            </div>
-            <div className="p-3 border-b border-[var(--hl-border)]">
-              <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
-            </div>
-            <div className="p-3 lg:border-r border-b border-[var(--hl-border)]">
-              <LendingRatesPanel />
-            </div>
-            <div className="p-3 border-b border-[var(--hl-border)]">
+            )}
+            {dataTab === "more" && (
               <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
-            </div>
+            )}
           </div>
         </div>
       )}

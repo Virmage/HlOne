@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import type { TradingSignal, FundingOpportunity, SharpSquareCallout } from "@/lib/api";
 
-/** Strip dex prefix from coin names (e.g. "xyz:GOLD" → "GOLD") */
+/** Strip dex prefix from coin names (e.g. "xyz:GOLD" -> "GOLD") */
 const displayCoin = (c: string) => c.includes(":") ? c.split(":")[1] : c;
 
 interface SignalsPanelProps {
@@ -12,16 +13,55 @@ interface SignalsPanelProps {
   onSelectToken: (coin: string) => void;
 }
 
+function StrengthBolt({ strength }: { strength: number }) {
+  const color = strength >= 70 ? "text-yellow-400 bg-yellow-500/15" : strength >= 40 ? "text-[var(--hl-accent)] bg-[var(--hl-accent)]/10" : "text-[var(--hl-muted)] bg-[var(--hl-surface)]";
+  return (
+    <span className={`text-[9px] px-1 py-0.5 rounded font-medium tabular-nums ${color}`}>
+      ⚡{strength}
+    </span>
+  );
+}
+
+function SharpSquareTooltip() {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-block">
+      <button onClick={() => setOpen(!open)} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] transition-colors text-[9px] ml-1" title="What is this?">ⓘ</button>
+      {open && (
+        <div className="absolute left-0 top-5 z-50 w-52 p-2 rounded border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[10px] text-[var(--hl-text)] shadow-lg leading-relaxed">
+          <p className="font-medium text-[var(--foreground)] mb-1">Sharps vs Squares</p>
+          <p><strong>Sharps</strong> = top traders by ROI &amp; consistency. <strong>Squares</strong> = retail/lower-performing traders.</p>
+          <p className="mt-1">⚡ = conviction strength (0-100). Higher = more traders agree on direction.</p>
+          <p className="mt-1 text-[var(--hl-muted)]">When sharps and squares disagree, sharps tend to be right.</p>
+          <button onClick={() => setOpen(false)} className="absolute top-1 right-1.5 text-[var(--hl-muted)] hover:text-[var(--foreground)]">&times;</button>
+        </div>
+      )}
+    </span>
+  );
+}
+
 export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: SignalsPanelProps) {
   const hasContent = signals.length > 0 || fundingOpps.length > 0 || callout;
   if (!hasContent) return null;
 
-  const calloutItems = callout ? [
-    callout.sharpTopLong && { label: "Sharps", side: "LONG" as const, ...callout.sharpTopLong },
-    callout.sharpTopShort && { label: "Sharps", side: "SHORT" as const, ...callout.sharpTopShort },
-    callout.squareTopLong && { label: "Squares", side: "LONG" as const, ...callout.squareTopLong },
-    callout.squareTopShort && { label: "Squares", side: "SHORT" as const, ...callout.squareTopShort },
-  ].filter(Boolean) as { label: string; side: "LONG" | "SHORT"; coin: string; count: number; pct: number }[] : [];
+  // Build sharps vs squares items from new array fields (fall back to old single fields)
+  const sharpItems: { label: "Sharps" | "Squares"; side: "LONG" | "SHORT"; coin: string; strength: number }[] = [];
+  if (callout) {
+    for (const item of callout.sharpLongs || []) sharpItems.push({ label: "Sharps", side: "LONG", coin: item.coin, strength: item.strength });
+    for (const item of callout.sharpShorts || []) sharpItems.push({ label: "Sharps", side: "SHORT", coin: item.coin, strength: item.strength });
+    for (const item of callout.squareLongs || []) sharpItems.push({ label: "Squares", side: "LONG", coin: item.coin, strength: item.strength });
+    for (const item of callout.squareShorts || []) sharpItems.push({ label: "Squares", side: "SHORT", coin: item.coin, strength: item.strength });
+
+    // Fallback to old fields if new arrays are empty
+    if (sharpItems.length === 0) {
+      if (callout.sharpTopLong) sharpItems.push({ label: "Sharps", side: "LONG", coin: callout.sharpTopLong.coin, strength: callout.sharpTopLong.pct });
+      if (callout.sharpTopShort) sharpItems.push({ label: "Sharps", side: "SHORT", coin: callout.sharpTopShort.coin, strength: callout.sharpTopShort.pct });
+      if (callout.squareTopLong) sharpItems.push({ label: "Squares", side: "LONG", coin: callout.squareTopLong.coin, strength: callout.squareTopLong.pct });
+      if (callout.squareTopShort) sharpItems.push({ label: "Squares", side: "SHORT", coin: callout.squareTopShort.coin, strength: callout.squareTopShort.pct });
+    }
+  }
+  // Sort by strength descending
+  sharpItems.sort((a, b) => b.strength - a.strength);
 
   return (
     <div className="border-b border-[var(--hl-border)]">
@@ -30,12 +70,13 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
         <div className="bg-[var(--background)] p-2">
           <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">
             Sharps vs Squares
+            <SharpSquareTooltip />
           </h3>
           <div className="space-y-0.5">
-            {calloutItems.length === 0 ? (
+            {sharpItems.length === 0 ? (
               <p className="text-[11px] text-[var(--hl-muted)] px-1">Loading...</p>
             ) : (
-              calloutItems.map((item, i) => (
+              sharpItems.map((item, i) => (
                 <button
                   key={i}
                   onClick={() => onSelectToken(item.coin)}
@@ -46,7 +87,7 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
                     {item.side === "LONG" ? "L" : "S"}
                   </span>
                   <span className="font-medium text-[var(--foreground)]">{displayCoin(item.coin)}</span>
-                  <span className="text-[var(--hl-muted)] tabular-nums ml-auto">{item.pct}%</span>
+                  <span className="ml-auto"><StrengthBolt strength={item.strength} /></span>
                 </button>
               ))
             )}

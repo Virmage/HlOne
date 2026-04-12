@@ -440,6 +440,10 @@ export interface SharpSquareCallout {
   sharpTopShort: { coin: string; count: number; pct: number } | null;
   squareTopLong: { coin: string; count: number; pct: number } | null;
   squareTopShort: { coin: string; count: number; pct: number } | null;
+  sharpLongs: { coin: string; count: number; strength: number }[];
+  sharpShorts: { coin: string; count: number; strength: number }[];
+  squareLongs: { coin: string; count: number; strength: number }[];
+  squareShorts: { coin: string; count: number; strength: number }[];
 }
 
 export interface FundingLeaderboard {

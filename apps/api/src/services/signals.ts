@@ -58,6 +58,10 @@ export interface SharpSquareCallout {
   sharpTopShort: { coin: string; count: number; pct: number } | null;
   squareTopLong: { coin: string; count: number; pct: number } | null;
   squareTopShort: { coin: string; count: number; pct: number } | null;
+  sharpLongs: { coin: string; count: number; strength: number }[];
+  sharpShorts: { coin: string; count: number; strength: number }[];
+  squareLongs: { coin: string; count: number; strength: number }[];
+  squareShorts: { coin: string; count: number; strength: number }[];
 }
 
 // ─── Cache ───────────────────────────────────────────────────────────────────
@@ -389,7 +393,10 @@ function computeFundingRegimeSignals(overviews: TokenOverview[]): Signal[] {
 function computeSharpSquareCallout(): SharpSquareCallout {
   const smartMoney = getSmartMoneyCached();
   if (!smartMoney) {
-    return { sharpTopLong: null, sharpTopShort: null, squareTopLong: null, squareTopShort: null };
+    return {
+      sharpTopLong: null, sharpTopShort: null, squareTopLong: null, squareTopShort: null,
+      sharpLongs: [], sharpShorts: [], squareLongs: [], squareShorts: [],
+    };
   }
 
   let sharpTopLong: SharpSquareCallout["sharpTopLong"] = null;
@@ -397,38 +404,66 @@ function computeSharpSquareCallout(): SharpSquareCallout {
   let squareTopLong: SharpSquareCallout["squareTopLong"] = null;
   let squareTopShort: SharpSquareCallout["squareTopShort"] = null;
 
+  const sharpLongs: { coin: string; count: number; strength: number }[] = [];
+  const sharpShorts: { coin: string; count: number; strength: number }[] = [];
+  const squareLongs: { coin: string; count: number; strength: number }[] = [];
+  const squareShorts: { coin: string; count: number; strength: number }[] = [];
+
   for (const f of smartMoney.flow) {
     const sharpTotal = f.sharpLongCount + f.sharpShortCount;
     const squareTotal = f.squareLongCount + f.squareShortCount;
-    if (sharpTotal < 5) continue;
+    if (sharpTotal < 3) continue;
 
     const sharpLongPct = (f.sharpLongCount / sharpTotal) * 100;
     const sharpShortPct = (f.sharpShortCount / sharpTotal) * 100;
 
-    // Find strongest sharp long conviction
-    if (sharpLongPct > 65 && (!sharpTopLong || f.sharpLongCount > sharpTopLong.count)) {
-      sharpTopLong = { coin: f.coin, count: f.sharpLongCount, pct: Math.round(sharpLongPct) };
+    // Collect sharp longs with conviction > 55%
+    if (sharpLongPct > 55) {
+      sharpLongs.push({ coin: f.coin, count: f.sharpLongCount, strength: f.sharpStrength });
+      // Backwards compat: keep top 1 by count
+      if (!sharpTopLong || f.sharpLongCount > sharpTopLong.count) {
+        sharpTopLong = { coin: f.coin, count: f.sharpLongCount, pct: Math.round(sharpLongPct) };
+      }
     }
 
-    // Find strongest sharp short conviction
-    if (sharpShortPct > 65 && (!sharpTopShort || f.sharpShortCount > sharpTopShort.count)) {
-      sharpTopShort = { coin: f.coin, count: f.sharpShortCount, pct: Math.round(sharpShortPct) };
+    // Collect sharp shorts with conviction > 55%
+    if (sharpShortPct > 55) {
+      sharpShorts.push({ coin: f.coin, count: f.sharpShortCount, strength: f.sharpStrength });
+      if (!sharpTopShort || f.sharpShortCount > sharpTopShort.count) {
+        sharpTopShort = { coin: f.coin, count: f.sharpShortCount, pct: Math.round(sharpShortPct) };
+      }
     }
 
-    if (squareTotal >= 5) {
+    if (squareTotal >= 3) {
       const squareLongPct = (f.squareLongCount / squareTotal) * 100;
       const squareShortPct = (f.squareShortCount / squareTotal) * 100;
 
-      if (squareLongPct > 60 && (!squareTopLong || f.squareLongCount > squareTopLong.count)) {
-        squareTopLong = { coin: f.coin, count: f.squareLongCount, pct: Math.round(squareLongPct) };
+      if (squareLongPct > 55) {
+        squareLongs.push({ coin: f.coin, count: f.squareLongCount, strength: f.squareStrength });
+        if (!squareTopLong || f.squareLongCount > squareTopLong.count) {
+          squareTopLong = { coin: f.coin, count: f.squareLongCount, pct: Math.round(squareLongPct) };
+        }
       }
-      if (squareShortPct > 60 && (!squareTopShort || f.squareShortCount > squareTopShort.count)) {
-        squareTopShort = { coin: f.coin, count: f.squareShortCount, pct: Math.round(squareShortPct) };
+      if (squareShortPct > 55) {
+        squareShorts.push({ coin: f.coin, count: f.squareShortCount, strength: f.squareStrength });
+        if (!squareTopShort || f.squareShortCount > squareTopShort.count) {
+          squareTopShort = { coin: f.coin, count: f.squareShortCount, pct: Math.round(squareShortPct) };
+        }
       }
     }
   }
 
-  return { sharpTopLong, sharpTopShort, squareTopLong, squareTopShort };
+  // Sort each array by strength descending, limit to top 5
+  const top5 = <T extends { strength: number }>(arr: T[]) =>
+    arr.sort((a, b) => b.strength - a.strength).slice(0, 5);
+
+  return {
+    sharpTopLong, sharpTopShort, squareTopLong, squareTopShort,
+    sharpLongs: top5(sharpLongs),
+    sharpShorts: top5(sharpShorts),
+    squareLongs: top5(squareLongs),
+    squareShorts: top5(squareShorts),
+  };
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────

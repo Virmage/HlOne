@@ -1491,7 +1491,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
           }}
           onMouseUp={handleMouseUp}
           onMouseLeave={() => { setHover(null); setMouseY(null); }}
-          onDoubleClick={() => { if (drawingTool === "none") { setPriceZoom(1); setPricePanOffset(0); } }}
+          onDoubleClick={() => { if (drawingTool === "none") { setVisibleCount(60); setOffset(0); setPriceZoom(1); setPricePanOffset(0); } }}
           style={{ display: "block" }}
         >
           {/* Grid lines */}
