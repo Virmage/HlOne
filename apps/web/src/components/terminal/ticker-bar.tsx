@@ -29,7 +29,7 @@ function formatMacroPrice(a: MacroAsset): string {
 }
 
 export function TickerBar({ tokens, options = {}, macro = [], onSelectToken }: TickerBarProps) {
-  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(100, true);
+  const { trackRef, onMouseEnter, onMouseLeave } = useTickerAnimation(180, true);
 
   // Build macro items
   const macroItems: TickerItem[] = macro.map(a => {

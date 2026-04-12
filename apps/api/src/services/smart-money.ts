@@ -426,20 +426,34 @@ async function doSmartMoneyRefresh(): Promise<SmartMoneyCache> {
     const squareDir: "long" | "short" | "neutral" = squareLongPct > 0.55 ? "long" : squareLongPct < 0.45 ? "short" : "neutral";
 
     // Compute weighted strength (0-100)
-    // Strength = (weighted score of winning side - weighted score of losing side) / total, normalized
+    // Blend of: directional agreement (40%), trader count depth (30%), position value (30%)
+    // This avoids the "always 100" problem when all traders agree on direction
     const sharpWeightedLong = sf?.weightedLong || 0;
     const sharpWeightedShort = sf?.weightedShort || 0;
     const sharpWeightTotal = sharpWeightedLong + sharpWeightedShort;
-    const sharpStrength = sharpWeightTotal > 0
-      ? Math.round(Math.abs(sharpWeightedLong - sharpWeightedShort) / sharpWeightTotal * 100)
+    const sharpDirScore = sharpWeightTotal > 0
+      ? Math.abs(sharpWeightedLong - sharpWeightedShort) / sharpWeightTotal
       : 0;
+    // Count depth: more traders = stronger signal, diminishing returns via sqrt
+    // 1 trader = 0.33, 3 = 0.58, 5 = 0.75, 10 = 1.0 (capped)
+    const sharpCountScore = Math.min(1, Math.sqrt(sharpTotal) / Math.sqrt(10));
+    // Position value depth: net size relative to typical (log scale)
+    const sharpSizeScore = Math.min(1, Math.log10(Math.abs(sf?.netSize || 0) + 1) / 7); // $10M = 1.0
+    const sharpStrength = Math.round(
+      (sharpDirScore * 0.4 + sharpCountScore * 0.3 + sharpSizeScore * 0.3) * 100
+    );
 
     const squareWeightedLong = sq?.weightedLong || 0;
     const squareWeightedShort = sq?.weightedShort || 0;
     const squareWeightTotal = squareWeightedLong + squareWeightedShort;
-    const squareStrength = squareWeightTotal > 0
-      ? Math.round(Math.abs(squareWeightedLong - squareWeightedShort) / squareWeightTotal * 100)
+    const squareDirScore = squareWeightTotal > 0
+      ? Math.abs(squareWeightedLong - squareWeightedShort) / squareWeightTotal
       : 0;
+    const squareCountScore = Math.min(1, Math.sqrt(squareTotal) / Math.sqrt(15)); // squares need more traders
+    const squareSizeScore = Math.min(1, Math.log10(Math.abs(sq?.netSize || 0) + 1) / 7);
+    const squareStrength = Math.round(
+      (squareDirScore * 0.4 + squareCountScore * 0.3 + squareSizeScore * 0.3) * 100
+    );
 
     let consensus: SharpSquareFlow["consensus"] = "neutral";
     if (sharpLongPct > 0.75) consensus = "strong_long";

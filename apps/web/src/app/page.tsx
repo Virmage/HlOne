@@ -182,14 +182,14 @@ function LoadingScreen() {
   );
 }
 
-type DataTab = "flow" | "whales" | "funding" | "news" | "social" | "more";
+type DataTab = "flow" | "whales" | "signals" | "funding" | "newssocial" | "more";
 
 const DATA_TABS: { key: DataTab; label: string }[] = [
   { key: "flow", label: "Sharp Flow" },
   { key: "whales", label: "Whales" },
+  { key: "signals", label: "Signals" },
   { key: "funding", label: "Funding" },
-  { key: "news", label: "News" },
-  { key: "social", label: "Social" },
+  { key: "newssocial", label: "News & Social" },
   { key: "more", label: "More" },
 ];
 
@@ -365,11 +365,9 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ═══ DESKTOP: Below-fold signals + tabbed data ═════════════════════ */}
+      {/* ═══ DESKTOP: Below-fold tabbed data ═════════════════════════════ */}
       {showBelow && (
         <div className="hidden md:block">
-          <SignalsPanel signals={data?.signals || []} fundingOpps={data?.fundingOpps || []} callout={data?.callout || null} onSelectToken={handleSelectToken} />
-
           {/* Tab bar */}
           <div className="flex border-b border-[var(--hl-border)] bg-[var(--background)]">
             {DATA_TABS.map(t => (
@@ -402,6 +400,9 @@ export default function HomePage() {
                 </div>
               </div>
             )}
+            {dataTab === "signals" && (
+              <SignalsPanel signals={data?.signals || []} fundingOpps={data?.fundingOpps || []} callout={data?.callout || null} onSelectToken={handleSelectToken} />
+            )}
             {dataTab === "funding" && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]">
                 <div className="bg-[var(--background)] p-3">
@@ -412,11 +413,15 @@ export default function HomePage() {
                 </div>
               </div>
             )}
-            {dataTab === "news" && (
-              <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
-            )}
-            {dataTab === "social" && (
-              <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
+            {dataTab === "newssocial" && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]">
+                <div className="bg-[var(--background)] p-3">
+                  <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
+                </div>
+                <div className="bg-[var(--background)] p-3">
+                  <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
+                </div>
+              </div>
             )}
             {dataTab === "more" && (
               <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />

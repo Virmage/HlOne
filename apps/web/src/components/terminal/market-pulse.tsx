@@ -118,14 +118,17 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
               )}
             </div>
 
-            {/* Market Correlation */}
+            {/* Market Correlation — how correlated top coins are (1.0 = all moving together, 0 = independent) */}
             {avgCorrelation !== null && avgCorrelation !== undefined && (
-              <div className={badgeBase}>
-                <span className="text-[var(--hl-muted)]">Corr.</span>
+              <div className={badgeBase} title="Market correlation: how similarly top coins are moving. High = herd mode, Low = diversified/rotation.">
+                <span className="text-[var(--hl-muted)]">Mkt Corr</span>
                 <span className={`font-bold tabular-nums ${
                   avgCorrelation > 0.6 ? "text-[var(--hl-red)]" : avgCorrelation > 0.3 ? "text-orange-400" : "text-[var(--hl-green)]"
                 }`}>
                   {avgCorrelation.toFixed(2)}
+                </span>
+                <span className="text-[var(--hl-muted)] text-[9px]">
+                  {avgCorrelation > 0.6 ? "herd" : avgCorrelation > 0.3 ? "mixed" : "diverse"}
                 </span>
               </div>
             )}

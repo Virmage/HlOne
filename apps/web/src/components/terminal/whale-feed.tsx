@@ -45,7 +45,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
     );
   }
 
-  const visibleAlerts = expanded ? alerts : alerts.slice(0, 6);
+  const visibleAlerts = expanded ? alerts : alerts.slice(0, 15);
 
   return (
     <div>

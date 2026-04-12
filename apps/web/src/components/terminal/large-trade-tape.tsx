@@ -57,7 +57,7 @@ export function LargeTradeTape({ trades, onSelectToken }: LargeTradeTapeProps) {
     );
   }
 
-  const visibleTrades = trades.slice(0, 8);
+  const visibleTrades = trades.slice(0, 15);
 
   return (
     <div>
