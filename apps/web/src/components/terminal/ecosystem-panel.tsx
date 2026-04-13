@@ -39,7 +39,7 @@ export function EcosystemPanel({ data }: EcosystemPanelProps) {
     );
   }
 
-  const { platform, vaults, staking, spotTokenCount, perpAssetCount } = data;
+  const { platform, vaults, topFundingRates } = data;
 
   return (
     <div>
@@ -51,36 +51,38 @@ export function EcosystemPanel({ data }: EcosystemPanelProps) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-[var(--hl-border)] mb-3">
         <StatCard label="Total OI" value={formatUsd(platform.totalOI)} />
         <StatCard label="24h Volume" value={formatUsd(platform.volume24h)} />
-        <StatCard label="Perp Assets" value={String(perpAssetCount)} sub={`${spotTokenCount} spot tokens`} />
-        <StatCard label="Leaderboard Traders" value={formatNum(platform.totalUsers)} />
+        <StatCard
+          label="Assets"
+          value={String(platform.perpAssetCount) + " perps"}
+          sub={`${platform.spotTokenCount} spot · ${platform.hip3AssetCount} HIP-3`}
+        />
+        <StatCard label="Leaderboard" value={formatNum(platform.totalUsers) + " traders"} />
       </div>
 
-      {/* Staking */}
-      {staking && (
+      {/* Top Funding Rates */}
+      {topFundingRates.length > 0 && (
         <div className="mb-3">
           <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">
-            HYPE Staking
+            Top Funding Rates
           </h3>
-          <div className="grid grid-cols-2 gap-px bg-[var(--hl-border)] mb-2">
-            <StatCard label="Total Staked" value={formatNum(staking.totalStaked) + " HYPE"} />
-            <StatCard label="Active Validators" value={String(staking.validatorCount)} />
-          </div>
-          {staking.topValidators.length > 0 && (
-            <div className="overflow-hidden">
-              <div className="flex items-center px-2 py-1 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
-                <span className="flex-1">Validator</span>
-                <span className="w-20 text-right">Stake</span>
-                <span className="w-16 text-right">Commission</span>
-              </div>
-              {staking.topValidators.slice(0, 5).map((v, i) => (
-                <div key={i} className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)]">
-                  <span className="flex-1 text-[var(--foreground)] truncate">{v.name}</span>
-                  <span className="w-20 text-right tabular-nums text-[var(--foreground)]">{formatNum(v.stake)}</span>
-                  <span className="w-16 text-right tabular-nums text-[var(--hl-muted)]">{(v.commission * 100).toFixed(1)}%</span>
-                </div>
-              ))}
+          <div className="overflow-hidden">
+            <div className="flex items-center px-2 py-1 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
+              <span className="flex-1">Coin</span>
+              <span className="w-20 text-right">Rate (8h)</span>
+              <span className="w-20 text-right">Annualized</span>
             </div>
-          )}
+            {topFundingRates.map((f, i) => (
+              <div key={i} className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)]">
+                <span className="flex-1 font-medium text-[var(--foreground)]">{f.coin}</span>
+                <span className={`w-20 text-right tabular-nums ${f.rate > 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                  {f.rate > 0 ? "+" : ""}{(f.rate * 100).toFixed(4)}%
+                </span>
+                <span className={`w-20 text-right tabular-nums font-medium ${f.annualized > 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                  {f.annualized > 0 ? "+" : ""}{f.annualized.toFixed(1)}%
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

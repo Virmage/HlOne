@@ -21,7 +21,13 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
     );
   }
 
-  const visibleFlows = expanded ? flows : flows.slice(0, 8);
+  // Sort divergences to top, then by score
+  const sorted = [...flows].sort((a, b) => {
+    if (a.divergence && !b.divergence) return -1;
+    if (!a.divergence && b.divergence) return 1;
+    return (b.score ?? 0) - (a.score ?? 0);
+  });
+  const visibleFlows = expanded ? sorted : sorted.slice(0, 12);
 
   const renderTable = (items: SharpFlow[], inModal = false) => (
     <table className="w-full text-[11px] min-w-[420px]">
@@ -47,7 +53,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
             ? `Divergence: ${f.divergenceScore}/100 — Sharps ${f.sharpDirection.toUpperCase()} (${f.sharpStrength}%) vs Squares ${f.squareDirection.toUpperCase()} (${f.squareStrength}%).`
             : "";
           return (
-            <tr key={f.coin} className="border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors" onClick={() => onSelectToken(f.coin)}>
+            <tr key={f.coin} className={`border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors ${f.divergence ? "bg-yellow-500/5" : ""}`} onClick={() => onSelectToken(f.coin)}>
               <td className="py-1.5 px-2">
                 <div className="flex items-center gap-1.5">
                   <span className="font-medium text-[var(--foreground)]">{f.coin.includes(":") ? f.coin.split(":")[1] : f.coin}</span>
@@ -68,7 +74,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
 
   return (
     <div>
-    <div className="max-h-[320px] flex flex-col cursor-pointer" onClick={() => setExpanded(true)}>
+    <div className="flex flex-col cursor-pointer" onClick={() => setExpanded(true)}>
       <div className="mb-2 px-1 shrink-0">
         <div className="flex items-center gap-2">
           <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider">
@@ -93,8 +99,8 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
       <div className="overflow-hidden flex-1">
         {renderTable(visibleFlows)}
       </div>
-      {!expanded && flows.length > 8 && (
-        <div className="text-[10px] text-[var(--hl-muted)] text-center py-1 shrink-0">Click to see all {flows.length} tokens</div>
+      {!expanded && sorted.length > 12 && (
+        <div className="text-[10px] text-[var(--hl-muted)] text-center py-1 shrink-0">Click to see all {sorted.length} tokens</div>
       )}
     </div>
     {/* Expanded modal */}

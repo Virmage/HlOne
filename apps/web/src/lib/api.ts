@@ -653,21 +653,15 @@ export interface PlatformStats {
   totalOI: number;
   volume24h: number;
   totalUsers: number;
-  totalTrades: number;
-}
-
-export interface HypeStaking {
-  totalStaked: number;
-  validatorCount: number;
-  topValidators: { name: string; stake: number; commission: number }[];
+  perpAssetCount: number;
+  spotTokenCount: number;
+  hip3AssetCount: number;
 }
 
 export interface EcosystemData {
   vaults: VaultSummary[];
   platform: PlatformStats;
-  staking: HypeStaking | null;
-  spotTokenCount: number;
-  perpAssetCount: number;
+  topFundingRates: { coin: string; rate: number; annualized: number }[];
   fetchedAt: number;
 }
 

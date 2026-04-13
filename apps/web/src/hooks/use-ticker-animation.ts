@@ -104,7 +104,15 @@ export function useTickerAnimation(
     const el = elRef.current;
     let ro: ResizeObserver | undefined;
     if (el) {
-      ro = new ResizeObserver(() => measure());
+      let prevWidth = 0;
+      ro = new ResizeObserver((entries) => {
+        const newWidth = entries[0]?.contentRect?.width ?? 0;
+        // Only re-measure on significant width changes (avoids sub-pixel thrash)
+        if (Math.abs(newWidth - prevWidth) > 2) {
+          prevWidth = newWidth;
+          measure();
+        }
+      });
       ro.observe(el);
     }
 

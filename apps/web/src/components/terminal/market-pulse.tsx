@@ -42,9 +42,12 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
   const totalPutOI = optionCoins.reduce((sum, c) => sum + (options[c]?.totalPutOI || 0), 0);
   const totalOI = totalCallOI + totalPutOI;
 
+  // Force re-mount ticker when content count changes (prevents stale width measurement)
+  const contentKey = `${optionCoins.length}-${regime?.regime ?? "none"}-${avgCorrelation !== null ? 1 : 0}`;
+
   return (
     <div className="overflow-hidden border-b border-[var(--hl-border)]">
-      <div ref={trackRef} className="flex py-1 px-2 gap-1" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
+      <div key={contentKey} ref={trackRef} className="flex py-1 px-2 gap-1" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
           <div key={copy} className="flex items-center shrink-0 gap-1" aria-hidden={copy === 1}>
             {/* Aggregate Options OI */}

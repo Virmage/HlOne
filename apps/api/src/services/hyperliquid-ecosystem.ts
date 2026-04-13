@@ -1,11 +1,13 @@
 /**
  * Hyperliquid Ecosystem Dashboard — platform-level metrics.
- * All data from free Hyperliquid APIs, no key needed.
- * Provides: vault TVL, platform OI, volume, active traders, HYPE staking.
+ * Uses already-cached data from market-data + hyperliquid services where possible.
+ * Falls back to direct API calls only for unique data (vaults).
  */
 
+import { getCachedAssetCtxs, getCachedMeta, getCachedSpotTokens, getCachedHip3Tokens } from "./market-data.js";
+import { discoverActiveTraders } from "./hyperliquid.js";
+
 const HL_API = "https://api.hyperliquid.xyz";
-const STATS_API = "https://stats-data.hyperliquid.xyz/Mainnet";
 
 async function infoRequest(body: Record<string, unknown>) {
   const res = await fetch(`${HL_API}/info`, {
@@ -32,161 +34,97 @@ export interface PlatformStats {
   totalOI: number;
   volume24h: number;
   totalUsers: number;
-  totalTrades: number;
-}
-
-export interface HypeStaking {
-  totalStaked: number;
-  validatorCount: number;
-  topValidators: { name: string; stake: number; commission: number }[];
+  perpAssetCount: number;
+  spotTokenCount: number;
+  hip3AssetCount: number;
 }
 
 export interface EcosystemData {
   vaults: VaultSummary[];
   platform: PlatformStats;
-  staking: HypeStaking | null;
-  spotTokenCount: number;
-  perpAssetCount: number;
+  topFundingRates: { coin: string; rate: number; annualized: number }[];
   fetchedAt: number;
 }
 
-/* ── Vault data ───────────────────────────────────────────── */
+/* ── Platform stats from existing caches ──────────────────── */
 
-async function fetchVaultSummaries(): Promise<VaultSummary[]> {
+async function buildPlatformStats(): Promise<PlatformStats> {
+  let totalOI = 0;
+  let volume24h = 0;
+  let perpAssetCount = 0;
+  let spotTokenCount = 0;
+  let hip3AssetCount = 0;
+  let totalUsers = 0;
+
   try {
-    const data = await infoRequest({ type: "vaultSummaries" }) as {
-      name: string;
-      vaultAddress: string;
-      leader: string;
-      tvl: string;
-      apr: number;
-      followerCount: number;
-    }[];
+    const ctxs = await getCachedAssetCtxs();
+    perpAssetCount = ctxs.size;
+    for (const ctx of ctxs.values()) {
+      totalOI += parseFloat(ctx.openInterest as string) || 0;
+      volume24h += parseFloat(ctx.dayNtlVlm as string) || 0;
+    }
+  } catch { /* use defaults */ }
 
-    if (!Array.isArray(data)) return [];
+  try {
+    const spotTokens = await getCachedSpotTokens();
+    spotTokenCount = spotTokens.length;
+  } catch { /* use defaults */ }
 
-    return data
-      .map((v) => ({
-        name: v.name || "Unnamed Vault",
-        vaultAddress: v.vaultAddress,
-        leader: v.leader,
-        tvl: parseFloat(v.tvl) || 0,
-        apr: v.apr || 0,
-        followerCount: v.followerCount || 0,
-      }))
-      .filter((v) => v.tvl > 10_000) // Only vaults with >$10K
-      .sort((a, b) => b.tvl - a.tvl)
-      .slice(0, 20);
-  } catch (err) {
-    console.warn("[ecosystem] vaultSummaries error:", err);
+  try {
+    const hip3Tokens = await getCachedHip3Tokens();
+    hip3AssetCount = hip3Tokens.length;
+  } catch { /* use defaults */ }
+
+  try {
+    const traders = await discoverActiveTraders();
+    totalUsers = traders.length;
+  } catch { /* use defaults */ }
+
+  return { totalOI, volume24h, totalUsers, perpAssetCount, spotTokenCount, hip3AssetCount };
+}
+
+/* ── Top funding rates ────────────────────────────────────── */
+
+async function buildTopFunding(): Promise<{ coin: string; rate: number; annualized: number }[]> {
+  try {
+    const ctxs = await getCachedAssetCtxs();
+    const rates: { coin: string; rate: number; annualized: number }[] = [];
+    for (const [coin, ctx] of ctxs) {
+      const rate = parseFloat(ctx.funding as string) || 0;
+      if (Math.abs(rate) > 0.00001) {
+        rates.push({ coin, rate, annualized: rate * 3 * 365 * 100 });
+      }
+    }
+    rates.sort((a, b) => Math.abs(b.rate) - Math.abs(a.rate));
+    return rates.slice(0, 10);
+  } catch {
     return [];
   }
 }
 
-/* ── Platform stats from asset contexts ───────────────────── */
+/* ── Vault data ───────────────────────────────────────────── */
 
-async function fetchPlatformStats(): Promise<PlatformStats> {
+async function fetchVaults(): Promise<VaultSummary[]> {
   try {
-    const [meta, ctxs] = await infoRequest({ type: "metaAndAssetCtxs" }) as [
-      { universe: { name: string }[] },
-      { dayNtlVlm: string; openInterest: string }[]
-    ];
+    // Try the vaultSummaries endpoint
+    const data = await infoRequest({ type: "vaultSummaries" });
+    if (!Array.isArray(data) || data.length === 0) return [];
 
-    let totalOI = 0;
-    let volume24h = 0;
-
-    for (const ctx of ctxs) {
-      totalOI += parseFloat(ctx.openInterest) || 0;
-      volume24h += parseFloat(ctx.dayNtlVlm) || 0;
-    }
-
-    // Get user count from leaderboard
-    let totalUsers = 0;
-    let totalTrades = 0;
-    try {
-      const lbRes = await fetch(`${STATS_API}/leaderboard`, {
-        headers: { "User-Agent": "hl-ecosystem/1.0" },
-      });
-      if (lbRes.ok) {
-        const lb = await lbRes.json() as { ethAddress: string; windowPerformances: [string, { vlm: string }][] }[];
-        totalUsers = lb.length;
-        for (const t of lb) {
-          const allTimePerf = t.windowPerformances?.find(([w]) => w === "allTime");
-          if (allTimePerf) {
-            totalTrades += parseFloat(allTimePerf[1].vlm) > 0 ? 1 : 0;
-          }
-        }
-      }
-    } catch { /* non-critical */ }
-
-    return { totalOI, volume24h, totalUsers, totalTrades };
+    return data
+      .map((v: Record<string, unknown>) => ({
+        name: (v.name as string) || "Unnamed Vault",
+        vaultAddress: (v.vaultAddress as string) || "",
+        leader: (v.leader as string) || "",
+        tvl: parseFloat(v.tvl as string) || 0,
+        apr: (v.apr as number) || 0,
+        followerCount: (v.followerCount as number) || 0,
+      }))
+      .filter((v: VaultSummary) => v.tvl > 10_000)
+      .sort((a: VaultSummary, b: VaultSummary) => b.tvl - a.tvl)
+      .slice(0, 15);
   } catch (err) {
-    console.warn("[ecosystem] platform stats error:", err);
-    return { totalOI: 0, volume24h: 0, totalUsers: 0, totalTrades: 0 };
-  }
-}
-
-/* ── Staking data ─────────────────────────────────────────── */
-
-async function fetchStakingData(): Promise<HypeStaking | null> {
-  try {
-    const data = await infoRequest({ type: "validatorSummaries" }) as {
-      validator: string;
-      name: string;
-      stake: string;
-      nRecentBlocks: number;
-      isJailed: boolean;
-      commission: string;
-    }[];
-
-    if (!Array.isArray(data) || data.length === 0) return null;
-
-    let totalStaked = 0;
-    const topValidators: HypeStaking["topValidators"] = [];
-
-    for (const v of data) {
-      const stake = parseFloat(v.stake) || 0;
-      totalStaked += stake;
-      if (!v.isJailed) {
-        topValidators.push({
-          name: v.name || v.validator.slice(0, 8),
-          stake,
-          commission: parseFloat(v.commission) || 0,
-        });
-      }
-    }
-
-    topValidators.sort((a, b) => b.stake - a.stake);
-
-    return {
-      totalStaked,
-      validatorCount: data.filter((v) => !v.isJailed).length,
-      topValidators: topValidators.slice(0, 10),
-    };
-  } catch (err) {
-    console.warn("[ecosystem] staking data error:", err);
-    return null;
-  }
-}
-
-/* ── Spot + Perp counts ───────────────────────────────────── */
-
-async function fetchAssetCounts(): Promise<{ spotTokenCount: number; perpAssetCount: number }> {
-  try {
-    const [metaRes, spotMetaRes] = await Promise.all([
-      infoRequest({ type: "meta" }),
-      infoRequest({ type: "spotMeta" }),
-    ]);
-
-    const meta = metaRes as { universe: unknown[] };
-    const spotMeta = spotMetaRes as { tokens: unknown[] };
-
-    return {
-      perpAssetCount: meta?.universe?.length || 0,
-      spotTokenCount: spotMeta?.tokens?.length || 0,
-    };
-  } catch {
-    return { spotTokenCount: 0, perpAssetCount: 0 };
+    console.warn("[ecosystem] vaultSummaries not available:", (err as Error).message);
+    return [];
   }
 }
 
@@ -199,18 +137,16 @@ const CACHE_TTL = 120_000; // 2 min
 export async function fetchEcosystemData(): Promise<EcosystemData> {
   if (cache && Date.now() - lastFetch < CACHE_TTL) return cache;
 
-  const [vaults, platform, staking, counts] = await Promise.all([
-    fetchVaultSummaries(),
-    fetchPlatformStats(),
-    fetchStakingData(),
-    fetchAssetCounts(),
+  const [vaults, platform, topFundingRates] = await Promise.all([
+    fetchVaults(),
+    buildPlatformStats(),
+    buildTopFunding(),
   ]);
 
   cache = {
     vaults,
     platform,
-    staking,
-    ...counts,
+    topFundingRates,
     fetchedAt: Date.now(),
   };
   lastFetch = Date.now();

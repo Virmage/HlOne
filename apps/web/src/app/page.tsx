@@ -73,10 +73,6 @@ const CopyTradePanel = dynamic(
   () => import("@/components/terminal/copy-trade-panel").then(m => ({ default: m.CopyTradePanel })),
   { ssr: false, loading: () => <PanelSkeleton /> }
 );
-const DivergencePanel = dynamic(
-  () => import("@/components/terminal/divergence-panel").then(m => ({ default: m.DivergencePanel })),
-  { ssr: false, loading: () => <PanelSkeleton /> }
-);
 /* ── Modals & drawers (lazy, only needed on interaction) ──────────────────── */
 const TokenDrawer = dynamic(
   () => import("@/components/terminal/token-drawer").then(m => ({ default: m.TokenDrawer })),
@@ -396,40 +392,33 @@ export default function HomePage() {
             ))}
           </div>
 
-          {/* Tab content — min-h keeps all tabs flush at bottom */}
-          <div className="p-3 min-h-[420px]">
+          {/* Tab content */}
+          <div className="p-3">
             {dataTab === "signals" && (
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)] min-h-[400px]">
-                <div className="bg-[var(--background)]">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)]" style={{ minHeight: 480 }}>
+                <div className="bg-[var(--background)] p-3">
                   <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
                 </div>
-                <div className="bg-[var(--background)] flex flex-col gap-px">
-                  <div className="p-3 flex-1">
-                    <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
-                  </div>
-                  {(data?.divergences?.length ?? 0) > 0 && (
-                    <div className="border-t border-[var(--hl-border)] p-3">
-                      <DivergencePanel divergences={data?.divergences || []} onSelectToken={handleSelectToken} />
-                    </div>
-                  )}
+                <div className="bg-[var(--background)] p-3">
+                  <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
                 </div>
               </div>
             )}
             {dataTab === "whales" && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)] min-h-[400px]">
-                <div className="bg-[var(--background)] p-3 flex flex-col" style={{ minHeight: 400 }}>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)]" style={{ minHeight: 480 }}>
+                <div className="bg-[var(--background)] p-3 flex flex-col">
                   <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
                 </div>
-                <div className="bg-[var(--background)] p-3 flex flex-col" style={{ minHeight: 400 }}>
+                <div className="bg-[var(--background)] p-3 flex flex-col">
                   <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
                 </div>
-                <div className="bg-[var(--background)] p-3 flex flex-col" style={{ minHeight: 400 }}>
+                <div className="bg-[var(--background)] p-3 flex flex-col">
                   <WhaleAccumulationPanel data={data?.whaleAccumulation || []} onSelectToken={handleSelectToken} />
                 </div>
               </div>
             )}
             {dataTab === "options" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)] min-h-[400px]">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]" style={{ minHeight: 480 }}>
                 <div className="bg-[var(--background)] p-3">
                   <DeribitFlowPanel btc={data?.deribitFlow?.btc || null} eth={data?.deribitFlow?.eth || null} />
                 </div>
@@ -517,7 +506,7 @@ export default function HomePage() {
               </div>
             )}
             {dataTab === "hypeeco" && (
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)] min-h-[400px]">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)]" style={{ minHeight: 480 }}>
                 <div className="bg-[var(--background)] p-3">
                   <EcosystemPanel data={data?.ecosystem || null} />
                 </div>
@@ -532,7 +521,7 @@ export default function HomePage() {
               </div>
             )}
             {dataTab === "newssocial" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)] min-h-[400px]">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]" style={{ minHeight: 480 }}>
                 <div className="bg-[var(--background)] p-3">
                   <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
                 </div>
@@ -542,7 +531,9 @@ export default function HomePage() {
               </div>
             )}
             {dataTab === "copytrade" && (
-              <CopyTradePanel traders={data?.topTraders || []} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
+              <div style={{ minHeight: 480 }}>
+                <CopyTradePanel traders={data?.topTraders || []} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
+              </div>
             )}
           </div>
         </div>
