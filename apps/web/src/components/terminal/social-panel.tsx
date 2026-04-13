@@ -36,7 +36,7 @@ export function SocialPanel({ social, onSelectToken }: SocialPanelProps) {
             </tr>
           </thead>
           <tbody>
-            {sorted.slice(0, 9).map((s) => {
+            {sorted.map((s) => {
               const sentimentColor = s.sentiment >= 60
                 ? "text-[var(--hl-green)]"
                 : s.sentiment <= 40

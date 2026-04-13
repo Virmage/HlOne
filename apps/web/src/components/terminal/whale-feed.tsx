@@ -49,7 +49,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
 
   return (
     <div>
-    <div className="max-h-[320px] flex flex-col cursor-pointer" onClick={() => setExpanded(true)}>
+    <div className="flex flex-col cursor-pointer" onClick={() => setExpanded(true)}>
       <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1 shrink-0">
         Whale Alerts
       </h2>

@@ -267,7 +267,7 @@ function RateTable({
         <span className="flex-1 text-right">Supply APY</span>
         <span className="flex-1 text-right">Borrow APY</span>
       </div>
-      {rates.slice(0, 8).map((r, i) => (
+      {rates.map((r, i) => (
         <a
           key={`${r.asset}-${i}`}
           href={assetUrl(r.asset, protocol)}

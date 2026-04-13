@@ -55,7 +55,7 @@ function CurrencyBlock({ label, data }: { label: string; data: OptionsFlowSummar
       {/* Recent large trades */}
       {data.recentTrades.length > 0 && (
         <div className="space-y-0.5">
-          {data.recentTrades.slice(0, 6).map((t, i) => (
+          {data.recentTrades.map((t, i) => (
             <div key={i} className="flex items-center gap-1.5 text-[10px] px-1 py-0.5 rounded hover:bg-[var(--hl-surface-hover)]">
               <span className={`font-bold w-3 ${t.type === "call" ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                 {t.type === "call" ? "C" : "P"}

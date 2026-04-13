@@ -43,7 +43,7 @@ export function WhaleAccumulationPanel({ data, onSelectToken }: Props) {
             </tr>
           </thead>
           <tbody>
-            {data.slice(0, 12).map(row => (
+            {data.map(row => (
               <tr
                 key={row.coin}
                 onClick={() => onSelectToken(row.coin)}

@@ -99,7 +99,7 @@ export function EcosystemPanel({ data }: EcosystemPanelProps) {
               <span className="w-14 text-right">APR</span>
               <span className="w-14 text-right">Followers</span>
             </div>
-            {vaults.slice(0, 8).map((v, i) => (
+            {vaults.map((v, i) => (
               <div key={i} className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)]">
                 <span className="flex-1 text-[var(--foreground)] truncate">{v.name}</span>
                 <span className="w-20 text-right tabular-nums text-[var(--foreground)]">{formatUsd(v.tvl)}</span>

@@ -36,7 +36,7 @@ export function NewsFeed({ news, onSelectToken }: NewsFeedProps) {
         News Feed
       </h2>
       <div className="overflow-hidden space-y-0">
-        {news.slice(0, 6).map((post) => {
+        {news.map((post) => {
           const style = SENTIMENT_STYLE[post.sentiment] || SENTIMENT_STYLE.neutral;
           return (
             <div
