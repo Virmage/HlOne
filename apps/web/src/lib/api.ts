@@ -654,10 +654,14 @@ export interface VaultSummary {
 export interface PlatformStats {
   totalOI: number;
   volume24h: number;
-  totalUsers: number;
   perpAssetCount: number;
   spotTokenCount: number;
   hip3AssetCount: number;
+  longLiqExposure: number;
+  shortLiqExposure: number;
+  whaleNetFlow24h: number;
+  sharpCount: number;
+  sharpLongPct: number;
 }
 
 export interface EcosystemData {

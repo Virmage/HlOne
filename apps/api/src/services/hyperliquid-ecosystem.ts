@@ -5,7 +5,9 @@
  */
 
 import { getCachedAssetCtxs, getCachedMeta, getCachedSpotTokens, getCachedHip3Tokens } from "./market-data.js";
-import { discoverActiveTraders } from "./hyperliquid.js";
+import { getSmartMoneyCached } from "./smart-money.js";
+import { getLiquidationHeatmap } from "./liquidation-heatmap.js";
+import { getWhaleAlerts } from "./whale-tracker.js";
 
 const HL_API = "https://api.hyperliquid.xyz";
 
@@ -33,10 +35,19 @@ export interface VaultSummary {
 export interface PlatformStats {
   totalOI: number;
   volume24h: number;
-  totalUsers: number;
   perpAssetCount: number;
   spotTokenCount: number;
   hip3AssetCount: number;
+  /** Aggregate long liquidation value tracked (near current prices) */
+  longLiqExposure: number;
+  /** Aggregate short liquidation value tracked (near current prices) */
+  shortLiqExposure: number;
+  /** Net whale $ flow in last 24h — positive = net buying */
+  whaleNetFlow24h: number;
+  /** Count of sharp (profitable) traders currently tracked */
+  sharpCount: number;
+  /** Net sharp direction: % of sharps positioned long */
+  sharpLongPct: number;
 }
 
 export interface EcosystemData {
@@ -54,7 +65,6 @@ async function buildPlatformStats(): Promise<PlatformStats> {
   let perpAssetCount = 0;
   let spotTokenCount = 0;
   let hip3AssetCount = 0;
-  let totalUsers = 0;
 
   try {
     const ctxs = await getCachedAssetCtxs();
@@ -75,12 +85,71 @@ async function buildPlatformStats(): Promise<PlatformStats> {
     hip3AssetCount = hip3Tokens.length;
   } catch { /* use defaults */ }
 
+  // Liquidation exposure from heatmap
+  let longLiqExposure = 0;
+  let shortLiqExposure = 0;
   try {
-    const traders = await discoverActiveTraders();
-    totalUsers = traders.length;
+    const heatmap = getLiquidationHeatmap();
+    for (const h of heatmap) {
+      longLiqExposure += h.totalLongLiqAbove;
+      shortLiqExposure += h.totalShortLiqBelow;
+    }
   } catch { /* use defaults */ }
 
-  return { totalOI, volume24h, totalUsers, perpAssetCount, spotTokenCount, hip3AssetCount };
+  // Net whale flow from whale tracker events (last 24h)
+  let whaleNetFlow24h = 0;
+  try {
+    const events = getWhaleAlerts(500);
+    const oneDayAgo = Date.now() - 24 * 60 * 60_000;
+    for (const e of events) {
+      if (e.detectedAt < oneDayAgo) continue;
+      const val = e.positionValueUsd || 0;
+      if (e.eventType === "open_long" || e.eventType === "added") {
+        whaleNetFlow24h += val;
+      } else if (e.eventType === "open_short") {
+        whaleNetFlow24h -= val;
+      } else if (e.eventType === "close_long") {
+        whaleNetFlow24h -= val;
+      } else if (e.eventType === "close_short") {
+        whaleNetFlow24h += val;
+      }
+    }
+  } catch { /* use defaults */ }
+
+  // Sharp trader stats
+  let sharpCount = 0;
+  let sharpLongPct = 50;
+  try {
+    const sm = getSmartMoneyCached();
+    if (sm) {
+      sharpCount = sm.sharps.length;
+      // Compute net direction from sharp positions
+      let longCount = 0;
+      let totalPositions = 0;
+      for (const positions of sm.sharpPositions.values()) {
+        for (const p of positions) {
+          if (p.isSharp) {
+            totalPositions++;
+            if (p.side === "long") longCount++;
+          }
+        }
+      }
+      if (totalPositions > 0) sharpLongPct = Math.round((longCount / totalPositions) * 100);
+    }
+  } catch { /* use defaults */ }
+
+  return {
+    totalOI,
+    volume24h,
+    perpAssetCount,
+    spotTokenCount,
+    hip3AssetCount,
+    longLiqExposure,
+    shortLiqExposure,
+    whaleNetFlow24h,
+    sharpCount,
+    sharpLongPct,
+  };
 }
 
 /* ── Top funding rates ────────────────────────────────────── */
