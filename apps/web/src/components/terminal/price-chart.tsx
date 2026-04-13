@@ -11,6 +11,7 @@ interface PriceChartProps {
   onSelectToken: (coin: string) => void;
   whaleAlerts?: WhaleAlert[];
   liquidationBands?: LiquidationBand[];
+  onDetailUpdate?: (detail: TokenDetail | null) => void;
 }
 
 type Interval = "5m" | "15m" | "1h" | "4h" | "12h" | "1d" | "1w" | "1M";
@@ -71,7 +72,7 @@ function getCachedCandles(coin: string, interval: string): TokenDetail["candles"
   return cached.candles;
 }
 
-export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liquidationBands }: PriceChartProps) {
+export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liquidationBands, onDetailUpdate }: PriceChartProps) {
   const [interval, setInterval] = useState<Interval>("1h");
   const [detail, setDetail] = useState<TokenDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -113,7 +114,8 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
               topTraderFills: [], funding: [], fundingRegime: "",
               liquidationClusters: [], sharpPositions: [],
               overview: null, score: null, bookAnalysis: null,
-              options: null, news: [], social: null, timestamp: Date.now(),
+              options: null, news: [], social: null,
+              coinFlow: null, coinAccumulation: null, timestamp: Date.now(),
             } as unknown as TokenDetail;
           });
           fastDone = true;
@@ -208,6 +210,11 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
       if (pollRef.current) globalThis.clearInterval(pollRef.current);
     };
   }, [coin, interval]);
+
+  // Notify parent when detail updates (for coin intel panel)
+  useEffect(() => {
+    onDetailUpdate?.(detail);
+  }, [detail, onDetailUpdate]);
 
   const chartData = useMemo(() => {
     if (!detail?.candles?.length) return [];

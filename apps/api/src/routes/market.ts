@@ -391,7 +391,8 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
 
       // Fetch everything in parallel
       // Use cached smart money data (instant) — never block on position scan
-      const sharpPositions = (getSmartMoneyCached()?.sharpPositions.get(coin)) || [];
+      const smartMoney = getSmartMoneyCached();
+      const sharpPositions = (smartMoney?.sharpPositions.get(coin)) || [];
       const score = getTokenScoresCached().get(coin) || null;
 
       // Adjust lookback based on interval
@@ -534,6 +535,25 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       const coinNews = await getCoinNews(coin).catch(() => [] as NewsPost[]);
       const coinSocial = getSocialMetricsCached(coin);
 
+      // Coin-specific sharp/square flow
+      const flow = smartMoney?.flow.find(f => f.coin === coin);
+      const coinFlow = flow ? {
+        sharpLongCount: flow.sharpLongCount,
+        sharpShortCount: flow.sharpShortCount,
+        sharpStrength: flow.sharpStrength,
+        sharpDirection: flow.sharpDirection,
+        squareLongCount: flow.squareLongCount,
+        squareShortCount: flow.squareShortCount,
+        squareStrength: flow.squareStrength,
+        squareDirection: flow.squareDirection,
+        consensus: flow.consensus,
+        divergence: flow.divergence,
+      } : null;
+
+      // Coin-specific whale accumulation
+      const allAccum = getWhaleAccumulation();
+      const coinAccum = allAccum.find(a => a.coin === coin) || null;
+
       return {
         coin,
         overview,
@@ -561,6 +581,8 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         options, // null for non-supported coins
         news: coinNews.slice(0, 10),
         social: coinSocial,
+        coinFlow,
+        coinAccumulation: coinAccum,
         timestamp: Date.now(),
       };
       })();

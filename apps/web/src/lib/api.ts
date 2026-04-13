@@ -691,6 +691,19 @@ export interface TokenDetail {
   options: OptionsSnapshot | null;
   news: NewsPost[];
   social: SocialMetrics | null;
+  coinFlow: {
+    sharpLongCount: number;
+    sharpShortCount: number;
+    sharpStrength: number;
+    sharpDirection: "long" | "short" | "neutral";
+    squareLongCount: number;
+    squareShortCount: number;
+    squareStrength: number;
+    squareDirection: "long" | "short" | "neutral";
+    consensus: string;
+    divergence: boolean;
+  } | null;
+  coinAccumulation: WhaleAccumulation | null;
   timestamp: number;
 }
 
