@@ -593,7 +593,17 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             ) : <span className="text-[var(--hl-muted)]">—</span>}
           </div>
 
-          {/* Portfolio stats — accent-bordered pill, right of funding (desktop only) */}
+          {/* Coin intel — score + sharp/square/whale signals */}
+          {detail && (detail.coinFlow || detail.coinAccumulation) && (
+            <>
+              <div className="w-px h-5 bg-[var(--hl-border)] shrink-0 mx-1 hidden sm:block" />
+              <div className="hidden sm:block shrink-0">
+                <CoinIntelPanel detail={detail} coin={coin} />
+              </div>
+            </>
+          )}
+
+          {/* Portfolio stats — accent-bordered pill (desktop only) */}
           {accountInfo && (
             <>
               <div className="w-px h-5 bg-[var(--hl-border)] shrink-0 mx-1 hidden sm:block" />
@@ -634,16 +644,6 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
                     {accountInfo.positionCount}
                   </span>
                 </div>
-              </div>
-            </>
-          )}
-
-          {/* Coin intel — sharp/square positioning + whale accumulation */}
-          {detail && (detail.coinFlow || detail.coinAccumulation) && (
-            <>
-              <div className="w-px h-5 bg-[var(--hl-border)] shrink-0 mx-1 hidden sm:block" />
-              <div className="hidden sm:block shrink-0">
-                <CoinIntelPanel detail={detail} coin={coin} />
               </div>
             </>
           )}
