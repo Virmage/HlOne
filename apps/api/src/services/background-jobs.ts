@@ -20,6 +20,9 @@ import { warmLiquidationMids } from "./liquidation-heatmap.js";
 import { getCachedHip3Tokens } from "./market-data.js";
 import { getAllDeriveOptionsData } from "./derive-options.js";
 import { prewarmTokenDetails } from "../routes/market.js";
+import { fetchCexFlows, isWhaleAlertConfigured } from "./whale-alert.js";
+import { fetchDeribitFlow } from "./deribit-flow.js";
+import { fetchKoreanPremium } from "./korean-premium.js";
 
 let started = false;
 
@@ -112,6 +115,25 @@ export function startBackgroundJobs() {
       }
     }, 30_000);
 
+    // Every 60s: Deribit options flow + Korean premium (free APIs, no key needed)
+    setInterval(async () => {
+      try {
+        await fetchDeribitFlow();
+        await fetchKoreanPremium();
+      } catch (err) {
+        console.error("[bg] Deribit/KR premium:", (err as Error).message);
+      }
+    }, 60_000);
+
+    // Every 60s: CEX flows via Whale Alert (if API key configured)
+    if (isWhaleAlertConfigured()) {
+      setInterval(async () => {
+        try { await fetchCexFlows(); } catch (err) {
+          console.error("[bg] Whale Alert:", (err as Error).message);
+        }
+      }, 60_000);
+    }
+
     // Daily OI cleanup (remove snapshots older than 30 days)
     setInterval(async () => {
       try { await cleanupOldOISnapshots(); } catch {}
@@ -145,7 +167,10 @@ export function startBackgroundJobs() {
         await warmLiquidationMids().catch(() => {});
         await warmOrderFlowMids().catch(() => {});
         await getAllDeriveOptionsData().catch(e => console.error("[bg] Derive warm-up:", (e as Error).message));
-        console.log("[bg] News + social + macro + correlation + derive warm-up complete");
+        await fetchDeribitFlow().catch(e => console.error("[bg] Deribit warm-up:", (e as Error).message));
+        await fetchKoreanPremium().catch(e => console.error("[bg] KR premium warm-up:", (e as Error).message));
+        if (isWhaleAlertConfigured()) await fetchCexFlows().catch(e => console.error("[bg] Whale Alert warm-up:", (e as Error).message));
+        console.log("[bg] News + social + macro + correlation + derive + deribit + KR premium warm-up complete");
       } catch (err) {
         console.error("[bg] News/social warm-up failed:", (err as Error).message);
       }

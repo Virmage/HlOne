@@ -1737,6 +1737,50 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             );
           })}
 
+          {/* OI + Price Divergence markers */}
+          {showOI && (() => {
+            // Detect divergence: compare OI change vs price change over 3-candle lookback
+            const markers: React.ReactNode[] = [];
+            const LB = 3; // lookback window
+            for (let i = LB; i < data.length; i++) {
+              const oi = visibleOI[i];
+              const oiPrev = visibleOI[i - LB];
+              if (!oi || !oiPrev) continue;
+
+              const priceChange = data[i].close - data[i - LB].close;
+              const oiChange = oi.close - oiPrev.close;
+
+              // Both must have meaningful change (>0.5% each)
+              const pricePct = Math.abs(priceChange) / data[i - LB].close;
+              const oiPct = Math.abs(oiChange) / oiPrev.close;
+              if (pricePct < 0.005 || oiPct < 0.005) continue;
+
+              // Divergence: OI rising but price falling, or OI falling but price rising
+              const isDiv = (oiChange > 0 && priceChange < 0) || (oiChange < 0 && priceChange > 0);
+              if (!isDiv) continue;
+
+              const x = ML + i * candleW + candleW / 2;
+              // OI up + price down = bearish divergence (shorts building)
+              // OI down + price up = bullish divergence (longs closing, weak rally)
+              const isBearish = oiChange > 0 && priceChange < 0;
+              const color = isBearish ? "var(--hl-red)" : "var(--hl-green)";
+              const label = isBearish ? "▼" : "▲";
+              const y = priceY(data[i].low) + 14;
+
+              markers.push(
+                <g key={`div-${i}`} opacity={0.8}>
+                  <text x={x} y={y} textAnchor="middle" fill={color} fontSize={9} fontWeight="bold">
+                    {label}
+                  </text>
+                  <title>
+                    {isBearish ? "Bearish divergence: OI rising while price falling (shorts building)" : "Bullish divergence: OI falling while price rising (weak hands closing)"}
+                  </title>
+                </g>
+              );
+            }
+            return markers;
+          })()}
+
           {/* Whale/shark markers above candles */}
           {(() => {
             // Group by candle, sort by size descending, limit per candle

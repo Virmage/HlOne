@@ -57,6 +57,22 @@ const PositionConcentrationPanel = dynamic(
   () => import("@/components/terminal/position-concentration").then(m => ({ default: m.PositionConcentrationPanel })),
   { ssr: false, loading: () => <PanelSkeleton /> }
 );
+const WhaleAccumulationPanel = dynamic(
+  () => import("@/components/terminal/whale-accumulation-panel").then(m => ({ default: m.WhaleAccumulationPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const DeribitFlowPanel = dynamic(
+  () => import("@/components/terminal/deribit-flow-panel").then(m => ({ default: m.DeribitFlowPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const KoreanPremiumPanel = dynamic(
+  () => import("@/components/terminal/korean-premium-panel").then(m => ({ default: m.KoreanPremiumPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const CexFlowPanel = dynamic(
+  () => import("@/components/terminal/cex-flow-panel").then(m => ({ default: m.CexFlowPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
 
 /* ── Modals & drawers (lazy, only needed on interaction) ──────────────────── */
 const TokenDrawer = dynamic(
@@ -182,15 +198,16 @@ function LoadingScreen() {
   );
 }
 
-type DataTab = "flow" | "whales" | "signals" | "funding" | "newssocial" | "more";
+type DataTab = "flow" | "whales" | "signals" | "options" | "funding" | "newssocial" | "macro";
 
 const DATA_TABS: { key: DataTab; label: string }[] = [
   { key: "flow", label: "Sharp Flow" },
   { key: "whales", label: "Whales" },
   { key: "signals", label: "Signals" },
+  { key: "options", label: "Options Flow" },
   { key: "funding", label: "Funding" },
   { key: "newssocial", label: "News & Social" },
-  { key: "more", label: "More" },
+  { key: "macro", label: "Macro" },
 ];
 
 export default function HomePage() {
@@ -391,17 +408,23 @@ export default function HomePage() {
               <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
             )}
             {dataTab === "whales" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)]">
                 <div className="bg-[var(--background)] p-3">
                   <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
                 </div>
                 <div className="bg-[var(--background)] p-3">
                   <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
                 </div>
+                <div className="bg-[var(--background)] p-3">
+                  <WhaleAccumulationPanel data={data?.whaleAccumulation || []} onSelectToken={handleSelectToken} />
+                </div>
               </div>
             )}
             {dataTab === "signals" && (
               <SignalsPanel signals={data?.signals || []} fundingOpps={data?.fundingOpps || []} callout={data?.callout || null} onSelectToken={handleSelectToken} />
+            )}
+            {dataTab === "options" && (
+              <DeribitFlowPanel btc={data?.deribitFlow?.btc || null} eth={data?.deribitFlow?.eth || null} />
             )}
             {dataTab === "funding" && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]">
@@ -423,8 +446,18 @@ export default function HomePage() {
                 </div>
               </div>
             )}
-            {dataTab === "more" && (
-              <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
+            {dataTab === "macro" && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)]">
+                <div className="bg-[var(--background)] p-3">
+                  <KoreanPremiumPanel data={data?.koreanPremium || null} />
+                </div>
+                <div className="bg-[var(--background)] p-3">
+                  <CexFlowPanel data={data?.cexFlows || null} />
+                </div>
+                <div className="bg-[var(--background)] p-3">
+                  <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
+                </div>
+              </div>
             )}
           </div>
         </div>

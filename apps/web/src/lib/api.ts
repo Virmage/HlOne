@@ -548,6 +548,74 @@ export interface PositionConcentration {
   topHolders: TopHolder[];
 }
 
+// ─── New Signal Types ───────────────��─────────────────────────────────────────
+
+export interface WhaleAccumulation {
+  coin: string;
+  net1h: number;
+  net24h: number;
+  net7d: number;
+  whales1h: number;
+  whales24h: number;
+  whales7d: number;
+  trend: "accumulating" | "distributing" | "neutral";
+  strength: number;
+}
+
+export interface CexTransfer {
+  blockchain: string;
+  symbol: string;
+  hash: string;
+  from: { owner: string; ownerType: string };
+  to: { owner: string; ownerType: string };
+  amountUsd: number;
+  timestamp: number;
+  direction: "deposit" | "withdrawal" | "inter_exchange";
+}
+
+export interface CexFlowSummary {
+  netFlowUsd1h: number;
+  totalDepositsUsd1h: number;
+  totalWithdrawalsUsd1h: number;
+  recentTransfers: CexTransfer[];
+  byExchange: { exchange: string; deposits: number; withdrawals: number; net: number }[];
+  byCoin: { symbol: string; deposits: number; withdrawals: number; net: number }[];
+  fetchedAt: number;
+}
+
+export interface DeribitOptionTrade {
+  instrument: string;
+  direction: "buy" | "sell";
+  amount: number;
+  price: number;
+  indexPrice: number;
+  iv: number;
+  notionalUsd: number;
+  timestamp: number;
+  underlying: string;
+  expiry: string;
+  strike: number;
+  type: "call" | "put";
+}
+
+export interface OptionsFlowSummary {
+  recentTrades: DeribitOptionTrade[];
+  putCallRatio: number;
+  netCallPremiumUsd: number;
+  netPutPremiumUsd: number;
+  totalNotionalUsd: number;
+  sentiment: "bullish" | "bearish" | "neutral";
+  fetchedAt: number;
+}
+
+export interface KoreanPremium {
+  btc: { krwPrice: number; globalUsd: number; premiumPct: number } | null;
+  eth: { krwPrice: number; globalUsd: number; premiumPct: number } | null;
+  usdKrw: number;
+  sentiment: "extreme_fomo" | "fomo" | "neutral" | "fear" | "extreme_fear";
+  fetchedAt: number;
+}
+
 export interface TerminalData {
   tokens: TokenOverview[];
   sharpFlow: SharpFlow[];
@@ -569,6 +637,10 @@ export interface TerminalData {
   correlationMatrix: CorrelationMatrix | null;
   orderFlow: OrderFlowCoin[];
   positionConcentration: PositionConcentration[];
+  whaleAccumulation?: WhaleAccumulation[];
+  cexFlows?: CexFlowSummary | null;
+  deribitFlow?: { btc: OptionsFlowSummary; eth: OptionsFlowSummary } | null;
+  koreanPremium?: KoreanPremium | null;
   timestamp: number;
 }
 

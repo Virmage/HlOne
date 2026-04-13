@@ -23,6 +23,10 @@ import { getLiquidationHeatmap } from "../services/liquidation-heatmap.js";
 import { getCorrelationMatrixCached } from "../services/correlation-matrix.js";
 import { getOrderFlow } from "../services/order-flow.js";
 import { getPositionConcentration } from "../services/position-concentration.js";
+import { getWhaleAccumulation } from "../services/whale-accumulation.js";
+import { getCexFlowsCached } from "../services/whale-alert.js";
+import { getDeribitFlowCached } from "../services/deribit-flow.js";
+import { getKoreanPremiumCached } from "../services/korean-premium.js";
 import { logTrade, getTradeLog, getTradeStats } from "../services/trade-log.js";
 import { z } from "zod";
 import { ethAddress, positiveNumber, nonNegativeNumber, coinName } from "../lib/validation.js";
@@ -315,6 +319,10 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     const correlationMatrix = getCorrelationMatrixCached();
     const orderFlow = getOrderFlow();
     const positionConcentration = await getPositionConcentration().catch(() => []);
+    const whaleAccumulation = getWhaleAccumulation();
+    const cexFlows = getCexFlowsCached();
+    const deribitFlow = getDeribitFlowCached();
+    const koreanPremium = getKoreanPremiumCached();
 
     const result = {
       tokens: tokenData,
@@ -337,6 +345,10 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       correlationMatrix,
       orderFlow,
       positionConcentration,
+      whaleAccumulation,
+      cexFlows,
+      deribitFlow,
+      koreanPremium,
       timestamp: Date.now(),
     };
     terminalCache = { data: result, fetchedAt: Date.now() };
