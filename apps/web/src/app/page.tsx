@@ -392,37 +392,37 @@ export default function HomePage() {
             ))}
           </div>
 
-          {/* Tab content */}
-          <div className="p-3">
+          {/* Tab content — fixed height, panels scroll internally */}
+          <div className="h-[480px]">
             {dataTab === "signals" && (
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)]" style={{ minHeight: 480 }}>
-                <div className="bg-[var(--background)] p-3">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)] h-full">
+                <div className="bg-[var(--background)] p-3 overflow-y-auto">
                   <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
                 </div>
-                <div className="bg-[var(--background)] p-3">
+                <div className="bg-[var(--background)] p-3 overflow-y-auto">
                   <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
                 </div>
               </div>
             )}
             {dataTab === "whales" && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)]" style={{ minHeight: 480 }}>
-                <div className="bg-[var(--background)] p-3 flex flex-col">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)] h-full">
+                <div className="bg-[var(--background)] p-3 overflow-y-auto">
                   <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
                 </div>
-                <div className="bg-[var(--background)] p-3 flex flex-col">
+                <div className="bg-[var(--background)] p-3 overflow-y-auto">
                   <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
                 </div>
-                <div className="bg-[var(--background)] p-3 flex flex-col">
+                <div className="bg-[var(--background)] p-3 overflow-y-auto">
                   <WhaleAccumulationPanel data={data?.whaleAccumulation || []} onSelectToken={handleSelectToken} />
                 </div>
               </div>
             )}
             {dataTab === "options" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]" style={{ minHeight: 480 }}>
-                <div className="bg-[var(--background)] p-3">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)] h-full">
+                <div className="bg-[var(--background)] p-3 overflow-y-auto">
                   <DeribitFlowPanel btc={data?.deribitFlow?.btc || null} eth={data?.deribitFlow?.eth || null} />
                 </div>
-                <div className="bg-[var(--background)] p-3 flex flex-col gap-4">
+                <div className="bg-[var(--background)] p-3 overflow-y-auto flex flex-col gap-4">
                   {/* BTC + ETH key metrics */}
                   <div>
                     <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">Options Analytics</h2>
@@ -506,12 +506,12 @@ export default function HomePage() {
               </div>
             )}
             {dataTab === "hypeeco" && (
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)]" style={{ minHeight: 480 }}>
-                <div className="bg-[var(--background)] p-3">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)] h-full">
+                <div className="bg-[var(--background)] p-3 overflow-y-auto">
                   <EcosystemPanel data={data?.ecosystem || null} />
                 </div>
-                <div className="bg-[var(--background)] flex flex-col gap-px">
-                  <div className="p-3 flex-1">
+                <div className="bg-[var(--background)] overflow-y-auto flex flex-col gap-px">
+                  <div className="p-3">
                     <LendingRatesPanel />
                   </div>
                   <div className="border-t border-[var(--hl-border)] p-3">
@@ -521,17 +521,17 @@ export default function HomePage() {
               </div>
             )}
             {dataTab === "newssocial" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]" style={{ minHeight: 480 }}>
-                <div className="bg-[var(--background)] p-3">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)] h-full">
+                <div className="bg-[var(--background)] p-3 overflow-y-auto">
                   <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
                 </div>
-                <div className="bg-[var(--background)] p-3">
+                <div className="bg-[var(--background)] p-3 overflow-y-auto">
                   <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
                 </div>
               </div>
             )}
             {dataTab === "copytrade" && (
-              <div style={{ minHeight: 480 }}>
+              <div className="h-full overflow-y-auto">
                 <CopyTradePanel traders={data?.topTraders || []} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
               </div>
             )}

@@ -89,14 +89,11 @@ export function PositionConcentrationPanel({ data, onSelectToken }: PositionConc
         <div className="space-y-0">
           {header}
           <div className="overflow-hidden">
-            {data.slice(0, 9).map((d) => (
+            {data.map((d) => (
               <ConcRow key={d.coin} d={d} maxTop5={maxTop5} expandedCoin={expandedCoin} onToggle={toggleCoin} onSelectToken={onSelectToken} />
             ))}
           </div>
         </div>
-        {data.length > 9 && (
-          <div className="text-[10px] text-[var(--hl-muted)] text-center py-1">Click to see all {data.length} tokens</div>
-        )}
       </div>
       {modalOpen && (
         <div className="fixed inset-0 z-[9998] flex items-center justify-center" onClick={() => setModalOpen(false)}>

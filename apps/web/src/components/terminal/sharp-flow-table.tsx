@@ -27,7 +27,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
     if (!a.divergence && b.divergence) return 1;
     return (b.score ?? 0) - (a.score ?? 0);
   });
-  const visibleFlows = expanded ? sorted : sorted.slice(0, 12);
+  const visibleFlows = expanded ? sorted : sorted;
 
   const renderTable = (items: SharpFlow[], inModal = false) => (
     <table className="w-full text-[11px] min-w-[420px]">
@@ -99,8 +99,8 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
       <div className="overflow-hidden flex-1">
         {renderTable(visibleFlows)}
       </div>
-      {!expanded && sorted.length > 12 && (
-        <div className="text-[10px] text-[var(--hl-muted)] text-center py-1 shrink-0">Click to see all {sorted.length} tokens</div>
+      {!expanded && sorted.length > 15 && (
+        <div className="text-[10px] text-[var(--hl-muted)] text-center py-1 shrink-0">Click to expand</div>
       )}
     </div>
     {/* Expanded modal */}
