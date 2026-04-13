@@ -154,8 +154,6 @@ export default function PortfolioPage() {
   const displayPnl = portfolio?.pnl[pnlWindow] ?? 0;
   const volume14d = portfolio?.volume["14d"] ?? 0;
   const volumeAll = portfolio?.volume["allTime"] ?? 0;
-  const HL_APP = "https://app.hyperliquid.xyz";
-
   return (
     <div className="space-y-4 max-w-6xl mx-auto">
       {/* Header */}
@@ -166,11 +164,7 @@ export default function PortfolioPage() {
             {address}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <ExtLink href={`${HL_APP}/trade`}>Perps &harr; Spot</ExtLink>
-          <ExtLink href={`${HL_APP}/deposit`}>Deposit</ExtLink>
-          <ExtLink href={`${HL_APP}/withdraw`}>Withdraw</ExtLink>
-        </div>
+        {isConnected && address && <TransferBar address={address} />}
       </div>
 
       {error && (
@@ -314,16 +308,120 @@ function fmtTime(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function ExtLink({ href, children }: { href: string; children: React.ReactNode }) {
+function TransferBar({ address }: { address: string }) {
+  const [mode, setMode] = useState<"none" | "toPerps" | "toSpot">("none");
+  const [amount, setAmount] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [spotBalance, setSpotBalance] = useState<number | null>(null);
+  const [perpsBalance, setPerpsBalance] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!address) return;
+    const fetchBalances = async () => {
+      try {
+        const perpsRes = await fetch("https://api.hyperliquid.xyz/info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "clearinghouseState", user: address }),
+        });
+        const perpsData = await perpsRes.json();
+        setPerpsBalance(parseFloat(perpsData?.withdrawable ?? "0"));
+      } catch { /* ignore */ }
+      try {
+        const spotRes = await fetch("https://api.hyperliquid.xyz/info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "spotClearinghouseState", user: address }),
+        });
+        const spotData = await spotRes.json();
+        const usdcBal = spotData?.balances?.find((b: { coin: string; total: string }) => b.coin === "USDC");
+        setSpotBalance(usdcBal ? parseFloat(usdcBal.total) : 0);
+      } catch { setSpotBalance(0); }
+    };
+    fetchBalances();
+    const iv = window.setInterval(fetchBalances, 30_000);
+    return () => clearInterval(iv);
+  }, [address]);
+
+  const handleTransfer = useCallback(async (toPerp: boolean) => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"),
+        import("@/lib/hl-exchange"),
+        import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) { setResult({ ok: false, msg: "No wallet" }); return; }
+      const res = await exchange.transferBetweenSpotAndPerp(walletClient, address as `0x${string}`, amt, toPerp);
+      setResult(res.success
+        ? { ok: true, msg: `Transferred $${amt} ${toPerp ? "Spot → Perps" : "Perps → Spot"}` }
+        : { ok: false, msg: res.error || "Failed" }
+      );
+      if (res.success) setAmount("");
+    } catch (err) {
+      setResult({ ok: false, msg: err instanceof Error ? err.message : "Failed" });
+    } finally {
+      setSubmitting(false);
+    }
+  }, [amount, address]);
+
+  const fmtBal = (v: number | null) => v === null ? "..." : `$${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  const btnClass = "px-3 py-1.5 text-[11px] font-medium rounded border border-[var(--hl-border)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] transition-colors";
+
+  if (mode === "none") {
+    return (
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={() => { setMode("toPerps"); setResult(null); }} className={`${btnClass} text-[var(--hl-green)]`}>
+          Spot → Perps <span className="text-[var(--hl-muted)] text-[9px] ml-1">{fmtBal(spotBalance)}</span>
+        </button>
+        <button onClick={() => { setMode("toSpot"); setResult(null); }} className={`${btnClass} text-[var(--hl-accent)]`}>
+          Perps → Spot <span className="text-[var(--hl-muted)] text-[9px] ml-1">{fmtBal(perpsBalance)}</span>
+        </button>
+      </div>
+    );
+  }
+
+  const toPerp = mode === "toPerps";
+  const maxBal = toPerp ? spotBalance : perpsBalance;
+
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="px-3 py-1.5 text-[11px] font-medium rounded border border-[var(--hl-border)] text-[var(--foreground)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] transition-colors"
-    >
-      {children}
-    </a>
+    <div className="flex items-center gap-2 flex-wrap">
+      <button onClick={() => { setMode("none"); setResult(null); setAmount(""); }} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-[14px]">&larr;</button>
+      <span className="text-[11px] font-medium text-[var(--foreground)]">{toPerp ? "Spot → Perps" : "Perps → Spot"}</span>
+      <span className="text-[9px] text-[var(--hl-muted)] tabular-nums">
+        {toPerp ? `Spot: ${fmtBal(spotBalance)}` : `Perps: ${fmtBal(perpsBalance)}`}
+      </span>
+      <div className="flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1">
+        <span className="text-[10px] text-[var(--hl-muted)] mr-1">$</span>
+        <input
+          type="number"
+          value={amount}
+          onChange={e => setAmount(e.target.value)}
+          placeholder="0.00"
+          className="w-20 bg-transparent text-right text-[12px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none"
+          autoFocus
+        />
+        <button
+          onClick={() => setAmount(String(maxBal ?? 0))}
+          className="text-[9px] text-[var(--hl-accent)] ml-1 hover:brightness-110"
+        >MAX</button>
+      </div>
+      <button
+        onClick={() => handleTransfer(toPerp)}
+        disabled={submitting || !parseFloat(amount)}
+        className={`px-3 py-1.5 rounded text-[11px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] transition-colors ${submitting || !parseFloat(amount) ? "opacity-40" : "hover:brightness-110"}`}
+      >
+        {submitting ? "..." : "Transfer"}
+      </button>
+      {result && (
+        <span className={`text-[10px] ${result.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{result.msg}</span>
+      )}
+    </div>
   );
 }
 

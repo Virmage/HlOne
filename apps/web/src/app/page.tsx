@@ -180,11 +180,11 @@ function LoadingScreen() {
     <div className="fixed inset-0 z-[9999] overflow-hidden" style={{ background: '#060a0c' }}>
       <div className="absolute inset-0" style={{ background: '#060a0c' }} />
       <div className="relative flex items-center justify-center h-full w-full">
-        <div className="text-center px-4 py-2 rounded flex flex-col items-center gap-4" style={{ background: '#060a0c' }}>
-          <img src="/portalspin.gif" alt="" className="w-20 h-20" />
+        <div className="text-center flex flex-col items-center" style={{ background: '#060a0c' }}>
+          <img src="/portalspin.gif" alt="" className="w-28 h-28" />
           <div
             key={idx}
-            className="text-[var(--hl-accent)] text-[14px] animate-fade-in"
+            className="text-[var(--hl-accent)] text-[13px] animate-fade-in -mt-1"
           >
             {LOADING_LINES[idx]}
           </div>
