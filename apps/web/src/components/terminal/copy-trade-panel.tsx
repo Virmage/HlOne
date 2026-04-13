@@ -12,7 +12,7 @@ interface CopyTradePanelProps {
 export function CopyTradePanel({ traders, onSelectTrader, onCopy }: CopyTradePanelProps) {
   if (!traders.length) {
     return (
-      <div className="flex h-40 items-center justify-center text-[var(--hl-muted)] text-[12px]">
+      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[11px]">
         Loading trader data...
       </div>
     );
@@ -24,11 +24,8 @@ export function CopyTradePanel({ traders, onSelectTrader, onCopy }: CopyTradePan
   return (
     <div>
       <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">
-        Top Traders — Past 30 Days
+        Top Traders — 30d ROI
       </h2>
-      <p className="text-[10px] text-[var(--hl-muted)] mb-3 px-1">
-        Ranked by 30-day ROI. Click a trader for details, or copy their trades directly.
-      </p>
       <div className="overflow-x-auto">
         <table className="w-full text-[11px]">
           <thead>
@@ -47,7 +44,7 @@ export function CopyTradePanel({ traders, onSelectTrader, onCopy }: CopyTradePan
             {sorted.slice(0, 30).map((t, i) => (
               <tr
                 key={t.address}
-                className="border-b border-[var(--hl-border)]/50 hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
+                className="border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
                 onClick={() => onSelectTrader(t.address)}
               >
                 <td className="py-1.5 px-2 text-[var(--hl-muted)] tabular-nums">{i + 1}</td>

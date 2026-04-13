@@ -237,7 +237,7 @@ function RateTable({
 }) {
   if (loading) {
     return (
-      <div className="flex h-20 items-center justify-center text-[var(--hl-muted)] text-[11px]">
+      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[11px]">
         Loading rates...
       </div>
     );
@@ -245,7 +245,7 @@ function RateTable({
 
   if (error) {
     return (
-      <div className="flex h-20 items-center justify-center text-[var(--hl-red)] text-[10px]">
+      <div className="flex h-32 items-center justify-center text-[var(--hl-red)] text-[11px]">
         {error}
       </div>
     );
@@ -253,7 +253,7 @@ function RateTable({
 
   if (!rates.length) {
     return (
-      <div className="flex h-20 items-center justify-center text-[var(--hl-muted)] text-[10px]">
+      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[11px]">
         No data
       </div>
     );

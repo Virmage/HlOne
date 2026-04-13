@@ -109,7 +109,7 @@ function MobileAccountTab() {
 
   return (
     <div className="px-4 py-4 space-y-4">
-      <h2 className="text-[14px] font-bold text-[var(--foreground)]">Account</h2>
+      <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider">Account</h2>
 
       {/* Wallet */}
       <div className="rounded-lg border border-[var(--hl-border)] bg-[var(--hl-surface)] p-3">
@@ -180,7 +180,8 @@ function LoadingScreen() {
     <div className="fixed inset-0 z-[9999] overflow-hidden" style={{ background: '#060a0c' }}>
       <div className="absolute inset-0" style={{ background: '#060a0c' }} />
       <div className="relative flex items-center justify-center h-full w-full">
-        <div className="text-center px-4 py-2 rounded" style={{ background: '#060a0c' }}>
+        <div className="text-center px-4 py-2 rounded flex flex-col items-center gap-4" style={{ background: '#060a0c' }}>
+          <img src="/portalspin.gif" alt="" className="w-20 h-20" />
           <div
             key={idx}
             className="text-[var(--hl-accent)] text-[14px] animate-fade-in"
@@ -425,7 +426,7 @@ export default function HomePage() {
                   <DeribitFlowPanel btc={data?.deribitFlow?.btc || null} eth={data?.deribitFlow?.eth || null} />
                 </div>
                 <div className="bg-[var(--background)] p-3">
-                  <div className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">Options Summary</div>
+                  <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">Options Summary</h2>
                   <div className="space-y-2 text-[11px]">
                     {data?.deribitFlow?.btc && (
                       <div className="space-y-1 px-1">

@@ -77,14 +77,18 @@ function CurrencyBlock({ label, data }: { label: string; data: OptionsFlowSummar
 
 export function DeribitFlowPanel({ btc, eth }: Props) {
   if (!btc && !eth) {
-    return <p className="text-[11px] text-[var(--hl-muted)] px-1">Loading Deribit options flow...</p>;
+    return (
+      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[11px]">
+        Loading options flow...
+      </div>
+    );
   }
 
   return (
     <div>
-      <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">
+      <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">
         Deribit Options Flow
-      </h3>
+      </h2>
       <div className="space-y-3">
         {btc && <CurrencyBlock label="BTC Options" data={btc} />}
         {eth && <CurrencyBlock label="ETH Options" data={eth} />}

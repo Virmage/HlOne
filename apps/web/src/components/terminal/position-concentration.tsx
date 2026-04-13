@@ -61,7 +61,7 @@ export function PositionConcentrationPanel({ data, onSelectToken }: PositionConc
 
   if (!data.length) {
     return (
-      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[12px]">
+      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[11px]">
         Loading concentration data...
       </div>
     );

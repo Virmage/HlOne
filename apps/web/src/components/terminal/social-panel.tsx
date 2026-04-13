@@ -10,7 +10,7 @@ interface SocialPanelProps {
 export function SocialPanel({ social, onSelectToken }: SocialPanelProps) {
   if (!social.length) {
     return (
-      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[12px]">
+      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[11px]">
         No social data available
       </div>
     );
@@ -27,12 +27,12 @@ export function SocialPanel({ social, onSelectToken }: SocialPanelProps) {
       <div className="overflow-hidden">
         <table className="w-full text-[11px]">
           <thead>
-            <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)] text-[10px]">
-              <th className="py-1 px-2 text-left font-normal">Token</th>
-              <th className="py-1 px-2 text-center font-normal">Galaxy</th>
-              <th className="py-1 px-2 text-center font-normal">Sentiment</th>
-              <th className="py-1 px-2 text-right font-normal">Social Vol</th>
-              <th className="py-1 px-2 text-right font-normal">Rank</th>
+            <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)]">
+              <th className="py-1.5 px-2 text-left font-normal">Token</th>
+              <th className="py-1.5 px-2 text-center font-normal">Galaxy</th>
+              <th className="py-1.5 px-2 text-center font-normal">Sentiment</th>
+              <th className="py-1.5 px-2 text-right font-normal">Social Vol</th>
+              <th className="py-1.5 px-2 text-right font-normal">Rank</th>
             </tr>
           </thead>
           <tbody>
@@ -55,8 +55,8 @@ export function SocialPanel({ social, onSelectToken }: SocialPanelProps) {
                   className="border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
                   onClick={() => onSelectToken(s.coin)}
                 >
-                  <td className="py-1 px-2 font-medium text-[var(--foreground)]">{s.coin}</td>
-                  <td className="py-1 px-2 text-center">
+                  <td className="py-1.5 px-2 font-medium text-[var(--foreground)]">{s.coin}</td>
+                  <td className="py-1.5 px-2 text-center">
                     <div className="flex items-center gap-1 justify-center">
                       <div className="w-8 h-1.5 rounded-full bg-[var(--hl-border)] overflow-hidden">
                         <div
@@ -70,10 +70,10 @@ export function SocialPanel({ social, onSelectToken }: SocialPanelProps) {
                   <td className={`py-1 px-2 text-center tabular-nums ${sentimentColor}`}>
                     {s.sentiment}
                   </td>
-                  <td className="py-1 px-2 text-right tabular-nums text-[var(--foreground)]">
+                  <td className="py-1.5 px-2 text-right tabular-nums text-[var(--foreground)]">
                     {s.socialVolume >= 1000 ? `${(s.socialVolume / 1000).toFixed(1)}K` : s.socialVolume}
                   </td>
-                  <td className="py-1 px-2 text-right tabular-nums text-[var(--hl-muted)]">
+                  <td className="py-1.5 px-2 text-right tabular-nums text-[var(--hl-muted)]">
                     #{s.altRank}
                   </td>
                 </tr>

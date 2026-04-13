@@ -24,7 +24,7 @@ const SENTIMENT_STYLE = {
 export function NewsFeed({ news, onSelectToken }: NewsFeedProps) {
   if (!news.length) {
     return (
-      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[12px]">
+      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[11px]">
         No news available
       </div>
     );

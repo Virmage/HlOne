@@ -39,7 +39,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
 
   if (!alerts.length) {
     return (
-      <div className="flex h-40 items-center justify-center text-[var(--hl-muted)] text-[13px]">
+      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[11px]">
         Watching for whale moves...
       </div>
     );
@@ -132,7 +132,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
     {expanded && (
       <div className="fixed inset-0 z-[9998] flex items-center justify-center" onClick={() => setExpanded(false)}>
         <div className="absolute inset-0 bg-black/50" />
-        <div className="relative bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl w-[90vw] max-w-[600px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="relative bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl w-[90vw] max-w-[700px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between p-3 border-b border-[var(--hl-border)] shrink-0">
             <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider">Whale Alerts</h2>
             <button onClick={() => setExpanded(false)} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-[16px]">&times;</button>

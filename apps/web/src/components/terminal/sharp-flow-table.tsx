@@ -15,7 +15,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
 
   if (!flows.length) {
     return (
-      <div className="flex h-40 items-center justify-center text-[var(--hl-muted)] text-[13px]">
+      <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[11px]">
         Loading smart money data...
       </div>
     );
@@ -24,7 +24,7 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
   const visibleFlows = expanded ? flows : flows.slice(0, 8);
 
   const renderTable = (items: SharpFlow[], inModal = false) => (
-    <table className="w-full text-[12px] min-w-[420px]">
+    <table className="w-full text-[11px] min-w-[420px]">
       <thead>
         <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)]">
           <th className="py-1.5 px-2 text-left font-normal">Token</th>
