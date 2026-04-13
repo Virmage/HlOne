@@ -298,7 +298,11 @@ export default function HomePage() {
       {/* ═══ DESKTOP: full layout (unchanged) ═══════════════════════════════ */}
       <div className="hidden md:block">
         <TickerBar tokens={data?.tokens || []} options={data?.options} macro={data?.macro || []} onSelectToken={handleSelectToken} />
-        <MarketPulse regime={data?.regime || null} options={data?.options || {}} onSelectToken={handleSelectToken} onOpenOptions={handleOpenOptions} avgCorrelation={data?.correlationMatrix?.avgCorrelation ?? null} />
+        <div className="flex items-center gap-2 border-b border-[var(--hl-border)] px-3 py-1.5">
+          <MarketPulse regime={data?.regime || null} options={data?.options || {}} onSelectToken={handleSelectToken} onOpenOptions={handleOpenOptions} avgCorrelation={data?.correlationMatrix?.avgCorrelation ?? null} />
+          <span className="text-[var(--hl-border)]">|</span>
+          <CoinIntelPanel detail={coinDetail} coin={chartCoin} />
+        </div>
       </div>
 
       {/* Chart + Positions + Trading (desktop always, mobile only on perps tab) */}
@@ -315,7 +319,6 @@ export default function HomePage() {
               </div>
             )}
           </div>
-          <CoinIntelPanel detail={coinDetail} coin={chartCoin} />
           <div className="px-2">
             <PositionsPanel onSelectToken={handleSelectToken} />
           </div>
