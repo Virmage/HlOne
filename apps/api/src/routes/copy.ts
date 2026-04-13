@@ -171,8 +171,8 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
     }
 
     if (!EFFECTIVE_BUILDER) {
-      reply.code(500);
-      return { error: "Copy trading not configured" };
+      reply.code(503);
+      return { error: "Copy trading is not available — builder address not configured on server" };
     }
 
     const {
