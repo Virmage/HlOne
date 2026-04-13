@@ -101,7 +101,7 @@ export function CoinIntelPanel({ detail }: Props) {
       <div className="flex items-center gap-1">
         <span className="text-[9px] text-[var(--hl-muted)] uppercase font-medium">Score</span>
         <span className={`font-bold tabular-nums ${scoreColor}`}>{score}</span>
-        <span className={`text-[9px] font-bold ${dirColor}`}>{dirLabel}</span>
+        <span className={`font-bold ${dirColor}`}>{dirLabel}</span>
       </div>
 
       <span className="text-[var(--hl-border)]">|</span>
