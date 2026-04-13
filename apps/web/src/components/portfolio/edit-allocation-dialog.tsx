@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { updateAllocation } from "@/lib/api";
+import { useSignMessage } from "wagmi";
+import { useAccount } from "wagmi";
 
 interface EditAllocationDialogProps {
   open: boolean;
@@ -31,16 +33,20 @@ export function EditAllocationDialog({
   const [maxLeverage, setMaxLeverage] = useState(10);
   const [maxPositionPct, setMaxPositionPct] = useState(25);
   const [submitting, setSubmitting] = useState(false);
+  const { signMessageAsync } = useSignMessage();
+  const { address } = useAccount();
 
   const handleSave = async () => {
+    if (!address) return;
     setSubmitting(true);
     try {
       await updateAllocation({
+        walletAddress: address,
         copyRelationshipId,
         ...(capital ? { allocatedCapital: parseFloat(capital) } : {}),
         maxLeverage,
         maxPositionSizePercent: maxPositionPct,
-      });
+      }, signMessageAsync);
       onSaved();
       onOpenChange(false);
     } catch (err) {

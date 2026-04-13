@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { shortenAddress } from "@/lib/utils";
 import { startCopy, getBuilderFee, checkBuilderApproval, type BuilderFeeInfo } from "@/lib/api";
-import { useAccount } from "wagmi";
+import { useAccount, useSignMessage } from "wagmi";
 import { approveBuilderFee as hlApproveBuilderFee } from "@/lib/hl-exchange";
 import { getWalletClient } from "@wagmi/core";
 import { config } from "@/config/wagmi";
@@ -42,6 +42,7 @@ export function CopyDialog({
   const [feeApproved, setFeeApproved] = useState<boolean | null>(null);
   const [approvingFee, setApprovingFee] = useState(false);
   const { connector } = useAccount();
+  const { signMessageAsync } = useSignMessage();
 
   useEffect(() => {
     if (open && walletAddress) {
@@ -83,7 +84,7 @@ export function CopyDialog({
         maxLeverage,
         maxPositionSizePercent: maxPositionPct,
         minOrderSize: parseFloat(minOrder),
-      });
+      }, signMessageAsync);
       setResult(`Copy ${res.status}! Relationship ID: ${res.id.slice(0, 8)}...`);
     } catch (err) {
       setResult(`Error: ${err instanceof Error ? err.message : "Failed"}`);

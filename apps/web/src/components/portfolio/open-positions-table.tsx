@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { shortenAddress, formatUsd, pnlColor } from "@/lib/utils";
 import { closePosition } from "@/lib/api";
 import type { OpenPosition } from "@/lib/api";
+import { useSignMessage, useAccount } from "wagmi";
 
 interface OpenPositionsTableProps {
   positions: OpenPosition[];
@@ -13,8 +14,12 @@ interface OpenPositionsTableProps {
 }
 
 export function OpenPositionsTable({ positions, onRefresh }: OpenPositionsTableProps) {
+  const { signMessageAsync } = useSignMessage();
+  const { address } = useAccount();
+
   const handleClose = async (positionId: string) => {
-    await closePosition(positionId, "Manual close from portfolio");
+    if (!address) return;
+    await closePosition(address, positionId, signMessageAsync, "Manual close from portfolio");
     onRefresh();
   };
 

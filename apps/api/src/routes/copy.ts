@@ -9,49 +9,63 @@ import {
   copiedPositions,
 } from "@hl-copy/db";
 import { ethAddress, positiveNumber, nonNegativeNumber } from "../lib/validation.js";
+import { verifyWalletSignature } from "../lib/auth.js";
 
 const BUILDER_ADDRESS = process.env.BUILDER_ADDRESS;
 if (!BUILDER_ADDRESS || !/^0x[a-fA-F0-9]{40}$/.test(BUILDER_ADDRESS)) {
-  console.warn("[copy] BUILDER_ADDRESS not set or invalid — using default");
+  console.warn("[copy] BUILDER_ADDRESS not set or invalid — copy trading will fail");
 }
-const EFFECTIVE_BUILDER = BUILDER_ADDRESS || "0xB4a59142607C744CCF6C4828f01A6ab79c1f2520";
+const EFFECTIVE_BUILDER = BUILDER_ADDRESS && /^0x[a-fA-F0-9]{40}$/.test(BUILDER_ADDRESS)
+  ? BUILDER_ADDRESS
+  : null;
 const BUILDER_FEE = parseInt(process.env.BUILDER_FEE || "20", 10);
+
+// ─── Signed request fields (required for all mutating endpoints) ─────────
+const signedFields = {
+  signature: z.string().min(1, "Signature required"),
+  timestamp: z.number().int().positive("Timestamp required"),
+};
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
 const StartCopySchema = z.object({
   walletAddress: ethAddress,
   traderAddress: ethAddress,
-  allocatedCapital: positiveNumber,
+  allocatedCapital: positiveNumber.refine(v => v <= 10_000_000, "Capital exceeds maximum"),
   maxLeverage: z.number().int().min(1).max(200).default(10),
   maxPositionSizePercent: z.number().min(1).max(100).default(25),
   minOrderSize: nonNegativeNumber.default(10),
+  ...signedFields,
 });
 
 const StopCopySchema = z.object({
   walletAddress: ethAddress,
   traderAddress: ethAddress,
+  ...signedFields,
 });
 
 const PauseCopySchema = z.object({
-  walletAddress: ethAddress, // caller must prove ownership
+  walletAddress: ethAddress,
   copyRelationshipId: z.string().uuid(),
   paused: z.boolean(),
+  ...signedFields,
 });
 
 const AllocationSchema = z.object({
-  walletAddress: ethAddress, // caller must prove ownership
+  walletAddress: ethAddress,
   copyRelationshipId: z.string().uuid(),
-  allocatedCapital: positiveNumber.optional(),
+  allocatedCapital: positiveNumber.refine(v => v <= 10_000_000, "Capital exceeds maximum").optional(),
   maxLeverage: z.number().int().min(1).max(200).optional(),
   maxPositionSizePercent: z.number().min(1).max(100).optional(),
   minOrderSize: nonNegativeNumber.optional(),
+  ...signedFields,
 });
 
 const ClosePositionSchema = z.object({
-  walletAddress: ethAddress, // caller must prove ownership
+  walletAddress: ethAddress,
   positionId: z.string().uuid(),
   reason: z.string().max(200).optional(),
+  ...signedFields,
 });
 
 // ─── Helper: verify caller owns the copy relationship ───────────────────────
@@ -89,15 +103,22 @@ async function verifyOwnership(
 // ─── Routes ─────────────────────────────────────────────────────────────────
 
 export const copyRoutes: FastifyPluginAsync = async (app) => {
+  // Stricter rate limit for all copy-trading endpoints (5 req/min per IP)
+  const copyRateLimit = { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } };
   /**
    * GET /api/copy/builder-fee
    */
-  app.get("/builder-fee", async () => ({
-    builder: EFFECTIVE_BUILDER,
-    fee: BUILDER_FEE,
-    feePercent: (BUILDER_FEE / 10 / 100).toFixed(4),
-    feeDisplay: `${(BUILDER_FEE / 10).toFixed(1)} bps (${((BUILDER_FEE / 10) / 100 * 100).toFixed(2)}%)`,
-  }));
+  app.get("/builder-fee", async () => {
+    if (!EFFECTIVE_BUILDER) {
+      return { error: "Builder not configured", builder: null, fee: 0 };
+    }
+    return {
+      builder: EFFECTIVE_BUILDER,
+      fee: BUILDER_FEE,
+      feePercent: (BUILDER_FEE / 10 / 100).toFixed(4),
+      feeDisplay: `${(BUILDER_FEE / 10).toFixed(1)} bps (${((BUILDER_FEE / 10) / 100 * 100).toFixed(2)}%)`,
+    };
+  });
 
   /**
    * GET /api/copy/check-builder-approval
@@ -107,6 +128,7 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
   }>("/check-builder-approval", async (req) => {
     const parsed = ethAddress.safeParse(req.query.user);
     if (!parsed.success) return { approved: false, maxFee: 0 };
+    if (!EFFECTIVE_BUILDER) return { approved: false, maxFee: 0 };
 
     try {
       const res = await fetch("https://api.hyperliquid.xyz/info", {
@@ -126,13 +148,31 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
-   * POST /api/copy/start
+   * POST /api/copy/start — REQUIRES WALLET SIGNATURE
    */
   app.post("/start", async (req, reply) => {
     const parsed = StartCopySchema.safeParse(req.body);
     if (!parsed.success) {
       reply.code(400);
       return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
+    }
+
+    // Verify wallet ownership via signature
+    try {
+      await verifyWalletSignature(
+        parsed.data.walletAddress,
+        parsed.data.signature,
+        parsed.data.timestamp,
+        "copy-start",
+      );
+    } catch (err) {
+      reply.code(401);
+      return { error: (err as Error).message };
+    }
+
+    if (!EFFECTIVE_BUILDER) {
+      reply.code(500);
+      return { error: "Copy trading not configured" };
     }
 
     const {
@@ -238,13 +278,26 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
-   * POST /api/copy/stop
+   * POST /api/copy/stop — REQUIRES WALLET SIGNATURE
    */
   app.post("/stop", async (req, reply) => {
     const parsed = StopCopySchema.safeParse(req.body);
     if (!parsed.success) {
       reply.code(400);
       return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
+    }
+
+    // Verify wallet ownership via signature
+    try {
+      await verifyWalletSignature(
+        parsed.data.walletAddress,
+        parsed.data.signature,
+        parsed.data.timestamp,
+        "copy-stop",
+      );
+    } catch (err) {
+      reply.code(401);
+      return { error: (err as Error).message };
     }
 
     const addr = parsed.data.walletAddress.toLowerCase();
@@ -280,13 +333,26 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
-   * POST /api/copy/pause — REQUIRES OWNERSHIP
+   * POST /api/copy/pause — REQUIRES WALLET SIGNATURE + OWNERSHIP
    */
   app.post("/pause", async (req, reply) => {
     const parsed = PauseCopySchema.safeParse(req.body);
     if (!parsed.success) {
       reply.code(400);
       return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
+    }
+
+    // Verify wallet ownership via signature
+    try {
+      await verifyWalletSignature(
+        parsed.data.walletAddress,
+        parsed.data.signature,
+        parsed.data.timestamp,
+        "copy-pause",
+      );
+    } catch (err) {
+      reply.code(401);
+      return { error: (err as Error).message };
     }
 
     const owner = await verifyOwnership(app.db, parsed.data.walletAddress, parsed.data.copyRelationshipId);
@@ -304,13 +370,26 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
-   * PUT /api/copy/allocation — REQUIRES OWNERSHIP
+   * PUT /api/copy/allocation — REQUIRES WALLET SIGNATURE + OWNERSHIP
    */
   app.put("/allocation", async (req, reply) => {
     const parsed = AllocationSchema.safeParse(req.body);
     if (!parsed.success) {
       reply.code(400);
       return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
+    }
+
+    // Verify wallet ownership via signature
+    try {
+      await verifyWalletSignature(
+        parsed.data.walletAddress,
+        parsed.data.signature,
+        parsed.data.timestamp,
+        "copy-allocation",
+      );
+    } catch (err) {
+      reply.code(401);
+      return { error: (err as Error).message };
     }
 
     const owner = await verifyOwnership(app.db, parsed.data.walletAddress, parsed.data.copyRelationshipId);
@@ -342,13 +421,26 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
-   * POST /api/copy/close-position — REQUIRES OWNERSHIP
+   * POST /api/copy/close-position — REQUIRES WALLET SIGNATURE + OWNERSHIP
    */
   app.post("/close-position", async (req, reply) => {
     const parsed = ClosePositionSchema.safeParse(req.body);
     if (!parsed.success) {
       reply.code(400);
       return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
+    }
+
+    // Verify wallet ownership via signature
+    try {
+      await verifyWalletSignature(
+        parsed.data.walletAddress,
+        parsed.data.signature,
+        parsed.data.timestamp,
+        "copy-close-position",
+      );
+    } catch (err) {
+      reply.code(401);
+      return { error: (err as Error).message };
     }
 
     const [position] = await app.db

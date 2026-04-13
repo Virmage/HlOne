@@ -24,7 +24,6 @@ import { getCorrelationMatrixCached } from "../services/correlation-matrix.js";
 import { getOrderFlow } from "../services/order-flow.js";
 import { getPositionConcentration } from "../services/position-concentration.js";
 import { getWhaleAccumulation } from "../services/whale-accumulation.js";
-import { getCexFlowsCached } from "../services/whale-alert.js";
 import { getDeribitFlowCached } from "../services/deribit-flow.js";
 import { getKoreanPremiumCached } from "../services/korean-premium.js";
 import { logTrade, getTradeLog, getTradeStats } from "../services/trade-log.js";
@@ -125,8 +124,6 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       reply.header("Cache-Control", "public, max-age=10, stale-while-revalidate=30");
     } else if (req.url.startsWith("/api/market/token/")) {
       reply.header("Cache-Control", "public, max-age=5, stale-while-revalidate=15");
-    } else if (req.url === "/api/market/whale-alerts") {
-      reply.header("Cache-Control", "public, max-age=10, stale-while-revalidate=20");
     }
   });
 
@@ -320,7 +317,6 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     const orderFlow = getOrderFlow();
     const positionConcentration = await getPositionConcentration().catch(() => []);
     const whaleAccumulation = getWhaleAccumulation();
-    const cexFlows = getCexFlowsCached();
     const deribitFlow = getDeribitFlowCached();
     const koreanPremium = getKoreanPremiumCached();
 
@@ -346,7 +342,6 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       orderFlow,
       positionConcentration,
       whaleAccumulation,
-      cexFlows,
       deribitFlow,
       koreanPremium,
       timestamp: Date.now(),
@@ -953,8 +948,15 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   /**
    * GET /api/market/system-health
    * Comprehensive health check — cache states, background jobs, trade stats.
+   * Protected: only accessible in dev or with ADMIN_SECRET header.
    */
-  app.get("/system-health", async () => {
+  app.get("/system-health", async (req, reply) => {
+    const IS_PRODUCTION = process.env.NODE_ENV === "production";
+    const adminSecret = process.env.ADMIN_SECRET;
+    if (IS_PRODUCTION && (!adminSecret || req.headers["x-admin-secret"] !== adminSecret)) {
+      reply.code(403);
+      return { error: "Forbidden" };
+    }
     const tradeStats = getTradeStats();
 
     // Check cache freshness

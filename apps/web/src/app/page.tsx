@@ -69,11 +69,6 @@ const KoreanPremiumPanel = dynamic(
   () => import("@/components/terminal/korean-premium-panel").then(m => ({ default: m.KoreanPremiumPanel })),
   { ssr: false, loading: () => <PanelSkeleton /> }
 );
-const CexFlowPanel = dynamic(
-  () => import("@/components/terminal/cex-flow-panel").then(m => ({ default: m.CexFlowPanel })),
-  { ssr: false, loading: () => <PanelSkeleton /> }
-);
-
 /* ── Modals & drawers (lazy, only needed on interaction) ──────────────────── */
 const TokenDrawer = dynamic(
   () => import("@/components/terminal/token-drawer").then(m => ({ default: m.TokenDrawer })),
@@ -447,12 +442,9 @@ export default function HomePage() {
               </div>
             )}
             {dataTab === "macro" && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)]">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]">
                 <div className="bg-[var(--background)] p-3">
                   <KoreanPremiumPanel data={data?.koreanPremium || null} />
-                </div>
-                <div className="bg-[var(--background)] p-3">
-                  <CexFlowPanel data={data?.cexFlows || null} />
                 </div>
                 <div className="bg-[var(--background)] p-3">
                   <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />

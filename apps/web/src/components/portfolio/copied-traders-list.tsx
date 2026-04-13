@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { shortenAddress, formatUsd, pnlColor } from "@/lib/utils";
 import { pauseCopy, stopCopy } from "@/lib/api";
 import type { CopiedTrader } from "@/lib/api";
+import { useSignMessage } from "wagmi";
 
 interface CopiedTradersListProps {
   traders: CopiedTrader[];
@@ -21,13 +22,15 @@ export function CopiedTradersList({
   onRefresh,
   onEditAllocation,
 }: CopiedTradersListProps) {
+  const { signMessageAsync } = useSignMessage();
+
   const handleTogglePause = async (id: string, currentlyPaused: boolean) => {
-    await pauseCopy(id, !currentlyPaused);
+    await pauseCopy(walletAddress, id, !currentlyPaused, signMessageAsync);
     onRefresh();
   };
 
   const handleStop = async (traderAddress: string) => {
-    await stopCopy(walletAddress, traderAddress);
+    await stopCopy(walletAddress, traderAddress, signMessageAsync);
     onRefresh();
   };
 

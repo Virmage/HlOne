@@ -27,7 +27,7 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 async function main() {
   console.log(`[startup] Starting API server (PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || "development"})...`);
-  console.log(`[startup] COINALYZE_API_KEY: ${process.env.COINALYZE_API_KEY ? "set (" + process.env.COINALYZE_API_KEY.slice(0, 8) + "...)" : "NOT SET"}`);
+  console.log(`[startup] COINALYZE_API_KEY: ${process.env.COINALYZE_API_KEY ? "set" : "NOT SET"}`);
 
   // ─── Redis (optional — enables multi-instance caching) ──────────────────────
   initRedis();
@@ -60,8 +60,8 @@ async function main() {
     allowedOrigins.push("http://localhost:3000");
   }
   // In production with no FRONTEND_URL, allow all origins as fallback (better than blocking everything)
-  const corsOrigin = allowedOrigins.length > 0 ? allowedOrigins : true;
-  console.log("[startup] Registering CORS (origins:", allowedOrigins.length > 0 ? allowedOrigins : "all", ")...");
+  const corsOrigin = allowedOrigins.length > 0 ? allowedOrigins : false;
+  console.log("[startup] Registering CORS (origins:", allowedOrigins.length > 0 ? allowedOrigins : "none — requests will be blocked", ")...");
   await app.register(cors, {
     origin: corsOrigin,
     credentials: true,

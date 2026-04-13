@@ -157,53 +157,94 @@ export async function getPortfolioHistory(walletAddress: string, days = 30) {
   );
 }
 
+// ─── Wallet Signature Helper ─────────────────────────────────────────────────
+// All mutating endpoints require a signed message proving wallet ownership.
+// The frontend signs "HLOne:<action>:<timestamp>" with the connected wallet.
+
+async function signAction(
+  walletAddress: string,
+  action: string,
+  signMessage: (args: { message: string }) => Promise<string>,
+): Promise<{ signature: string; timestamp: number }> {
+  const timestamp = Date.now();
+  const message = `HLOne:${action}:${timestamp}`;
+  const signature = await signMessage({ message });
+  return { signature, timestamp };
+}
+
 // ─── Copy ────────────────────────────────────────────────────────────────────
 
-export async function startCopy(data: {
-  walletAddress: string;
-  traderAddress: string;
-  allocatedCapital: number;
-  maxLeverage?: number;
-  maxPositionSizePercent?: number;
-  minOrderSize?: number;
-}) {
+export async function startCopy(
+  data: {
+    walletAddress: string;
+    traderAddress: string;
+    allocatedCapital: number;
+    maxLeverage?: number;
+    maxPositionSizePercent?: number;
+    minOrderSize?: number;
+  },
+  signMessage: (args: { message: string }) => Promise<string>,
+) {
+  const auth = await signAction(data.walletAddress, "copy-start", signMessage);
   return apiFetch<{ id: string; status: string }>("/api/copy/start", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({ ...data, ...auth }),
   });
 }
 
-export async function stopCopy(walletAddress: string, traderAddress: string) {
+export async function stopCopy(
+  walletAddress: string,
+  traderAddress: string,
+  signMessage: (args: { message: string }) => Promise<string>,
+) {
+  const auth = await signAction(walletAddress, "copy-stop", signMessage);
   return apiFetch<{ status: string }>("/api/copy/stop", {
     method: "POST",
-    body: JSON.stringify({ walletAddress, traderAddress }),
+    body: JSON.stringify({ walletAddress, traderAddress, ...auth }),
   });
 }
 
-export async function pauseCopy(copyRelationshipId: string, paused: boolean) {
+export async function pauseCopy(
+  walletAddress: string,
+  copyRelationshipId: string,
+  paused: boolean,
+  signMessage: (args: { message: string }) => Promise<string>,
+) {
+  const auth = await signAction(walletAddress, "copy-pause", signMessage);
   return apiFetch<{ status: string }>("/api/copy/pause", {
     method: "POST",
-    body: JSON.stringify({ copyRelationshipId, paused }),
+    body: JSON.stringify({ walletAddress, copyRelationshipId, paused, ...auth }),
   });
 }
 
-export async function updateAllocation(data: {
-  copyRelationshipId: string;
-  allocatedCapital?: number;
-  maxLeverage?: number;
-  maxPositionSizePercent?: number;
-  minOrderSize?: number;
-}) {
+export async function updateAllocation(
+  data: {
+    walletAddress: string;
+    copyRelationshipId: string;
+    allocatedCapital?: number;
+    maxLeverage?: number;
+    maxPositionSizePercent?: number;
+    minOrderSize?: number;
+  },
+  signMessage: (args: { message: string }) => Promise<string>,
+) {
+  const auth = await signAction(data.walletAddress, "copy-allocation", signMessage);
   return apiFetch<{ status: string }>("/api/copy/allocation", {
     method: "PUT",
-    body: JSON.stringify(data),
+    body: JSON.stringify({ ...data, ...auth }),
   });
 }
 
-export async function closePosition(positionId: string, reason?: string) {
+export async function closePosition(
+  walletAddress: string,
+  positionId: string,
+  signMessage: (args: { message: string }) => Promise<string>,
+  reason?: string,
+) {
+  const auth = await signAction(walletAddress, "copy-close-position", signMessage);
   return apiFetch<{ status: string }>("/api/copy/close-position", {
     method: "POST",
-    body: JSON.stringify({ positionId, reason }),
+    body: JSON.stringify({ walletAddress, positionId, reason, ...auth }),
   });
 }
 
@@ -562,27 +603,6 @@ export interface WhaleAccumulation {
   strength: number;
 }
 
-export interface CexTransfer {
-  blockchain: string;
-  symbol: string;
-  hash: string;
-  from: { owner: string; ownerType: string };
-  to: { owner: string; ownerType: string };
-  amountUsd: number;
-  timestamp: number;
-  direction: "deposit" | "withdrawal" | "inter_exchange";
-}
-
-export interface CexFlowSummary {
-  netFlowUsd1h: number;
-  totalDepositsUsd1h: number;
-  totalWithdrawalsUsd1h: number;
-  recentTransfers: CexTransfer[];
-  byExchange: { exchange: string; deposits: number; withdrawals: number; net: number }[];
-  byCoin: { symbol: string; deposits: number; withdrawals: number; net: number }[];
-  fetchedAt: number;
-}
-
 export interface DeribitOptionTrade {
   instrument: string;
   direction: "buy" | "sell";
@@ -638,7 +658,6 @@ export interface TerminalData {
   orderFlow: OrderFlowCoin[];
   positionConcentration: PositionConcentration[];
   whaleAccumulation?: WhaleAccumulation[];
-  cexFlows?: CexFlowSummary | null;
   deribitFlow?: { btc: OptionsFlowSummary; eth: OptionsFlowSummary } | null;
   koreanPremium?: KoreanPremium | null;
   timestamp: number;
@@ -839,13 +858,17 @@ export async function getPortfolioPage(address: string, window = "allTime") {
 
 // ─── Users ───────────────────────────────────────────────────────────────────
 
-export async function connectUser(walletAddress: string) {
+export async function connectUser(
+  walletAddress: string,
+  signMessage: (args: { message: string }) => Promise<string>,
+) {
+  const auth = await signAction(walletAddress, "connect", signMessage);
   return apiFetch<{
     user: { id: string; walletAddress: string; createdAt: string };
     hasApiWallet: boolean;
     apiWalletExpiry: string | null;
   }>("/api/users/connect", {
     method: "POST",
-    body: JSON.stringify({ walletAddress }),
+    body: JSON.stringify({ walletAddress, ...auth }),
   });
 }
