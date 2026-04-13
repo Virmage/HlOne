@@ -8,7 +8,6 @@ import { MarketPulse } from "@/components/terminal/market-pulse";
 import { PriceChart } from "@/components/terminal/price-chart";
 import { TradingPanel } from "@/components/terminal/trading-panel";
 import { OrderBook } from "@/components/terminal/order-book";
-import { CoinIntelPanel } from "@/components/terminal/coin-intel-panel";
 // MacroBar merged into TickerBar
 import { PositionsPanel } from "@/components/terminal/positions-panel";
 import type { SelectedOption } from "@/components/terminal/inline-options-chain";
@@ -298,11 +297,7 @@ export default function HomePage() {
       {/* ═══ DESKTOP: full layout (unchanged) ═══════════════════════════════ */}
       <div className="hidden md:block">
         <TickerBar tokens={data?.tokens || []} options={data?.options} macro={data?.macro || []} onSelectToken={handleSelectToken} />
-        <div className="flex items-center gap-2 border-b border-[var(--hl-border)] px-3 py-1.5">
-          <MarketPulse regime={data?.regime || null} options={data?.options || {}} onSelectToken={handleSelectToken} onOpenOptions={handleOpenOptions} avgCorrelation={data?.correlationMatrix?.avgCorrelation ?? null} />
-          <span className="text-[var(--hl-border)]">|</span>
-          <CoinIntelPanel detail={coinDetail} coin={chartCoin} />
-        </div>
+        <MarketPulse regime={data?.regime || null} options={data?.options || {}} onSelectToken={handleSelectToken} onOpenOptions={handleOpenOptions} avgCorrelation={data?.correlationMatrix?.avgCorrelation ?? null} />
       </div>
 
       {/* Chart + Positions + Trading (desktop always, mobile only on perps tab) */}
@@ -332,14 +327,14 @@ export default function HomePage() {
             </div>
           )}
           <div className="w-[260px] flex-shrink-0 overflow-y-auto">
-            <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} />
+            <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} coinDetail={coinDetail} />
           </div>
         </div>
 
         {/* Mobile trading panel — only on perps tab */}
         {mobileTab === "perps" && (
           <div className="md:hidden w-full border-t border-[var(--hl-border)]">
-            <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} />
+            <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} coinDetail={coinDetail} />
           </div>
         )}
       </div>

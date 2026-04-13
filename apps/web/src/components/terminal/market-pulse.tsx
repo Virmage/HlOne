@@ -43,7 +43,7 @@ export function MarketPulse({ regime, options, onSelectToken, onOpenOptions, avg
   const totalOI = totalCallOI + totalPutOI;
 
   return (
-    <div className="overflow-hidden shrink-0">
+    <div className="overflow-hidden border-b border-[var(--hl-border)]">
       <div ref={trackRef} className="flex py-1 px-2 gap-1" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         {[0, 1].map((copy) => (
           <div key={copy} className="flex items-center shrink-0 gap-1" aria-hidden={copy === 1}>
