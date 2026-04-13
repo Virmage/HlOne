@@ -20,7 +20,6 @@ import { warmLiquidationMids } from "./liquidation-heatmap.js";
 import { getCachedHip3Tokens } from "./market-data.js";
 import { getAllDeriveOptionsData } from "./derive-options.js";
 import { prewarmTokenDetails } from "../routes/market.js";
-import { fetchCexFlows, isWhaleAlertConfigured } from "./whale-alert.js";
 import { fetchDeribitFlow } from "./deribit-flow.js";
 import { fetchKoreanPremium } from "./korean-premium.js";
 
@@ -30,24 +29,26 @@ export function startBackgroundJobs() {
   if (started) return;
   started = true;
 
-  // Phase 1: Warm critical data before healthcheck passes.
+  // Phase 1: Warm critical data FAST — parallelize independent fetches.
   // Railway keeps the old instance until healthcheck returns 200.
-  console.log("[bg] Phase 1: warming prices + OI + smart money (healthcheck gates on prices)...");
+  console.log("[bg] Phase 1: warming prices + OI + smart money...");
   (async () => {
     try {
-      // Load persisted smart money from Redis first — instant data on boot
-      await loadSmartMoneyFromCache();
-      await getCachedMids();
-      await getCachedAssetCtxs();
-      await loadOIFromDb();
-      await loadFillsFromDb();
-      await snapshotOI();
-      console.log("[bg] Phase 1a complete — prices warm, healthcheck should pass now");
-      // Live smart money scan (overwrites persisted data with fresh)
+      // Phase 1a: all independent fetches in parallel
+      await Promise.all([
+        loadSmartMoneyFromCache(),
+        getCachedMids(),
+        getCachedAssetCtxs(),
+        loadOIFromDb(),
+        loadFillsFromDb(),
+      ]);
+      console.log("[bg] Phase 1a complete — prices + cached smart money warm");
+      // OI snapshot needs mids to be warm
+      snapshotOI().catch(e => console.error("[bg] OI snapshot:", (e as Error).message));
+      // Phase 1b: live smart money scan (slower, but data is already available from cache)
       await getSmartMoneyData();
-      await getTokenScores();
-      await getSignals();
-      console.log("[bg] Phase 1b complete — smart money + signals warm");
+      await Promise.all([getTokenScores(), getSignals()]);
+      console.log("[bg] Phase 1b complete — live smart money + signals warm");
     } catch (err) {
       console.error("[bg] Phase 1 warm-up failed:", (err as Error).message);
     }
@@ -125,15 +126,6 @@ export function startBackgroundJobs() {
       }
     }, 60_000);
 
-    // Every 60s: CEX flows via Whale Alert (if API key configured)
-    if (isWhaleAlertConfigured()) {
-      setInterval(async () => {
-        try { await fetchCexFlows(); } catch (err) {
-          console.error("[bg] Whale Alert:", (err as Error).message);
-        }
-      }, 60_000);
-    }
-
     // Daily OI cleanup (remove snapshots older than 30 days)
     setInterval(async () => {
       try { await cleanupOldOISnapshots(); } catch {}
@@ -146,40 +138,31 @@ export function startBackgroundJobs() {
       } catch { /* ignore */ }
     }, 60_000);
 
-    // Staggered warm-up of remaining data (smart money already done in Phase 1)
+    // Warm remaining data in parallel (smart money already done in Phase 1)
     (async () => {
       try {
-        console.log("[bg] Initial warm-up: HIP-3 builder perps...");
-        await getCachedHip3Tokens();
-        console.log("[bg] HIP-3 warm-up complete");
+        console.log("[bg] Phase 2 warm-up: all secondary data in parallel...");
+        await Promise.all([
+          getCachedHip3Tokens().catch(e => console.error("[bg] HIP-3:", (e as Error).message)),
+          getNewsFeed().catch(e => console.error("[bg] CryptoPanic:", (e as Error).message)),
+          getBatchSocialMetrics().catch(e => console.error("[bg] LunarCrush:", (e as Error).message)),
+          getMacroData().catch(e => console.error("[bg] Macro:", (e as Error).message)),
+          computeCorrelationMatrix().catch(e => console.error("[bg] Correlation:", (e as Error).message)),
+          warmLiquidationMids().catch(() => {}),
+          warmOrderFlowMids().catch(() => {}),
+          getAllDeriveOptionsData().catch(e => console.error("[bg] Derive:", (e as Error).message)),
+          fetchDeribitFlow().catch(e => console.error("[bg] Deribit:", (e as Error).message)),
+          fetchKoreanPremium().catch(e => console.error("[bg] KR premium:", (e as Error).message)),
+        ]);
+        console.log("[bg] Phase 2 warm-up complete");
       } catch (err) {
-        console.error("[bg] HIP-3 warm-up failed:", (err as Error).message);
+        console.error("[bg] Phase 2 warm-up failed:", (err as Error).message);
       }
 
-      await new Promise(r => setTimeout(r, 10_000));
-
+      // Whale tracker after other data is warm (needs positions data)
       try {
-        console.log("[bg] Initial warm-up: news + social + macro + correlation...");
-        await getNewsFeed().catch(e => console.error("[bg] CryptoPanic warm-up:", (e as Error).message));
-        await getBatchSocialMetrics().catch(e => console.error("[bg] LunarCrush warm-up:", (e as Error).message));
-        await getMacroData().catch(e => console.error("[bg] Macro warm-up:", (e as Error).message));
-        await computeCorrelationMatrix().catch(e => console.error("[bg] Correlation warm-up:", (e as Error).message));
-        await warmLiquidationMids().catch(() => {});
-        await warmOrderFlowMids().catch(() => {});
-        await getAllDeriveOptionsData().catch(e => console.error("[bg] Derive warm-up:", (e as Error).message));
-        await fetchDeribitFlow().catch(e => console.error("[bg] Deribit warm-up:", (e as Error).message));
-        await fetchKoreanPremium().catch(e => console.error("[bg] KR premium warm-up:", (e as Error).message));
-        if (isWhaleAlertConfigured()) await fetchCexFlows().catch(e => console.error("[bg] Whale Alert warm-up:", (e as Error).message));
-        console.log("[bg] News + social + macro + correlation + derive + deribit + KR premium warm-up complete");
-      } catch (err) {
-        console.error("[bg] News/social warm-up failed:", (err as Error).message);
-      }
-
-      await new Promise(r => setTimeout(r, 15_000));
-
-      try {
-        console.log("[bg] Initial warm-up: whale tracker...");
         await runWhaleCheck();
+        console.log("[bg] Whale tracker warm");
       } catch (err) {
         console.error("[bg] Whale tracker warm-up failed:", (err as Error).message);
       }
