@@ -341,30 +341,23 @@ async function fetchTickersForCoin(currency: string, instruments: DeriveInstrume
     instruments.map(i => i.option_details?.expiry || 0).filter(e => e * 1000 > Date.now())
   )].sort((a, b) => a - b);
 
-  const allTickers: DeriveTicker[] = [];
+  // Limit to nearest 6 expiries to avoid excessive API calls
+  const cappedExpiries = expiryTimestamps.slice(0, 6);
 
-  for (const expiryTs of expiryTimestamps) {
-    const dateStr = formatExpiryDate(expiryTs);
-    try {
-      const tickers = await getTickersForExpiry(currency, dateStr);
-      const tickerList = Object.values(tickers);
-      if (tickerList.length > 0) {
-        allTickers.push(...tickerList);
-        continue;
+  // Fetch all expiries in parallel (batch endpoint) for speed
+  const results = await Promise.all(
+    cappedExpiries.map(async (expiryTs) => {
+      const dateStr = formatExpiryDate(expiryTs);
+      try {
+        const tickers = await getTickersForExpiry(currency, dateStr);
+        return Object.values(tickers);
+      } catch {
+        return [];
       }
-    } catch { /* fall through */ }
+    })
+  );
 
-    // Fallback to individual
-    const expiryInstruments = instruments
-      .filter(i => i.option_details?.expiry === expiryTs)
-      .slice(0, 30);
-    const tickers = (await Promise.all(
-      expiryInstruments.map(i => getTickerForInstrument(i.instrument_name))
-    )).filter(Boolean) as DeriveTicker[];
-    allTickers.push(...tickers);
-  }
-
-  return allTickers;
+  return results.flat();
 }
 
 function computeSnapshot(currency: string, allTickers: DeriveTicker[]): DeriveOptionsSnapshot | null {
@@ -526,6 +519,11 @@ export async function getAllDeriveOptionsData(): Promise<Map<string, DeriveOptio
 
   await Promise.all(promises);
   return results;
+}
+
+/** Return whatever Derive data is already cached — never triggers a fetch */
+export function getDeriveOptionsCached(): Map<string, DeriveOptionsSnapshot> {
+  return new Map(snapshotCache);
 }
 
 /** Get full options chain for a coin — used for the options trading UI */

@@ -419,3 +419,8 @@ export async function getAllOptionsData(): Promise<Map<string, OptionsSnapshot>>
   await Promise.all(promises);
   return results;
 }
+
+/** Return whatever Deribit options data is already cached — never triggers a fetch */
+export function getOptionsDataCached(): Map<string, OptionsSnapshot> {
+  return new Map(cache);
+}

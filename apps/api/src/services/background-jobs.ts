@@ -21,6 +21,7 @@ import { getCachedHip3Tokens } from "./market-data.js";
 import { getAllDeriveOptionsData } from "./derive-options.js";
 import { prewarmTokenDetails } from "../routes/market.js";
 import { fetchDeribitFlow } from "./deribit-flow.js";
+import { getAllOptionsData } from "./options-data.js";
 import { fetchKoreanPremium } from "./korean-premium.js";
 import { fetchEcosystemData } from "./hyperliquid-ecosystem.js";
 
@@ -117,10 +118,11 @@ export function startBackgroundJobs() {
       }
     }, 30_000);
 
-    // Every 60s: Deribit options flow + Korean premium (free APIs, no key needed)
+    // Every 60s: Deribit options flow + Deribit options data + Korean premium (free APIs, no key needed)
     setInterval(async () => {
       try {
         await fetchDeribitFlow();
+        await getAllOptionsData().catch(e => console.error("[bg] Deribit options:", (e as Error).message));
         await fetchKoreanPremium();
       } catch (err) {
         console.error("[bg] Deribit/KR premium:", (err as Error).message);
@@ -159,7 +161,8 @@ export function startBackgroundJobs() {
           warmLiquidationMids().catch(() => {}),
           warmOrderFlowMids().catch(() => {}),
           getAllDeriveOptionsData().catch(e => console.error("[bg] Derive:", (e as Error).message)),
-          fetchDeribitFlow().catch(e => console.error("[bg] Deribit:", (e as Error).message)),
+          fetchDeribitFlow().catch(e => console.error("[bg] Deribit flow:", (e as Error).message)),
+          getAllOptionsData().catch(e => console.error("[bg] Deribit options:", (e as Error).message)),
           fetchKoreanPremium().catch(e => console.error("[bg] KR premium:", (e as Error).message)),
           fetchEcosystemData().catch(e => console.error("[bg] Ecosystem:", (e as Error).message)),
         ]);

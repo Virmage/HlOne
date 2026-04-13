@@ -9,8 +9,8 @@ import { getWhaleAlerts, getHotTokens, getWhaleAlertsForCoin, getHistoricalWhale
 import { getTokenScoresCached } from "../services/scoring.js";
 import { getTraderDisplayName } from "../services/name-generator.js";
 import { discoverActiveTraders, getCandleSnapshot, getFundingHistory, getL2Book, getRecentTrades, getClearinghouseState, getOpenOrders } from "../services/hyperliquid.js";
-import { getOptionsData, getAllOptionsData, type OptionsSnapshot } from "../services/options-data.js";
-import { getDeriveOptionsData, getAllDeriveOptionsData, getDeriveOptionsChain, getDeriveSupportedCoins } from "../services/derive-options.js";
+import { getOptionsData, getAllOptionsData, getOptionsDataCached, type OptionsSnapshot } from "../services/options-data.js";
+import { getDeriveOptionsData, getAllDeriveOptionsData, getDeriveOptionsChain, getDeriveSupportedCoins, getDeriveOptionsCached } from "../services/derive-options.js";
 import { getSignals, getSignalsCached } from "../services/signals.js";
 import { getOICandlesForInterval, getExternalOICandles } from "../services/oi-tracker.js";
 import { cacheGet, cacheSet, isRedisConnected } from "../services/cache.js";
@@ -260,10 +260,9 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     let optionsData: Record<string, OptionsSnapshot> = {};
     try {
       const deriveSupportedCoins = new Set(getDeriveSupportedCoins());
-      const [deriveOpts, deribitOpts] = await Promise.all([
-        getAllDeriveOptionsData().catch(() => new Map()),
-        getAllOptionsData().catch(() => new Map<string, OptionsSnapshot>()),
-      ]);
+      // Use cached data (populated by background jobs) — never block terminal
+      const deriveOpts = getDeriveOptionsCached();
+      const deribitOpts = getOptionsDataCached();
       // Derive is primary for BTC/ETH/SOL/HYPE
       for (const [k, v] of deriveOpts) {
         optionsData[k] = {
