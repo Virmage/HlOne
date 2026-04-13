@@ -15,7 +15,7 @@ export function TopTradersPanel({ traders, onSelectTrader }: TopTradersPanelProp
         Top Traders (30d)
       </h2>
       <div className="overflow-y-auto scroll-on-hover max-h-[calc(50vh-60px)]">
-        <table className="w-full text-[12px]">
+        <table className="w-full text-[11px]">
           <thead>
             <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)]">
               <th className="py-1.5 px-2 text-left font-normal">Trader</th>

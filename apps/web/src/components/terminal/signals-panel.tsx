@@ -42,15 +42,14 @@ function FlowTooltip() {
 
 type FlowItem = { side: "LONG" | "SHORT"; coin: string; strength: number };
 
-function FlowColumn({ title, items, onSelectToken, accent }: {
+function FlowColumn({ title, items, onSelectToken }: {
   title: string;
   items: FlowItem[];
   onSelectToken: (coin: string) => void;
-  accent: string;
 }) {
   return (
     <div className="bg-[var(--background)] p-2 min-w-0">
-      <h3 className="text-[10px] font-medium uppercase tracking-wider mb-1.5 px-1" style={{ color: accent }}>
+      <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">
         {title}
         {title.includes("Sharps") && <FlowTooltip />}
       </h3>
@@ -62,7 +61,7 @@ function FlowColumn({ title, items, onSelectToken, accent }: {
             <button
               key={i}
               onClick={() => onSelectToken(item.coin)}
-              className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-[var(--hl-surface-hover)] transition-colors text-[12px]"
+              className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-[var(--hl-surface-hover)] transition-colors text-[11px]"
             >
               <span className={`font-bold w-4 ${item.side === "LONG" ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                 {item.side === "LONG" ? "L" : "S"}
@@ -103,10 +102,10 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-px bg-[var(--hl-border)]">
       {/* Sharps Flow */}
-      <FlowColumn title="Sharps Flow" items={sharpItems} onSelectToken={onSelectToken} accent="var(--hl-accent)" />
+      <FlowColumn title="Sharps Flow" items={sharpItems} onSelectToken={onSelectToken} />
 
       {/* Squares Flow */}
-      <FlowColumn title="Squares Flow" items={squareItems} onSelectToken={onSelectToken} accent="var(--hl-muted)" />
+      <FlowColumn title="Squares Flow" items={squareItems} onSelectToken={onSelectToken} />
 
       {/* Funding Arbitrage */}
       <div className="bg-[var(--background)] p-2">
@@ -121,7 +120,7 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
               <button
                 key={f.coin}
                 onClick={() => onSelectToken(f.coin)}
-                className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-[var(--hl-surface-hover)] transition-colors text-[12px]"
+                className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-[var(--hl-surface-hover)] transition-colors text-[11px]"
               >
                 <span className={`font-bold w-4 ${f.direction === "long" ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
                   {f.direction === "long" ? "L" : "S"}
@@ -149,7 +148,7 @@ export function SignalsPanel({ signals, fundingOpps, callout, onSelectToken }: S
               <button
                 key={i}
                 onClick={() => onSelectToken(s.coin)}
-                className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-[var(--hl-surface-hover)] transition-colors text-[12px]"
+                className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-[var(--hl-surface-hover)] transition-colors text-[11px]"
               >
                 <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
                   s.severity === "critical" ? "bg-[var(--hl-red)] text-white" :

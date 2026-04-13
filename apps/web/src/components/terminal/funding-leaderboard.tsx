@@ -52,7 +52,7 @@ export function FundingLeaderboardPanel({ funding, onSelectToken }: FundingLeade
         </h2>
         <div className="grid grid-cols-2 gap-px bg-[var(--hl-border)] overflow-hidden">
           <div className="bg-[var(--background)]">
-            <div className="text-[10px] font-medium text-[var(--hl-red)] px-2 py-1 border-b border-[var(--hl-border)]">
+            <div className="text-[10px] font-medium text-[var(--hl-red)] uppercase tracking-wider px-2 py-1.5 border-b border-[var(--hl-border)]">
               Longs Paying (Short to earn)
             </div>
             <div className="overflow-hidden">
@@ -62,7 +62,7 @@ export function FundingLeaderboardPanel({ funding, onSelectToken }: FundingLeade
             </div>
           </div>
           <div className="bg-[var(--background)]">
-            <div className="text-[10px] font-medium text-[var(--hl-green)] px-2 py-1 border-b border-[var(--hl-border)]">
+            <div className="text-[10px] font-medium text-[var(--hl-green)] uppercase tracking-wider px-2 py-1.5 border-b border-[var(--hl-border)]">
               Shorts Paying (Long to earn)
             </div>
             <div className="overflow-hidden">
@@ -87,13 +87,13 @@ export function FundingLeaderboardPanel({ funding, onSelectToken }: FundingLeade
             <div className="overflow-y-auto flex-1">
               <div className="grid grid-cols-2 gap-px bg-[var(--hl-border)]">
                 <div className="bg-[var(--background)]">
-                  <div className="text-[10px] font-medium text-[var(--hl-red)] px-2 py-1 border-b border-[var(--hl-border)]">Longs Paying</div>
+                  <div className="text-[10px] font-medium text-[var(--hl-red)] uppercase tracking-wider px-2 py-1.5 border-b border-[var(--hl-border)]">Longs Paying</div>
                   {funding.topPositive.map((f) => (
                     <FundingRow key={`exp-${f.coin}`} f={f} isPositive={true} onSelectToken={onSelectToken} />
                   ))}
                 </div>
                 <div className="bg-[var(--background)]">
-                  <div className="text-[10px] font-medium text-[var(--hl-green)] px-2 py-1 border-b border-[var(--hl-border)]">Shorts Paying</div>
+                  <div className="text-[10px] font-medium text-[var(--hl-green)] uppercase tracking-wider px-2 py-1.5 border-b border-[var(--hl-border)]">Shorts Paying</div>
                   {funding.topNegative.map((f) => (
                     <FundingRow key={`exp-${f.coin}`} f={f} isPositive={false} onSelectToken={onSelectToken} />
                   ))}

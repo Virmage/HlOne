@@ -71,7 +71,7 @@ export function PositionConcentrationPanel({ data, onSelectToken }: PositionConc
   const toggleCoin = (coin: string) => setExpandedCoin(expandedCoin === coin ? null : coin);
 
   const header = (
-    <div className="flex items-center px-2 py-1 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
+    <div className="flex items-center px-2 py-1.5 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
       <span className="w-12">Token</span>
       <span className="flex-1">Top 5 %</span>
       <span className="w-14 text-right">Long%</span>

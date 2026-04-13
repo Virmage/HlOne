@@ -24,7 +24,7 @@ function CurrencyBlock({ label, data }: { label: string; data: OptionsFlowSummar
   return (
     <div>
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-[11px] font-bold text-[var(--foreground)]">{label}</span>
+        <span className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider">{label}</span>
         <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
           data.sentiment === "bullish" ? "bg-[var(--hl-green)]/15 text-[var(--hl-green)]" :
           data.sentiment === "bearish" ? "bg-[var(--hl-red)]/15 text-[var(--hl-red)]" :

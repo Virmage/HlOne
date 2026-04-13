@@ -14,7 +14,7 @@ export function DivergencePanel({ divergences, onSelectToken }: DivergencePanelP
         Sharp vs Square Divergences
       </h2>
       {divergences.length === 0 ? (
-        <div className="text-center text-[var(--hl-muted)] text-[12px] py-6">
+        <div className="flex h-32 items-center justify-center text-[var(--hl-muted)] text-[11px]">
           No divergences detected
         </div>
       ) : (
