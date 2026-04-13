@@ -65,8 +65,8 @@ const DeribitFlowPanel = dynamic(
   () => import("@/components/terminal/deribit-flow-panel").then(m => ({ default: m.DeribitFlowPanel })),
   { ssr: false, loading: () => <PanelSkeleton /> }
 );
-const KoreanPremiumPanel = dynamic(
-  () => import("@/components/terminal/korean-premium-panel").then(m => ({ default: m.KoreanPremiumPanel })),
+const CopyTradePanel = dynamic(
+  () => import("@/components/terminal/copy-trade-panel").then(m => ({ default: m.CopyTradePanel })),
   { ssr: false, loading: () => <PanelSkeleton /> }
 );
 /* ── Modals & drawers (lazy, only needed on interaction) ──────────────────── */
@@ -193,16 +193,16 @@ function LoadingScreen() {
   );
 }
 
-type DataTab = "flow" | "whales" | "signals" | "options" | "funding" | "newssocial" | "macro";
+type DataTab = "signals" | "flow" | "whales" | "options" | "hypeeco" | "newssocial" | "copytrade";
 
 const DATA_TABS: { key: DataTab; label: string }[] = [
+  { key: "signals", label: "Signals" },
   { key: "flow", label: "Sharp Flow" },
   { key: "whales", label: "Whales" },
-  { key: "signals", label: "Signals" },
   { key: "options", label: "Options Flow" },
-  { key: "funding", label: "Funding" },
+  { key: "hypeeco", label: "Hype Eco" },
   { key: "newssocial", label: "News & Social" },
-  { key: "macro", label: "Macro" },
+  { key: "copytrade", label: "Copy Trade" },
 ];
 
 export default function HomePage() {
@@ -216,20 +216,14 @@ export default function HomePage() {
   const [tradingMode, setTradingMode] = useState<"perp" | "options">("perp");
   const [selectedOption, setSelectedOption] = useState<SelectedOption | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>("perps");
-  const [dataTab, setDataTab] = useState<DataTab>("flow");
+  const [dataTab, setDataTab] = useState<DataTab>("signals");
 
-  // Defer below-fold grid rendering until the main thread is idle
+  // Defer below-fold grid rendering briefly after data loads
   const [showBelow, setShowBelow] = useState(false);
   useEffect(() => {
     if (!data) return;
-    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      const id = (window as unknown as { requestIdleCallback: (cb: () => void) => number }).requestIdleCallback(() => setShowBelow(true));
-      return () => (window as unknown as { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(id);
-    } else {
-      // Fallback for Safari / older browsers
-      const t = setTimeout(() => setShowBelow(true), 100);
-      return () => clearTimeout(t);
-    }
+    const t = setTimeout(() => setShowBelow(true), 150);
+    return () => clearTimeout(t);
   }, [data]);
 
   // Stable callbacks — prevent child re-renders
@@ -397,13 +391,23 @@ export default function HomePage() {
             ))}
           </div>
 
-          {/* Tab content */}
-          <div className="p-3">
+          {/* Tab content — min-h keeps all tabs flush at bottom */}
+          <div className="p-3 min-h-[420px]">
+            {dataTab === "signals" && (
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-px bg-[var(--hl-border)] min-h-[400px]">
+                <div className="bg-[var(--background)]">
+                  <SignalsPanel signals={data?.signals || []} fundingOpps={data?.fundingOpps || []} callout={data?.callout || null} onSelectToken={handleSelectToken} />
+                </div>
+                <div className="bg-[var(--background)] p-3 lg:w-[340px]">
+                  <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
+                </div>
+              </div>
+            )}
             {dataTab === "flow" && (
               <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
             )}
             {dataTab === "whales" && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)]">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)] min-h-[400px]">
                 <div className="bg-[var(--background)] p-3">
                   <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
                 </div>
@@ -415,24 +419,62 @@ export default function HomePage() {
                 </div>
               </div>
             )}
-            {dataTab === "signals" && (
-              <SignalsPanel signals={data?.signals || []} fundingOpps={data?.fundingOpps || []} callout={data?.callout || null} onSelectToken={handleSelectToken} />
-            )}
             {dataTab === "options" && (
-              <DeribitFlowPanel btc={data?.deribitFlow?.btc || null} eth={data?.deribitFlow?.eth || null} />
-            )}
-            {dataTab === "funding" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)] min-h-[400px]">
                 <div className="bg-[var(--background)] p-3">
-                  <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
+                  <DeribitFlowPanel btc={data?.deribitFlow?.btc || null} eth={data?.deribitFlow?.eth || null} />
                 </div>
                 <div className="bg-[var(--background)] p-3">
+                  <div className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">Options Summary</div>
+                  <div className="space-y-2 text-[11px]">
+                    {data?.deribitFlow?.btc && (
+                      <div className="space-y-1 px-1">
+                        <div className="flex justify-between">
+                          <span className="text-[var(--hl-muted)]">BTC P/C Ratio</span>
+                          <span className={`font-medium ${data.deribitFlow.btc.putCallRatio > 1.2 ? "text-[var(--hl-red)]" : data.deribitFlow.btc.putCallRatio < 0.8 ? "text-[var(--hl-green)]" : "text-[var(--foreground)]"}`}>
+                            {data.deribitFlow.btc.putCallRatio.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-[var(--hl-muted)]">BTC Sentiment</span>
+                          <span className={`font-medium ${data.deribitFlow.btc.sentiment === "bullish" ? "text-[var(--hl-green)]" : data.deribitFlow.btc.sentiment === "bearish" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]"}`}>
+                            {data.deribitFlow.btc.sentiment.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {data?.deribitFlow?.eth && (
+                      <div className="space-y-1 px-1 mt-2">
+                        <div className="flex justify-between">
+                          <span className="text-[var(--hl-muted)]">ETH P/C Ratio</span>
+                          <span className={`font-medium ${data.deribitFlow.eth.putCallRatio > 1.2 ? "text-[var(--hl-red)]" : data.deribitFlow.eth.putCallRatio < 0.8 ? "text-[var(--hl-green)]" : "text-[var(--foreground)]"}`}>
+                            {data.deribitFlow.eth.putCallRatio.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-[var(--hl-muted)]">ETH Sentiment</span>
+                          <span className={`font-medium ${data.deribitFlow.eth.sentiment === "bullish" ? "text-[var(--hl-green)]" : data.deribitFlow.eth.sentiment === "bearish" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]"}`}>
+                            {data.deribitFlow.eth.sentiment.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            {dataTab === "hypeeco" && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)] min-h-[400px]">
+                <div className="bg-[var(--background)] p-3">
                   <LendingRatesPanel />
+                </div>
+                <div className="bg-[var(--background)] p-3">
+                  <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
                 </div>
               </div>
             )}
             {dataTab === "newssocial" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)] min-h-[400px]">
                 <div className="bg-[var(--background)] p-3">
                   <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
                 </div>
@@ -441,15 +483,8 @@ export default function HomePage() {
                 </div>
               </div>
             )}
-            {dataTab === "macro" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)]">
-                <div className="bg-[var(--background)] p-3">
-                  <KoreanPremiumPanel data={data?.koreanPremium || null} />
-                </div>
-                <div className="bg-[var(--background)] p-3">
-                  <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
-                </div>
-              </div>
+            {dataTab === "copytrade" && (
+              <CopyTradePanel traders={data?.topTraders || []} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
             )}
           </div>
         </div>

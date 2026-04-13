@@ -32,6 +32,7 @@ const events: WhaleEvent[] = [];
 let previousPositions = new Map<string, Map<string, { size: number; side: string }>>();
 let eventCounter = 0;
 let isRunning = false;
+let isFirstRun = true;
 let db: Database | null = null;
 
 /** Initialize DB reference for persisting whale events */
@@ -74,6 +75,7 @@ export async function runWhaleCheck(): Promise<void> {
           // Compare with previous
           const prevMap = previousPositions.get(whale.address.toLowerCase()) || new Map();
           const name = getTraderDisplayName(whale.address, whale.displayName);
+          const seedRun = isFirstRun; // on first run, seed existing positions as events
 
           // Check for new positions (in current but not in previous)
           for (const [coin, curr] of currentMap) {
@@ -82,18 +84,35 @@ export async function runWhaleCheck(): Promise<void> {
             const posValue = Math.abs(curr.size) * price;
 
             if (!prev) {
-              // New position opened
-              addEvent({
-                whaleAddress: whale.address,
-                whaleName: name,
-                accountValue: whale.accountValue,
-                coin,
-                eventType: curr.side === "long" ? "open_long" : "open_short",
-                oldSize: 0,
-                newSize: curr.size,
-                positionValueUsd: posValue,
-                price,
-              });
+              if (seedRun) {
+                // First run: emit existing large positions so the feed isn't empty
+                if (posValue >= 100_000) {
+                  addEvent({
+                    whaleAddress: whale.address,
+                    whaleName: name,
+                    accountValue: whale.accountValue,
+                    coin,
+                    eventType: curr.side === "long" ? "open_long" : "open_short",
+                    oldSize: 0,
+                    newSize: curr.size,
+                    positionValueUsd: posValue,
+                    price,
+                  }, true); // skip bot detection for seed
+                }
+              } else {
+                // Normal: new position opened since last check
+                addEvent({
+                  whaleAddress: whale.address,
+                  whaleName: name,
+                  accountValue: whale.accountValue,
+                  coin,
+                  eventType: curr.side === "long" ? "open_long" : "open_short",
+                  oldSize: 0,
+                  newSize: curr.size,
+                  positionValueUsd: posValue,
+                  price,
+                });
+              }
             } else if (Math.sign(curr.size) !== Math.sign(prev.size)) {
               // Flipped direction
               addEvent({
@@ -158,6 +177,10 @@ export async function runWhaleCheck(): Promise<void> {
         await new Promise(r => setTimeout(r, 300));
       }
     }
+    if (isFirstRun) {
+      isFirstRun = false;
+      console.log(`[whale-tracker] First run complete — seeded ${events.length} existing whale positions`);
+    }
   } finally {
     isRunning = false;
   }
@@ -205,16 +228,18 @@ function trackEventFrequency(address: string) {
   addressEventTimes.set(addr, times);
 }
 
-function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">) {
+function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">, skipBotCheck = false) {
   // Skip small position changes — minimum $100K position value to be whale-worthy
   if (Math.abs(event.positionValueUsd) < 100_000) return;
 
   // Skip known market makers by name
   if (KNOWN_MM_NAMES.has(event.whaleName.toLowerCase())) return;
 
-  // Track frequency and skip if likely market maker bot
-  trackEventFrequency(event.whaleAddress);
-  if (isLikelyBot(event.whaleAddress)) return;
+  // Track frequency and skip if likely market maker bot (skip during seed run)
+  if (!skipBotCheck) {
+    trackEventFrequency(event.whaleAddress);
+    if (isLikelyBot(event.whaleAddress)) return;
+  }
 
   eventCounter++;
   const now = Date.now();
@@ -229,8 +254,8 @@ function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">) {
     events.length = MAX_EVENTS;
   }
 
-  // Persist to DB (fire-and-forget) — skip if DB circuit breaker tripped
-  if (db && dbFailCount < DB_FAIL_THRESHOLD) {
+  // Persist to DB (fire-and-forget) — skip seed events and if DB circuit breaker tripped
+  if (db && dbFailCount < DB_FAIL_THRESHOLD && !skipBotCheck) {
     db.insert(whaleEvents).values({
       whaleAddress: event.whaleAddress,
       whaleName: event.whaleName,

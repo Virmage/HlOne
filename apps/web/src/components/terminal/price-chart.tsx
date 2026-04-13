@@ -594,7 +594,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
           </div>
 
           {/* Coin intel — score + sharp/square/whale signals (same column layout as Mark/Oracle/etc) */}
-          {detail && (detail.coinFlow || detail.coinAccumulation) && (
+          {detail && (
             <>
               <div className="w-px h-5 bg-[var(--hl-border)] shrink-0 mx-1 hidden sm:block" />
               <CoinIntelPanel detail={detail} coin={coin} />

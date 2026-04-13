@@ -86,9 +86,6 @@ export function CoinIntelPanel({ detail }: Props) {
   const accum = detail.coinAccumulation;
   const { score, direction } = computeScore(detail);
 
-  const hasData = flow || accum;
-  if (!hasData) return null;
-
   const scoreColor = score >= 60 ? "text-[var(--hl-green)]" : score <= 40 ? "text-[var(--hl-red)]" : "text-orange-400";
   const dirLabel = direction === "long" ? "BULL" : direction === "short" ? "BEAR" : "—";
 
@@ -103,38 +100,32 @@ export function CoinIntelPanel({ detail }: Props) {
       </div>
 
       {/* Sharps column */}
-      {flow && (
-        <div className="flex flex-col shrink-0">
-          <span className="text-[8px] sm:text-[9px] text-[var(--hl-muted)] uppercase">Sharps</span>
-          <span className={`font-medium ${flow.sharpDirection === "long" ? "text-[var(--hl-green)]" : flow.sharpDirection === "short" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]"}`}>
-            {flow.sharpDirection === "long" ? "Long" : flow.sharpDirection === "short" ? "Short" : "Flat"}
-          </span>
-        </div>
-      )}
+      <div className="flex flex-col shrink-0">
+        <span className="text-[8px] sm:text-[9px] text-[var(--hl-muted)] uppercase">Sharps</span>
+        <span className={`font-medium ${flow ? (flow.sharpDirection === "long" ? "text-[var(--hl-green)]" : flow.sharpDirection === "short" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]") : "text-[var(--hl-muted)]"}`}>
+          {flow ? (flow.sharpDirection === "long" ? "Long" : flow.sharpDirection === "short" ? "Short" : "Flat") : "—"}
+        </span>
+      </div>
 
       {/* Squares column */}
-      {flow && (
-        <div className="flex flex-col shrink-0">
-          <span className="text-[8px] sm:text-[9px] text-[var(--hl-muted)] uppercase">Squares</span>
-          <span className={`font-medium ${flow.squareDirection === "long" ? "text-[var(--hl-green)]" : flow.squareDirection === "short" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]"}`}>
-            {flow.squareDirection === "long" ? "Long" : flow.squareDirection === "short" ? "Short" : "Flat"}
-          </span>
-        </div>
-      )}
+      <div className="flex flex-col shrink-0">
+        <span className="text-[8px] sm:text-[9px] text-[var(--hl-muted)] uppercase">Squares</span>
+        <span className={`font-medium ${flow ? (flow.squareDirection === "long" ? "text-[var(--hl-green)]" : flow.squareDirection === "short" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]") : "text-[var(--hl-muted)]"}`}>
+          {flow ? (flow.squareDirection === "long" ? "Long" : flow.squareDirection === "short" ? "Short" : "Flat") : "—"}
+        </span>
+      </div>
 
       {/* Whales column */}
-      {accum && (
-        <div className="flex flex-col shrink-0">
-          <span className="text-[8px] sm:text-[9px] text-[var(--hl-muted)] uppercase">Whales</span>
-          <span className={`font-medium ${
-            accum.trend === "accumulating" ? "text-[var(--hl-green)]" :
-            accum.trend === "distributing" ? "text-[var(--hl-red)]" :
-            "text-[var(--hl-muted)]"
-          }`}>
-            {accum.trend === "accumulating" ? "Accum" : accum.trend === "distributing" ? "Dist" : "Flat"}
-          </span>
-        </div>
-      )}
+      <div className="flex flex-col shrink-0">
+        <span className="text-[8px] sm:text-[9px] text-[var(--hl-muted)] uppercase">Whales</span>
+        <span className={`font-medium ${accum ? (
+          accum.trend === "accumulating" ? "text-[var(--hl-green)]" :
+          accum.trend === "distributing" ? "text-[var(--hl-red)]" :
+          "text-[var(--hl-muted)]"
+        ) : "text-[var(--hl-muted)]"}`}>
+          {accum ? (accum.trend === "accumulating" ? "Accum" : accum.trend === "distributing" ? "Dist" : "Flat") : "—"}
+        </span>
+      </div>
 
       {/* Divergence badge */}
       {flow?.divergence && (
