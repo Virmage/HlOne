@@ -65,8 +65,16 @@ const DeribitFlowPanel = dynamic(
   () => import("@/components/terminal/deribit-flow-panel").then(m => ({ default: m.DeribitFlowPanel })),
   { ssr: false, loading: () => <PanelSkeleton /> }
 );
+const EcosystemPanel = dynamic(
+  () => import("@/components/terminal/ecosystem-panel").then(m => ({ default: m.EcosystemPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
 const CopyTradePanel = dynamic(
   () => import("@/components/terminal/copy-trade-panel").then(m => ({ default: m.CopyTradePanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const DivergencePanel = dynamic(
+  () => import("@/components/terminal/divergence-panel").then(m => ({ default: m.DivergencePanel })),
   { ssr: false, loading: () => <PanelSkeleton /> }
 );
 /* ── Modals & drawers (lazy, only needed on interaction) ──────────────────── */
@@ -194,11 +202,10 @@ function LoadingScreen() {
   );
 }
 
-type DataTab = "signals" | "flow" | "whales" | "options" | "hypeeco" | "newssocial" | "copytrade";
+type DataTab = "signals" | "whales" | "options" | "hypeeco" | "newssocial" | "copytrade";
 
 const DATA_TABS: { key: DataTab; label: string }[] = [
   { key: "signals", label: "Signals" },
-  { key: "flow", label: "Sharp Flow" },
   { key: "whales", label: "Whales" },
   { key: "options", label: "Options Flow" },
   { key: "hypeeco", label: "Hype Eco" },
@@ -336,9 +343,6 @@ export default function HomePage() {
       {mobileTab === "data" && (
         <div className="md:hidden space-y-0">
           <div className="p-3 border-b border-[var(--hl-border)]">
-            <SignalsPanel signals={data?.signals || []} fundingOpps={data?.fundingOpps || []} callout={data?.callout || null} onSelectToken={handleSelectToken} />
-          </div>
-          <div className="p-3 border-b border-[var(--hl-border)]">
             <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
           </div>
           <div className="p-3 border-b border-[var(--hl-border)]">
@@ -395,27 +399,31 @@ export default function HomePage() {
           {/* Tab content — min-h keeps all tabs flush at bottom */}
           <div className="p-3 min-h-[420px]">
             {dataTab === "signals" && (
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-px bg-[var(--hl-border)] min-h-[400px]">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)] min-h-[400px]">
                 <div className="bg-[var(--background)]">
-                  <SignalsPanel signals={data?.signals || []} fundingOpps={data?.fundingOpps || []} callout={data?.callout || null} onSelectToken={handleSelectToken} />
+                  <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
                 </div>
-                <div className="bg-[var(--background)] p-3 lg:w-[340px]">
-                  <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
+                <div className="bg-[var(--background)] flex flex-col gap-px">
+                  <div className="p-3 flex-1">
+                    <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
+                  </div>
+                  {(data?.divergences?.length ?? 0) > 0 && (
+                    <div className="border-t border-[var(--hl-border)] p-3">
+                      <DivergencePanel divergences={data?.divergences || []} onSelectToken={handleSelectToken} />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
-            {dataTab === "flow" && (
-              <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
-            )}
             {dataTab === "whales" && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)] min-h-[400px]">
-                <div className="bg-[var(--background)] p-3">
+                <div className="bg-[var(--background)] p-3 flex flex-col" style={{ minHeight: 400 }}>
                   <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
                 </div>
-                <div className="bg-[var(--background)] p-3">
+                <div className="bg-[var(--background)] p-3 flex flex-col" style={{ minHeight: 400 }}>
                   <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
                 </div>
-                <div className="bg-[var(--background)] p-3">
+                <div className="bg-[var(--background)] p-3 flex flex-col" style={{ minHeight: 400 }}>
                   <WhaleAccumulationPanel data={data?.whaleAccumulation || []} onSelectToken={handleSelectToken} />
                 </div>
               </div>
@@ -425,52 +433,101 @@ export default function HomePage() {
                 <div className="bg-[var(--background)] p-3">
                   <DeribitFlowPanel btc={data?.deribitFlow?.btc || null} eth={data?.deribitFlow?.eth || null} />
                 </div>
-                <div className="bg-[var(--background)] p-3">
-                  <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">Options Summary</h2>
-                  <div className="space-y-2 text-[11px]">
-                    {data?.deribitFlow?.btc && (
-                      <div className="space-y-1 px-1">
-                        <div className="flex justify-between">
-                          <span className="text-[var(--hl-muted)]">BTC P/C Ratio</span>
-                          <span className={`font-medium ${data.deribitFlow.btc.putCallRatio > 1.2 ? "text-[var(--hl-red)]" : data.deribitFlow.btc.putCallRatio < 0.8 ? "text-[var(--hl-green)]" : "text-[var(--foreground)]"}`}>
-                            {data.deribitFlow.btc.putCallRatio.toFixed(2)}
-                          </span>
+                <div className="bg-[var(--background)] p-3 flex flex-col gap-4">
+                  {/* BTC + ETH key metrics */}
+                  <div>
+                    <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">Options Analytics</h2>
+                    <div className="grid grid-cols-2 gap-px bg-[var(--hl-border)]">
+                      {[{ label: "BTC", d: data?.deribitFlow?.btc }, { label: "ETH", d: data?.deribitFlow?.eth }].map(({ label, d }) => d && (
+                        <div key={label} className="bg-[var(--background)] p-2 space-y-1.5">
+                          <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider">{label}</h3>
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-[var(--hl-muted)]">Sentiment</span>
+                            <span className={`font-medium ${d.sentiment === "bullish" ? "text-[var(--hl-green)]" : d.sentiment === "bearish" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]"}`}>
+                              {d.sentiment.toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-[var(--hl-muted)]">P/C Ratio</span>
+                            <span className={`font-medium tabular-nums ${d.putCallRatio > 1.2 ? "text-[var(--hl-red)]" : d.putCallRatio < 0.8 ? "text-[var(--hl-green)]" : "text-[var(--foreground)]"}`}>
+                              {d.putCallRatio.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-[var(--hl-muted)]">Avg IV</span>
+                            <span className="text-[var(--foreground)] font-medium tabular-nums">{d.avgIv}%</span>
+                          </div>
+                          {d.maxPainStrike && (
+                            <div className="flex justify-between text-[11px]">
+                              <span className="text-[var(--hl-muted)]">Max Pain</span>
+                              <span className="text-[var(--foreground)] font-medium tabular-nums">${d.maxPainStrike.toLocaleString()}</span>
+                            </div>
+                          )}
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-[var(--hl-muted)]">BTC Sentiment</span>
-                          <span className={`font-medium ${data.deribitFlow.btc.sentiment === "bullish" ? "text-[var(--hl-green)]" : data.deribitFlow.btc.sentiment === "bearish" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]"}`}>
-                            {data.deribitFlow.btc.sentiment.toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                    {data?.deribitFlow?.eth && (
-                      <div className="space-y-1 px-1 mt-2">
-                        <div className="flex justify-between">
-                          <span className="text-[var(--hl-muted)]">ETH P/C Ratio</span>
-                          <span className={`font-medium ${data.deribitFlow.eth.putCallRatio > 1.2 ? "text-[var(--hl-red)]" : data.deribitFlow.eth.putCallRatio < 0.8 ? "text-[var(--hl-green)]" : "text-[var(--foreground)]"}`}>
-                            {data.deribitFlow.eth.putCallRatio.toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-[var(--hl-muted)]">ETH Sentiment</span>
-                          <span className={`font-medium ${data.deribitFlow.eth.sentiment === "bullish" ? "text-[var(--hl-green)]" : data.deribitFlow.eth.sentiment === "bearish" ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]"}`}>
-                            {data.deribitFlow.eth.sentiment.toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-                    )}
+                      ))}
+                    </div>
                   </div>
+
+                  {/* Notable Strikes — BTC */}
+                  {data?.deribitFlow?.btc?.notableStrikes?.length ? (
+                    <div>
+                      <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">BTC Notable Strikes</h3>
+                      <div className="overflow-hidden">
+                        <div className="flex items-center px-2 py-1 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
+                          <span className="w-20">Strike</span>
+                          <span className="w-12">Type</span>
+                          <span className="flex-1 text-right">Volume</span>
+                          <span className="w-14 text-right">Avg IV</span>
+                        </div>
+                        {data.deribitFlow.btc.notableStrikes.map((s, i) => (
+                          <div key={i} className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)]">
+                            <span className="w-20 font-medium text-[var(--foreground)] tabular-nums">${s.strike.toLocaleString()}</span>
+                            <span className={`w-12 font-medium ${s.type === "call" ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{s.type.toUpperCase()}</span>
+                            <span className="flex-1 text-right tabular-nums text-[var(--foreground)]">{s.volume.toFixed(1)}</span>
+                            <span className="w-14 text-right tabular-nums text-[var(--hl-muted)]">{s.avgIv.toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* IV Term Structure — BTC */}
+                  {data?.deribitFlow?.btc?.ivTermStructure?.length ? (
+                    <div>
+                      <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">BTC IV Term Structure</h3>
+                      <div className="overflow-hidden">
+                        <div className="flex items-center px-2 py-1 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
+                          <span className="flex-1">Expiry</span>
+                          <span className="w-14 text-right">Call IV</span>
+                          <span className="w-14 text-right">Put IV</span>
+                          <span className="w-14 text-right">Avg IV</span>
+                        </div>
+                        {data.deribitFlow.btc.ivTermStructure.map((e, i) => (
+                          <div key={i} className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)]">
+                            <span className="flex-1 font-medium text-[var(--foreground)]">{e.expiry}</span>
+                            <span className="w-14 text-right tabular-nums text-[var(--hl-green)]">{e.callIv.toFixed(1)}%</span>
+                            <span className="w-14 text-right tabular-nums text-[var(--hl-red)]">{e.putIv.toFixed(1)}%</span>
+                            <span className="w-14 text-right tabular-nums text-[var(--foreground)]">{e.avgIv.toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             )}
             {dataTab === "hypeeco" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)] min-h-[400px]">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)] min-h-[400px]">
                 <div className="bg-[var(--background)] p-3">
-                  <LendingRatesPanel />
+                  <EcosystemPanel data={data?.ecosystem || null} />
                 </div>
-                <div className="bg-[var(--background)] p-3">
-                  <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
+                <div className="bg-[var(--background)] flex flex-col gap-px">
+                  <div className="p-3 flex-1">
+                    <LendingRatesPanel />
+                  </div>
+                  <div className="border-t border-[var(--hl-border)] p-3">
+                    <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
+                  </div>
                 </div>
               </div>
             )}

@@ -26,6 +26,7 @@ import { getPositionConcentration } from "../services/position-concentration.js"
 import { getWhaleAccumulation } from "../services/whale-accumulation.js";
 import { getDeribitFlowCached } from "../services/deribit-flow.js";
 import { getKoreanPremiumCached } from "../services/korean-premium.js";
+import { getEcosystemCached, fetchEcosystemData } from "../services/hyperliquid-ecosystem.js";
 import { logTrade, getTradeLog, getTradeStats } from "../services/trade-log.js";
 import { z } from "zod";
 import { ethAddress, positiveNumber, nonNegativeNumber, coinName } from "../lib/validation.js";
@@ -319,6 +320,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     const whaleAccumulation = getWhaleAccumulation();
     const deribitFlow = getDeribitFlowCached();
     const koreanPremium = getKoreanPremiumCached();
+    const ecosystem = getEcosystemCached();
 
     const result = {
       tokens: tokenData,
@@ -344,6 +346,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       whaleAccumulation,
       deribitFlow,
       koreanPremium,
+      ecosystem,
       timestamp: Date.now(),
     };
     terminalCache = { data: result, fetchedAt: Date.now() };

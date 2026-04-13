@@ -32,6 +32,14 @@ export interface OptionsFlowSummary {
   totalNotionalUsd: number;
   /** Sentiment summary */
   sentiment: "bullish" | "bearish" | "neutral";
+  /** Average IV across recent trades */
+  avgIv: number;
+  /** Max pain strike (strike with most OI pain for buyers) */
+  maxPainStrike: number | null;
+  /** Notable strikes: highest volume strikes */
+  notableStrikes: { strike: number; type: "call" | "put"; volume: number; avgIv: number }[];
+  /** IV by expiry bucket for term structure */
+  ivTermStructure: { expiry: string; avgIv: number; callIv: number; putIv: number; tradeCount: number }[];
   fetchedAt: number;
 }
 
@@ -105,12 +113,21 @@ function buildSummary(trades: DeribitOptionTrade[]): OptionsFlowSummary {
   let netCallPremium = 0;
   let netPutPremium = 0;
   let totalNotional = 0;
+  let ivSum = 0;
+  let ivCount = 0;
 
   const largeTrades: DeribitOptionTrade[] = [];
+
+  // Aggregate by strike for max pain + notable strikes
+  const strikeMap = new Map<number, { callVol: number; putVol: number; callIvSum: number; putIvSum: number; callCount: number; putCount: number }>();
+  // Aggregate by expiry for IV term structure
+  const expiryMap = new Map<string, { callIvSum: number; putIvSum: number; callCount: number; putCount: number; totalCount: number }>();
 
   for (const t of trades) {
     const premiumUsd = t.price * t.indexPrice * t.amount;
     totalNotional += t.notionalUsd;
+
+    if (t.iv > 0) { ivSum += t.iv; ivCount++; }
 
     if (t.type === "call") {
       callVolume += t.amount;
@@ -123,15 +140,70 @@ function buildSummary(trades: DeribitOptionTrade[]): OptionsFlowSummary {
     if (t.notionalUsd >= MIN_NOTIONAL) {
       largeTrades.push(t);
     }
+
+    // Strike aggregation
+    const sk = strikeMap.get(t.strike) ?? { callVol: 0, putVol: 0, callIvSum: 0, putIvSum: 0, callCount: 0, putCount: 0 };
+    if (t.type === "call") {
+      sk.callVol += t.amount;
+      if (t.iv > 0) { sk.callIvSum += t.iv; sk.callCount++; }
+    } else {
+      sk.putVol += t.amount;
+      if (t.iv > 0) { sk.putIvSum += t.iv; sk.putCount++; }
+    }
+    strikeMap.set(t.strike, sk);
+
+    // Expiry aggregation
+    const ex = expiryMap.get(t.expiry) ?? { callIvSum: 0, putIvSum: 0, callCount: 0, putCount: 0, totalCount: 0 };
+    ex.totalCount++;
+    if (t.type === "call" && t.iv > 0) { ex.callIvSum += t.iv; ex.callCount++; }
+    if (t.type === "put" && t.iv > 0) { ex.putIvSum += t.iv; ex.putCount++; }
+    expiryMap.set(t.expiry, ex);
   }
 
   const pcRatio = callVolume > 0 ? putVolume / callVolume : 1;
-
-  // Sentiment from net premium flow
   const netFlow = netCallPremium - netPutPremium;
   const sentiment: OptionsFlowSummary["sentiment"] =
     netFlow > 50_000 ? "bullish" :
     netFlow < -50_000 ? "bearish" : "neutral";
+
+  // Max pain: strike where total buyer losses are maximized
+  // Approximation: strike with highest combined call+put volume (most contracts expire worthless)
+  let maxPainStrike: number | null = null;
+  let maxPainScore = 0;
+  for (const [strike, data] of strikeMap) {
+    const score = data.callVol + data.putVol;
+    if (score > maxPainScore) {
+      maxPainScore = score;
+      maxPainStrike = strike;
+    }
+  }
+
+  // Notable strikes: top by volume
+  const notableStrikes = [...strikeMap.entries()]
+    .map(([strike, data]) => ({
+      strike,
+      type: (data.callVol >= data.putVol ? "call" : "put") as "call" | "put",
+      volume: data.callVol + data.putVol,
+      avgIv: (data.callCount + data.putCount) > 0
+        ? (data.callIvSum + data.putIvSum) / (data.callCount + data.putCount)
+        : 0,
+    }))
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, 5);
+
+  // IV term structure by expiry
+  const ivTermStructure = [...expiryMap.entries()]
+    .map(([expiry, data]) => ({
+      expiry,
+      avgIv: (data.callCount + data.putCount) > 0
+        ? (data.callIvSum + data.putIvSum) / (data.callCount + data.putCount)
+        : 0,
+      callIv: data.callCount > 0 ? data.callIvSum / data.callCount : 0,
+      putIv: data.putCount > 0 ? data.putIvSum / data.putCount : 0,
+      tradeCount: data.totalCount,
+    }))
+    .filter(e => e.tradeCount >= 2)
+    .sort((a, b) => a.expiry.localeCompare(b.expiry));
 
   return {
     recentTrades: largeTrades.sort((a, b) => b.notionalUsd - a.notionalUsd).slice(0, 15),
@@ -140,6 +212,10 @@ function buildSummary(trades: DeribitOptionTrade[]): OptionsFlowSummary {
     netPutPremiumUsd: Math.round(netPutPremium),
     totalNotionalUsd: Math.round(totalNotional),
     sentiment,
+    avgIv: ivCount > 0 ? Math.round(ivSum / ivCount * 10) / 10 : 0,
+    maxPainStrike,
+    notableStrikes,
+    ivTermStructure,
     fetchedAt: Date.now(),
   };
 }

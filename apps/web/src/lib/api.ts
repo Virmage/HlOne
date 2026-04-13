@@ -625,6 +625,10 @@ export interface OptionsFlowSummary {
   netPutPremiumUsd: number;
   totalNotionalUsd: number;
   sentiment: "bullish" | "bearish" | "neutral";
+  avgIv: number;
+  maxPainStrike: number | null;
+  notableStrikes: { strike: number; type: "call" | "put"; volume: number; avgIv: number }[];
+  ivTermStructure: { expiry: string; avgIv: number; callIv: number; putIv: number; tradeCount: number }[];
   fetchedAt: number;
 }
 
@@ -633,6 +637,37 @@ export interface KoreanPremium {
   eth: { krwPrice: number; globalUsd: number; premiumPct: number } | null;
   usdKrw: number;
   sentiment: "extreme_fomo" | "fomo" | "neutral" | "fear" | "extreme_fear";
+  fetchedAt: number;
+}
+
+export interface VaultSummary {
+  name: string;
+  vaultAddress: string;
+  leader: string;
+  tvl: number;
+  apr: number;
+  followerCount: number;
+}
+
+export interface PlatformStats {
+  totalOI: number;
+  volume24h: number;
+  totalUsers: number;
+  totalTrades: number;
+}
+
+export interface HypeStaking {
+  totalStaked: number;
+  validatorCount: number;
+  topValidators: { name: string; stake: number; commission: number }[];
+}
+
+export interface EcosystemData {
+  vaults: VaultSummary[];
+  platform: PlatformStats;
+  staking: HypeStaking | null;
+  spotTokenCount: number;
+  perpAssetCount: number;
   fetchedAt: number;
 }
 
@@ -660,6 +695,7 @@ export interface TerminalData {
   whaleAccumulation?: WhaleAccumulation[];
   deribitFlow?: { btc: OptionsFlowSummary; eth: OptionsFlowSummary } | null;
   koreanPremium?: KoreanPremium | null;
+  ecosystem?: EcosystemData | null;
   timestamp: number;
 }
 

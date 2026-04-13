@@ -22,6 +22,7 @@ import { getAllDeriveOptionsData } from "./derive-options.js";
 import { prewarmTokenDetails } from "../routes/market.js";
 import { fetchDeribitFlow } from "./deribit-flow.js";
 import { fetchKoreanPremium } from "./korean-premium.js";
+import { fetchEcosystemData } from "./hyperliquid-ecosystem.js";
 
 let started = false;
 
@@ -126,6 +127,13 @@ export function startBackgroundJobs() {
       }
     }, 60_000);
 
+    // Every 120s: Ecosystem data (vaults, staking, platform stats)
+    setInterval(async () => {
+      try { await fetchEcosystemData(); } catch (err) {
+        console.error("[bg] Ecosystem:", (err as Error).message);
+      }
+    }, 120_000);
+
     // Daily OI cleanup (remove snapshots older than 30 days)
     setInterval(async () => {
       try { await cleanupOldOISnapshots(); } catch {}
@@ -153,6 +161,7 @@ export function startBackgroundJobs() {
           getAllDeriveOptionsData().catch(e => console.error("[bg] Derive:", (e as Error).message)),
           fetchDeribitFlow().catch(e => console.error("[bg] Deribit:", (e as Error).message)),
           fetchKoreanPremium().catch(e => console.error("[bg] KR premium:", (e as Error).message)),
+          fetchEcosystemData().catch(e => console.error("[bg] Ecosystem:", (e as Error).message)),
         ]);
         console.log("[bg] Phase 2 warm-up complete");
       } catch (err) {
