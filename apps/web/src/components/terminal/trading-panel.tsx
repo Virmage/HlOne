@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import type { TokenOverview, HLOneScore, TokenDetail } from "@/lib/api";
+import type { TokenOverview, HLOneScore } from "@/lib/api";
 import type { PlaceOrderResult } from "@/lib/hl-exchange";
-import { CoinIntelPanel } from "./coin-intel-panel";
 import { BUILDER_FEE_PERCENT, BUILDER_FEE_DISPLAY } from "@/lib/hl-exchange";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 import { hasDeriveOptions } from "./hype-options";
@@ -18,14 +17,13 @@ interface TradingPanelProps {
   onTradingModeChange?: (mode: "perp" | "options") => void;
   selectedOption?: SelectedOption | null;
   onClearOption?: () => void;
-  coinDetail?: TokenDetail | null;
 }
 
 type Side = "long" | "short";
 type OrderType = "market" | "limit";
 type MarginMode = "cross" | "isolated";
 
-export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradingMode, onTradingModeChange, selectedOption, onClearOption, coinDetail }: TradingPanelProps) {
+export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradingMode, onTradingModeChange, selectedOption, onClearOption }: TradingPanelProps) {
   const mode = tradingMode ?? "perp";
   const setMode = (m: "perp" | "options") => onTradingModeChange?.(m);
   const [side, setSide] = useState<Side>("long");
@@ -293,12 +291,6 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
       {/* ─── Perp Mode (existing) ─── */}
       {mode === "perp" && <div className="flex flex-col flex-1 min-h-0">
       <div className="flex-1 overflow-y-auto">
-      {/* Coin intel — sharp/square positioning + whale accumulation */}
-      {coinDetail && (
-        <div className="mx-3 mt-2 px-2 py-1.5 rounded border border-[var(--hl-border)] bg-[var(--hl-surface)]">
-          <CoinIntelPanel detail={coinDetail} coin={coin} />
-        </div>
-      )}
       {/* Top row: Isolated / Leverage / Classic — HL style */}
       <div className="grid grid-cols-3 gap-px mx-3 mt-3">
         <button

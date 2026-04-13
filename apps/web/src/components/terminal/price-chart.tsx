@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { TokenDetail, TokenOverview, WhaleAlert, LiquidationBand } from "@/lib/api";
 import { getTokenDetail, getOICandles as fetchOICandles, getCandles as fetchCandlesViaBackend } from "@/lib/api";
 import { useAccountInfo } from "@/hooks/use-account-info";
+import { CoinIntelPanel } from "./coin-intel-panel";
 
 interface PriceChartProps {
   coin: string;
@@ -633,6 +634,16 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
                     {accountInfo.positionCount}
                   </span>
                 </div>
+              </div>
+            </>
+          )}
+
+          {/* Coin intel — sharp/square positioning + whale accumulation */}
+          {detail && (detail.coinFlow || detail.coinAccumulation) && (
+            <>
+              <div className="w-px h-5 bg-[var(--hl-border)] shrink-0 mx-1 hidden sm:block" />
+              <div className="hidden sm:block shrink-0">
+                <CoinIntelPanel detail={detail} coin={coin} />
               </div>
             </>
           )}

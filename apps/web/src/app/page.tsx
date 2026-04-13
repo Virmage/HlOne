@@ -11,7 +11,6 @@ import { OrderBook } from "@/components/terminal/order-book";
 // MacroBar merged into TickerBar
 import { PositionsPanel } from "@/components/terminal/positions-panel";
 import type { SelectedOption } from "@/components/terminal/inline-options-chain";
-import type { TokenDetail } from "@/lib/api";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 import { useAccountInfo } from "@/hooks/use-account-info";
 import { useTheme } from "@/hooks/use-theme";
@@ -223,11 +222,6 @@ export default function HomePage() {
   const [selectedOption, setSelectedOption] = useState<SelectedOption | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>("perps");
   const [dataTab, setDataTab] = useState<DataTab>("flow");
-  const [coinDetail, setCoinDetail] = useState<TokenDetail | null>(null);
-
-  const handleDetailUpdate = useCallback((d: TokenDetail | null) => {
-    setCoinDetail(d);
-  }, []);
 
   // Defer below-fold grid rendering until the main thread is idle
   const [showBelow, setShowBelow] = useState(false);
@@ -310,7 +304,7 @@ export default function HomePage() {
               </div>
             ) : (
               <div className="h-[300px] md:h-[510px] overflow-hidden">
-                <PriceChart coin={chartCoin} tokens={data?.tokens || []} onSelectToken={handleSelectToken} whaleAlerts={data?.whaleAlerts || []} liquidationBands={data?.liquidationHeatmap?.find(h => h.coin === chartCoin)?.bands} onDetailUpdate={handleDetailUpdate} />
+                <PriceChart coin={chartCoin} tokens={data?.tokens || []} onSelectToken={handleSelectToken} whaleAlerts={data?.whaleAlerts || []} liquidationBands={data?.liquidationHeatmap?.find(h => h.coin === chartCoin)?.bands} />
               </div>
             )}
           </div>
@@ -327,14 +321,14 @@ export default function HomePage() {
             </div>
           )}
           <div className="w-[260px] flex-shrink-0 overflow-y-auto">
-            <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} coinDetail={coinDetail} />
+            <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} />
           </div>
         </div>
 
         {/* Mobile trading panel — only on perps tab */}
         {mobileTab === "perps" && (
           <div className="md:hidden w-full border-t border-[var(--hl-border)]">
-            <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} coinDetail={coinDetail} />
+            <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} />
           </div>
         )}
       </div>
