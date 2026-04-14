@@ -432,15 +432,10 @@ export default function HomePage() {
               </div>
             )}
             {dataTab === "hypeeco" && (
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)] h-full">
-                <div className="bg-[var(--background)] p-3 overflow-y-auto">
-                  <EcosystemPanel data={data?.ecosystem || null} />
-                  <div className="mt-3 pt-3 border-t border-[var(--hl-border)]">
-                    <LendingRatesPanel />
-                  </div>
-                </div>
-                <div className="bg-[var(--background)] p-3 overflow-y-auto">
-                  <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
+              <div className="h-full overflow-y-auto bg-[var(--background)] p-3">
+                <EcosystemPanel data={data?.ecosystem || null} />
+                <div className="mt-3 pt-3 border-t border-[var(--hl-border)]">
+                  <LendingRatesPanel />
                 </div>
               </div>
             )}

@@ -950,7 +950,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
   const totalCandles = candles.length;
   const minVisible = 15;
-  const maxVisible = Math.min(totalCandles, 500);
+  const maxVisible = Math.min(totalCandles, 1500);
 
   // How many empty candle-widths of padding to show on the right of the latest bar
   const RIGHT_PAD_CANDLES = 6;
@@ -1340,8 +1340,11 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   if (data.length >= 2) {
     // Merge top trader fills + whale alerts into unified markers
     // Allow multiple markers per candle (grouped & stacked in rendering)
-    const MIN_FILL_SIZE = 10_000; // Only show fills >= $10K
-    const fills = topTraderFills.filter(f => f.time >= visibleStart && f.time < visibleEnd && f.sizeUsd >= MIN_FILL_SIZE);
+    const MIN_FILL_SIZE = 50_000; // Only show fills >= $50K to reduce noise
+    const fills = topTraderFills
+      .filter(f => f.time >= visibleStart && f.time < visibleEnd && f.sizeUsd >= MIN_FILL_SIZE)
+      .sort((a, b) => b.sizeUsd - a.sizeUsd)
+      .slice(0, 25); // Cap to 25 largest fills to avoid clutter
 
     for (const fill of fills) {
       for (let i = 0; i < data.length; i++) {
@@ -1368,7 +1371,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
         if (alert.detectedAt >= data[i].time && alert.detectedAt < data[i].time + candleDuration) {
           whaleMarkers.push({
             candleIdx: i,
-            isBuy: alert.eventType === "opened_long" || alert.eventType === "increased_long" || alert.eventType === "closed_short",
+            isBuy: alert.eventType === "open_long" || alert.eventType === "added" || alert.eventType === "close_short",
             price: alert.price,
             name: alert.whaleName,
             size: alert.positionValueUsd,
