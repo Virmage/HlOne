@@ -50,10 +50,39 @@ export interface PlatformStats {
   sharpLongPct: number;
 }
 
+export interface ValidatorInfo {
+  name: string;
+  address: string;
+  stake: number; // in HYPE
+  commission: number; // 0-1
+  isActive: boolean;
+  isJailed: boolean;
+  apr: number; // predicted annualized return
+  recentBlocks: number;
+}
+
+export interface StakingStats {
+  totalStaked: number; // in HYPE
+  activeValidators: number;
+  totalValidators: number;
+  avgApr: number;
+  topValidators: ValidatorInfo[];
+}
+
+export interface Hip3Stats {
+  totalAssets: number;
+  totalVolume24h: number;
+  totalOI: number;
+  byCategory: { category: string; count: number; volume24h: number; oi: number }[];
+  byDex: { dex: string; count: number; volume24h: number }[];
+}
+
 export interface EcosystemData {
   vaults: VaultSummary[];
   platform: PlatformStats;
   topFundingRates: { coin: string; rate: number; annualized: number }[];
+  staking: StakingStats | null;
+  hip3: Hip3Stats | null;
   fetchedAt: number;
 }
 
@@ -197,6 +226,111 @@ async function fetchVaults(): Promise<VaultSummary[]> {
   }
 }
 
+/* ── Staking stats from validatorSummaries ────────────────── */
+
+async function fetchStakingStats(): Promise<StakingStats | null> {
+  try {
+    const data = await infoRequest({ type: "validatorSummaries" });
+    if (!Array.isArray(data) || data.length === 0) return null;
+
+    const validators: ValidatorInfo[] = data.map((v: Record<string, unknown>) => {
+      // stake is in raw units — divide by 1e8 (based on observed data scale)
+      const rawStake = parseFloat(v.stake as string) || 0;
+      const stake = rawStake > 1e10 ? rawStake / 1e8 : rawStake;
+      const commission = parseFloat(v.commission as string) || 0;
+      const isActive = v.isActive as boolean ?? false;
+      const isJailed = v.isJailed as boolean ?? false;
+
+      // Extract predicted APR from stats array: [["day", {...}], ["week", {...}], ...]
+      let apr = 0;
+      const stats = v.stats as [string, { predictedApr?: string }][] | undefined;
+      if (stats) {
+        for (const [, s] of stats) {
+          if (s.predictedApr) {
+            apr = parseFloat(s.predictedApr) * 100; // convert to %
+            break;
+          }
+        }
+      }
+
+      return {
+        name: (v.name as string) || "Unknown",
+        address: (v.validator as string) || "",
+        stake,
+        commission,
+        isActive,
+        isJailed,
+        apr,
+        recentBlocks: (v.nRecentBlocks as number) || 0,
+      };
+    });
+
+    const active = validators.filter(v => v.isActive && !v.isJailed);
+    const totalStaked = validators.reduce((sum, v) => sum + v.stake, 0);
+    const avgApr = active.length > 0
+      ? active.reduce((sum, v) => sum + v.apr, 0) / active.length
+      : 0;
+
+    return {
+      totalStaked,
+      activeValidators: active.length,
+      totalValidators: validators.length,
+      avgApr,
+      topValidators: validators
+        .filter(v => v.isActive)
+        .sort((a, b) => b.stake - a.stake)
+        .slice(0, 10),
+    };
+  } catch (err) {
+    console.warn("[ecosystem] validatorSummaries failed:", (err as Error).message);
+    return null;
+  }
+}
+
+/* ── HIP-3 stats from cached token data ──────────────────── */
+
+async function buildHip3Stats(): Promise<Hip3Stats | null> {
+  try {
+    const tokens = await getCachedHip3Tokens();
+    if (!tokens.length) return null;
+
+    const byCategory = new Map<string, { count: number; volume24h: number; oi: number }>();
+    const byDex = new Map<string, { count: number; volume24h: number }>();
+    let totalVolume = 0;
+    let totalOI = 0;
+
+    for (const t of tokens) {
+      totalVolume += t.volume24h;
+      totalOI += t.openInterest;
+
+      const cat = byCategory.get(t.category) || { count: 0, volume24h: 0, oi: 0 };
+      cat.count++;
+      cat.volume24h += t.volume24h;
+      cat.oi += t.openInterest;
+      byCategory.set(t.category, cat);
+
+      const dex = byDex.get(t.dex) || { count: 0, volume24h: 0 };
+      dex.count++;
+      dex.volume24h += t.volume24h;
+      byDex.set(t.dex, dex);
+    }
+
+    return {
+      totalAssets: tokens.length,
+      totalVolume24h: totalVolume,
+      totalOI: totalOI,
+      byCategory: [...byCategory.entries()]
+        .map(([category, s]) => ({ category, ...s }))
+        .sort((a, b) => b.volume24h - a.volume24h),
+      byDex: [...byDex.entries()]
+        .map(([dex, s]) => ({ dex, ...s }))
+        .sort((a, b) => b.volume24h - a.volume24h),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /* ── Cached fetcher ───────────────────────────────────────── */
 
 let cache: EcosystemData | null = null;
@@ -206,16 +340,20 @@ const CACHE_TTL = 120_000; // 2 min
 export async function fetchEcosystemData(): Promise<EcosystemData> {
   if (cache && Date.now() - lastFetch < CACHE_TTL) return cache;
 
-  const [vaults, platform, topFundingRates] = await Promise.all([
+  const [vaults, platform, topFundingRates, staking, hip3] = await Promise.all([
     fetchVaults(),
     buildPlatformStats(),
     buildTopFunding(),
+    fetchStakingStats(),
+    buildHip3Stats(),
   ]);
 
   cache = {
     vaults,
     platform,
     topFundingRates,
+    staking,
+    hip3,
     fetchedAt: Date.now(),
   };
   lastFetch = Date.now();

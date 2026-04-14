@@ -23,6 +23,13 @@ function formatSignedUsd(value: number): string {
   return `${sign}$${value.toFixed(0)}`;
 }
 
+function formatHype(value: number): string {
+  if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
+  if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
+  if (value >= 1e3) return `${(value / 1e3).toFixed(0)}K`;
+  return value.toFixed(0);
+}
+
 function StatCard({ label, value, sub, valueColor }: { label: string; value: string; sub?: string; valueColor?: string }) {
   return (
     <div className="bg-[var(--background)] p-2.5">
@@ -33,6 +40,16 @@ function StatCard({ label, value, sub, valueColor }: { label: string; value: str
   );
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  stocks: "Stocks",
+  indices: "Indices",
+  commodities: "Commodities",
+  fx: "FX",
+  "pre-ipo": "Pre-IPO",
+  sectors: "Sectors",
+  crypto: "Crypto",
+};
+
 export function EcosystemPanel({ data }: EcosystemPanelProps) {
   if (!data) {
     return (
@@ -42,7 +59,7 @@ export function EcosystemPanel({ data }: EcosystemPanelProps) {
     );
   }
 
-  const { platform, vaults, topFundingRates } = data;
+  const { platform, vaults, staking, hip3 } = data;
   const totalLiq = platform.longLiqExposure + platform.shortLiqExposure;
   const whaleFlowColor = platform.whaleNetFlow24h > 0 ? "text-[var(--hl-green)]" : platform.whaleNetFlow24h < 0 ? "text-[var(--hl-red)]" : "text-[var(--foreground)]";
   const sharpBias = platform.sharpLongPct >= 60 ? "text-[var(--hl-green)]" : platform.sharpLongPct <= 40 ? "text-[var(--hl-red)]" : "text-[var(--foreground)]";
@@ -80,6 +97,85 @@ export function EcosystemPanel({ data }: EcosystemPanelProps) {
           sub={`${platform.sharpCount} sharp traders tracked`}
         />
       </div>
+
+      {/* HYPE Staking Stats */}
+      {staking && (
+        <div className="mb-3">
+          <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">
+            HYPE Staking
+          </h3>
+          <div className="grid grid-cols-4 gap-px bg-[var(--hl-border)] mb-2">
+            <div className="bg-[var(--background)] p-2">
+              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-0.5">Total Staked</div>
+              <div className="text-[13px] font-semibold tabular-nums text-[var(--foreground)]">{formatHype(staking.totalStaked)}</div>
+              <div className="text-[9px] text-[var(--hl-muted)]">HYPE</div>
+            </div>
+            <div className="bg-[var(--background)] p-2">
+              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-0.5">Validators</div>
+              <div className="text-[13px] font-semibold tabular-nums text-[var(--foreground)]">{staking.activeValidators}</div>
+              <div className="text-[9px] text-[var(--hl-muted)]">{staking.totalValidators} total</div>
+            </div>
+            <div className="bg-[var(--background)] p-2">
+              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-0.5">Avg APR</div>
+              <div className="text-[13px] font-semibold tabular-nums text-[var(--hl-green)]">{staking.avgApr.toFixed(2)}%</div>
+            </div>
+            <div className="bg-[var(--background)] p-2">
+              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-0.5">HIP-3 Assets</div>
+              <div className="text-[13px] font-semibold tabular-nums text-[var(--foreground)]">{hip3?.totalAssets || platform.hip3AssetCount}</div>
+              <div className="text-[9px] text-[var(--hl-muted)]">{hip3 ? formatUsd(hip3.totalVolume24h) + " vol" : ""}</div>
+            </div>
+          </div>
+          {/* Top validators */}
+          <div className="overflow-hidden">
+            <div className="flex items-center px-2 py-1 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
+              <span className="flex-1">Validator</span>
+              <span className="w-20 text-right">Stake</span>
+              <span className="w-14 text-right">APR</span>
+              <span className="w-14 text-right">Fee</span>
+            </div>
+            {staking.topValidators.slice(0, 8).map((v, i) => (
+              <div key={i} className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)]">
+                <span className="flex-1 text-[var(--foreground)] truncate">{v.name}</span>
+                <span className="w-20 text-right tabular-nums text-[var(--foreground)]">{formatHype(v.stake)}</span>
+                <span className="w-14 text-right tabular-nums text-[var(--hl-green)]">{v.apr.toFixed(2)}%</span>
+                <span className="w-14 text-right tabular-nums text-[var(--hl-muted)]">{(v.commission * 100).toFixed(0)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* HIP-3 Builder Perps breakdown */}
+      {hip3 && hip3.byCategory.length > 0 && (
+        <div className="mb-3">
+          <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">
+            HIP-3 Builder Perps
+          </h3>
+          <div className="overflow-hidden">
+            <div className="flex items-center px-2 py-1 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
+              <span className="flex-1">Category</span>
+              <span className="w-10 text-right">#</span>
+              <span className="w-20 text-right">24h Vol</span>
+              <span className="w-20 text-right">OI</span>
+            </div>
+            {hip3.byCategory.map((cat, i) => (
+              <div key={i} className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)]">
+                <span className="flex-1 text-[var(--foreground)]">{CATEGORY_LABELS[cat.category] || cat.category}</span>
+                <span className="w-10 text-right tabular-nums text-[var(--hl-muted)]">{cat.count}</span>
+                <span className="w-20 text-right tabular-nums text-[var(--foreground)]">{formatUsd(cat.volume24h)}</span>
+                <span className="w-20 text-right tabular-nums text-[var(--hl-muted)]">{formatUsd(cat.oi)}</span>
+              </div>
+            ))}
+            {/* Total row */}
+            <div className="flex items-center px-2 py-1 text-[11px] border-t border-[var(--hl-accent)]/20">
+              <span className="flex-1 font-medium text-[var(--hl-accent)]">Total</span>
+              <span className="w-10 text-right tabular-nums font-medium text-[var(--hl-accent)]">{hip3.totalAssets}</span>
+              <span className="w-20 text-right tabular-nums font-medium text-[var(--hl-accent)]">{formatUsd(hip3.totalVolume24h)}</span>
+              <span className="w-20 text-right tabular-nums font-medium text-[var(--hl-accent)]">{formatUsd(hip3.totalOI)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Top Vaults */}
       {vaults.length > 0 && (

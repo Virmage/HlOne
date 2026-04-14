@@ -195,13 +195,14 @@ export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
   }
   if (!res.ok) throw new Error(`Leaderboard fetch failed: ${res.status}`);
 
-  // Parse and immediately extract top 5000 by account value to limit memory
+  // Parse and extract top 8000 by account value (increased from 5000 to capture
+  // more mid-size accounts with strong ROI that would otherwise be excluded)
   let rows: LeaderboardRow[];
   try {
     const data = JSON.parse(await res.text()) as { leaderboardRows: LeaderboardRow[] };
     rows = (data.leaderboardRows || [])
       .sort((a, b) => parseFloat(b.accountValue || "0") - parseFloat(a.accountValue || "0"))
-      .slice(0, 5000);
+      .slice(0, 8000);
   } catch (e) {
     throw new Error(`Leaderboard JSON parse failed: ${(e as Error).message}`);
   }
@@ -210,7 +211,7 @@ export async function discoverActiveTraders(): Promise<DiscoveredTrader[]> {
 
   for (const row of rows) {
     const accountValue = parseFloat(row.accountValue || "0");
-    if (accountValue < 1000) continue; // Skip tiny accounts
+    if (accountValue < 500) continue; // Skip tiny accounts (lowered from $1K to capture more traders)
 
     // Parse window performances into a map
     const perfMap = new Map<string, { pnl: number; roi: number; vlm: number }>();

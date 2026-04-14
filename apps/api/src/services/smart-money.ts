@@ -210,9 +210,12 @@ function classifyTraders(traders: DiscoveredTrader[]) {
   const traderScores = new Map<string, number>();
 
   // Score all traders
+  // Relaxed gates: allTimeROI > -15% (was -5%) lets in sharp traders in drawdowns
+  // who are positive on shorter timeframes. The scoring function's consistency
+  // component still penalizes poor recent performance.
   for (const t of traders) {
     const addr = t.address.toLowerCase();
-    if (t.roiAllTime > -5 && t.accountValue > 1_000) {
+    if (t.roiAllTime > -15 && t.accountValue > 500) {
       traderScores.set(addr, scoreTrader(t));
     } else if (t.roiAllTime < -5 && t.accountValue > 500) {
       // Negative score for squares (stored as negative to distinguish)
@@ -220,11 +223,11 @@ function classifyTraders(traders: DiscoveredTrader[]) {
     }
   }
 
-  // Sharps: positive score > 40, sorted by score, top 500
+  // Sharps: score > 25, sorted by score, top 1500
   const sharpCandidates = traders
     .filter(t => (traderScores.get(t.address.toLowerCase()) || 0) > 25)
     .sort((a, b) => (traderScores.get(b.address.toLowerCase()) || 0) - (traderScores.get(a.address.toLowerCase()) || 0))
-    .slice(0, 1000);
+    .slice(0, 1500);
 
   const sharpAddresses = new Set(sharpCandidates.map(t => t.address.toLowerCase()));
 

@@ -664,10 +664,38 @@ export interface PlatformStats {
   sharpLongPct: number;
 }
 
+export interface ValidatorInfo {
+  name: string;
+  address: string;
+  stake: number;
+  commission: number;
+  isActive: boolean;
+  apr: number;
+  recentBlocks: number;
+}
+
+export interface StakingStats {
+  totalStaked: number;
+  activeValidators: number;
+  totalValidators: number;
+  avgApr: number;
+  topValidators: ValidatorInfo[];
+}
+
+export interface Hip3Stats {
+  totalAssets: number;
+  totalVolume24h: number;
+  totalOI: number;
+  byCategory: { category: string; count: number; volume24h: number; oi: number }[];
+  byDex: { dex: string; count: number; volume24h: number }[];
+}
+
 export interface EcosystemData {
   vaults: VaultSummary[];
   platform: PlatformStats;
   topFundingRates: { coin: string; rate: number; annualized: number }[];
+  staking: StakingStats | null;
+  hip3: Hip3Stats | null;
   fetchedAt: number;
 }
 

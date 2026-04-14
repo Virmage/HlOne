@@ -435,14 +435,12 @@ export default function HomePage() {
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)] h-full">
                 <div className="bg-[var(--background)] p-3 overflow-y-auto">
                   <EcosystemPanel data={data?.ecosystem || null} />
-                </div>
-                <div className="bg-[var(--background)] overflow-y-auto flex flex-col gap-px">
-                  <div className="p-3">
+                  <div className="mt-3 pt-3 border-t border-[var(--hl-border)]">
                     <LendingRatesPanel />
                   </div>
-                  <div className="border-t border-[var(--hl-border)] p-3">
-                    <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
-                  </div>
+                </div>
+                <div className="bg-[var(--background)] p-3 overflow-y-auto">
+                  <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
                 </div>
               </div>
             )}

@@ -929,6 +929,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startY: number; startOffset: number; startPricePan: number } | null>(null);
   const yDragRef = useRef<{ startY: number; startZoom: number } | null>(null);
+  const prevDomainRef = useRef({ min: 0, max: 0, dataLen: 0 });
   const [containerSize, setContainerSize] = useState({ w: 900, h: 400 });
 
   // Measure container size so SVG viewBox matches pixel dimensions (no stretching)
@@ -1207,8 +1208,19 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const halfRange = ((rawPriceMax - rawPriceMin) / 2 + rawPad) / priceZoom;
   // Apply vertical pan: pricePanOffset is normalized (0-1 range maps to full price range)
   const panAmount = pricePanOffset * rawRange;
-  const domainMin = midPrice - halfRange + panAmount;
-  const domainMax = midPrice + halfRange + panAmount;
+  // Stabilize domain: only update if change exceeds 0.3% of range (prevents poll jitter)
+  let domainMin = midPrice - halfRange + panAmount;
+  let domainMax = midPrice + halfRange + panAmount;
+  const prev = prevDomainRef.current;
+  if (prev.max > prev.min && prev.dataLen === data.length) {
+    const prevRange = prev.max - prev.min;
+    const threshold = prevRange * 0.003;
+    if (Math.abs(domainMin - prev.min) < threshold && Math.abs(domainMax - prev.max) < threshold) {
+      domainMin = prev.min;
+      domainMax = prev.max;
+    }
+  }
+  prevDomainRef.current = { min: domainMin, max: domainMax, dataLen: data.length };
 
   const maxVol = data.length > 0 ? Math.max(...data.map(c => c.volume)) : 0;
   // Hide volume section if >70% of visible candles have 0 volume (e.g. older monthly data)
