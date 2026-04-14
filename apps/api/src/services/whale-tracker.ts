@@ -251,10 +251,9 @@ function checkPositionDiversity(address: string, positionCount: number) {
 }
 
 // Track coins per address in a short window — multi-asset changes = systematic/bot
-const addressCoinBurst = new Map<string, Set<string>>();
-let lastBurstReset = Date.now();
-const BURST_WINDOW_MS = 5 * 60_000; // 5 min window
-const BURST_COIN_THRESHOLD = 4;     // >=4 different coins in 5 min = bot
+const addressCoinBurst = new Map<string, { coins: Set<string>; firstSeen: number }>();
+const BURST_WINDOW_MS = 2 * 60_000; // 2 min window (was 5)
+const BURST_COIN_THRESHOLD = 3;     // >=3 different coins in 2 min = bot (was 4 in 5min)
 
 function trackEventFrequency(address: string, coin?: string) {
   const addr = address.toLowerCase();
@@ -262,19 +261,19 @@ function trackEventFrequency(address: string, coin?: string) {
   times.push(Date.now());
   addressEventTimes.set(addr, times);
 
-  // Track coin diversity burst
+  // Track coin diversity burst — per-address window (not global reset)
   if (coin) {
     const now = Date.now();
-    if (now - lastBurstReset > BURST_WINDOW_MS) {
-      addressCoinBurst.clear();
-      lastBurstReset = now;
-    }
-    const coins = addressCoinBurst.get(addr) || new Set();
-    coins.add(coin);
-    addressCoinBurst.set(addr, coins);
-    if (coins.size >= BURST_COIN_THRESHOLD) {
-      knownBots.add(addr);
-      console.log(`[whale-tracker] Flagged bot (${coins.size} coins in 5min): ${address}`);
+    const existing = addressCoinBurst.get(addr);
+    if (existing && (now - existing.firstSeen < BURST_WINDOW_MS)) {
+      existing.coins.add(coin);
+      if (existing.coins.size >= BURST_COIN_THRESHOLD) {
+        knownBots.add(addr);
+        console.log(`[whale-tracker] Flagged bot (${existing.coins.size} coins in ${Math.round((now - existing.firstSeen) / 1000)}s): ${address}`);
+      }
+    } else {
+      // New window for this address
+      addressCoinBurst.set(addr, { coins: new Set([coin]), firstSeen: now });
     }
   }
 }
@@ -286,16 +285,20 @@ function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">, skipBotCheck = f
   // Skip known market makers by name pattern
   if (isKnownMM(event.whaleName)) return;
 
+  // Normalize address to lowercase for consistent matching across the pipeline
+  const normalizedAddress = event.whaleAddress.toLowerCase();
+
   // Track frequency and skip if likely market maker bot (skip during seed run)
   if (!skipBotCheck) {
-    trackEventFrequency(event.whaleAddress, event.coin);
-    if (isLikelyBot(event.whaleAddress)) return;
+    trackEventFrequency(normalizedAddress, event.coin);
+    if (isLikelyBot(normalizedAddress)) return;
   }
 
   eventCounter++;
   const now = Date.now();
   events.unshift({
     ...event,
+    whaleAddress: normalizedAddress,
     id: `we_${eventCounter}`,
     detectedAt: now,
   });
@@ -329,12 +332,57 @@ function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">, skipBotCheck = f
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+/**
+ * Get whale alerts, deduplicating rapid multi-coin activity from the same address.
+ * If the same address fires 3+ events within 2 minutes, only keep the largest one
+ * to avoid feed spam from systematic traders.
+ */
 export function getWhaleAlerts(limit = 50, coin?: string): WhaleEvent[] {
-  let filtered = events;
-  if (coin) {
-    filtered = events.filter(e => e.coin === coin);
+  let filtered = coin ? events.filter(e => e.coin === coin) : events;
+
+  // Deduplicate: group events by address within 2min windows
+  const DEDUP_WINDOW = 2 * 60_000;
+  const deduped: WhaleEvent[] = [];
+  const addressWindows = new Map<string, { start: number; events: WhaleEvent[] }>();
+
+  for (const evt of filtered) {
+    const addr = evt.whaleAddress.toLowerCase();
+    const window = addressWindows.get(addr);
+
+    if (window && evt.detectedAt >= window.start - DEDUP_WINDOW) {
+      // Same address, within window — add to batch
+      window.events.push(evt);
+    } else {
+      // New window for this address — flush previous if exists
+      if (window) {
+        flushAddressWindow(window.events, deduped);
+      }
+      addressWindows.set(addr, { start: evt.detectedAt, events: [evt] });
+    }
   }
-  return filtered.slice(0, limit);
+  // Flush remaining windows
+  for (const window of addressWindows.values()) {
+    flushAddressWindow(window.events, deduped);
+  }
+
+  // Sort by time (newest first) since dedup may have reordered
+  deduped.sort((a, b) => b.detectedAt - a.detectedAt);
+
+  return deduped.slice(0, limit);
+}
+
+/** If a batch has 3+ events from same address, keep only the largest one */
+function flushAddressWindow(batch: WhaleEvent[], out: WhaleEvent[]) {
+  if (batch.length >= 3) {
+    // Likely systematic/bot — keep only the single largest event
+    const biggest = batch.reduce((best, e) =>
+      Math.abs(e.positionValueUsd) > Math.abs(best.positionValueUsd) ? e : best
+    );
+    out.push(biggest);
+  } else {
+    // 1-2 events is organic — keep all
+    out.push(...batch);
+  }
 }
 
 export function getWhaleAlertsForCoin(coin: string, limit = 20): WhaleEvent[] {

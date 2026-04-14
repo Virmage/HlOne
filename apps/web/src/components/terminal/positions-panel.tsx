@@ -403,21 +403,22 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
   if (!isConnected) {
     return (
-      <div>
-        <div className="flex items-center gap-3 overflow-x-auto scrollbar-none">
+      <div className="min-h-[80px]">
+        <div className="flex items-center gap-3 overflow-x-auto scrollbar-none border-b border-[var(--hl-border)]">
           {TABS.map(t => (
-            <button key={t.key} className="text-[11px] text-[var(--hl-muted)] whitespace-nowrap py-1.5 border-b-2 border-transparent">
-              {t.label}
+            <button key={t.key} className="px-1.5 sm:px-2.5 py-1.5 text-[10px] sm:text-[11px] text-[var(--hl-muted)] whitespace-nowrap border-b-2 border-transparent -mb-px">
+              <span className="sm:hidden">{t.shortLabel || t.label}</span>
+              <span className="hidden sm:inline">{t.label}</span>
             </button>
           ))}
         </div>
-        <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">Connect wallet to view positions</div>
+        <div className="text-[11px] text-[var(--hl-muted)] text-center py-4">Connect wallet to view positions</div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col min-h-[80px]">
       {/* Tab bar */}
       <div className="flex items-center border-b border-[var(--hl-border)] flex-shrink-0">
         <div className="flex items-center gap-0 overflow-x-auto scrollbar-none flex-1">
