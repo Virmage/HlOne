@@ -1574,7 +1574,8 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
               const yBot = priceY(Math.max(band.priceLow, domainMin));
               const h = Math.max(yBot - yTop, 2);
               const totalVal = band.longLiqValue + band.shortLiqValue;
-              const intensity = totalVal / maxVal;
+              // sqrt scaling prevents wash-out when zoomed to weekly (one band dominates maxVal)
+              const intensity = Math.max(Math.sqrt(totalVal / maxVal), 0.12);
               // Blue (low) → Yellow (high) intensity gradient
               const r = Math.round(100 + intensity * 155);
               const g = Math.round(160 + intensity * 70);

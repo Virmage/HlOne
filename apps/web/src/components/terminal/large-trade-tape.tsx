@@ -26,20 +26,20 @@ function TradeRow({ t, onSelectToken }: { t: LargeTrade; onSelectToken: (coin: s
   const isBuy = t.side === "buy";
   return (
     <div
-      className="flex items-center justify-between px-2 py-1 text-[11px] border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
+      className="grid grid-cols-[1fr_50px_80px_1fr_50px] items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
       onClick={() => onSelectToken(t.coin)}
     >
-      <span className="font-medium text-[var(--foreground)] w-14">{t.coin.includes(":") ? t.coin.split(":")[1] : t.coin}</span>
-      <span className={`w-8 font-medium ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+      <span className="font-medium text-[var(--foreground)]">{t.coin.includes(":") ? t.coin.split(":")[1] : t.coin}</span>
+      <span className={`font-medium ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
         {isBuy ? "BUY" : "SELL"}
       </span>
-      <span className={`tabular-nums font-medium w-16 text-right ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+      <span className={`tabular-nums font-medium text-right ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
         {formatSize(t.sizeUsd)}
       </span>
-      <span className="text-[var(--hl-muted)] tabular-nums w-20 text-right">
+      <span className="text-[var(--hl-muted)] tabular-nums text-right">
         ${t.price >= 1 ? t.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : t.price.toPrecision(4)}
       </span>
-      <span className="text-[var(--hl-muted)] tabular-nums w-8 text-right text-[10px]">
+      <span className="text-[var(--hl-muted)] tabular-nums text-right text-[10px]">
         {timeAgo(t.time)}
       </span>
     </div>

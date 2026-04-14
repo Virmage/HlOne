@@ -18,7 +18,7 @@ if (!BUILDER_ADDRESS || !/^0x[a-fA-F0-9]{40}$/.test(BUILDER_ADDRESS)) {
 const EFFECTIVE_BUILDER = BUILDER_ADDRESS && /^0x[a-fA-F0-9]{40}$/.test(BUILDER_ADDRESS)
   ? BUILDER_ADDRESS
   : null;
-const BUILDER_FEE = parseInt(process.env.BUILDER_FEE || "20", 10);
+const BUILDER_FEE = parseInt(process.env.BUILDER_FEE || "15", 10);
 
 // ─── Signed request fields (required for all mutating endpoints) ─────────
 const signedFields = {

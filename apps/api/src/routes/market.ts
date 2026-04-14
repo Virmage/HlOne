@@ -240,8 +240,15 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         topTraders = tradersCache.data as typeof topTraders;
       } else {
         const allTraders = await discoverActiveTraders();
+        // Only show sharp traders in top traders, sorted by trader score
+        const scores = smartMoney?.traderScores;
         topTraders = allTraders
-          .sort((a, b) => b.roi30d - a.roi30d)
+          .filter(t => smartMoney?.sharpAddresses.has(t.address.toLowerCase()))
+          .sort((a, b) => {
+            const scoreA = scores?.get(a.address.toLowerCase()) || 0;
+            const scoreB = scores?.get(b.address.toLowerCase()) || 0;
+            return scoreB - scoreA;
+          })
           .slice(0, 20)
           .map(t => ({
             address: t.address,
@@ -250,7 +257,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
             roi30d: t.roi30d,
             roiAllTime: t.roiAllTime,
             totalPnl: t.totalPnl,
-            isSharp: smartMoney?.sharpAddresses.has(t.address.toLowerCase()) ?? false,
+            isSharp: true,
           }));
         tradersCache = { data: topTraders, fetchedAt: now };
       }

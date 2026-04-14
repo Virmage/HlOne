@@ -276,7 +276,7 @@ export default function HomePage() {
   if (error && !data) {
     return (
       <div className="flex h-[80vh] items-center justify-center">
-        <div className="rounded-md border border-[#f058581a] bg-[#f058580d] px-6 py-4 text-[13px] text-[var(--hl-red)]">
+        <div className="rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] px-6 py-4 text-[13px] text-[var(--hl-muted)]">
           {error}
         </div>
       </div>

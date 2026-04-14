@@ -19,9 +19,9 @@ const HL_API = "https://api.hyperliquid.xyz";
 
 // ─── Builder fee config ─────────────────────────────────────────────────────
 export const BUILDER_ADDRESS = "0xbB0f753321e2B5FD29Bd1d14b532f5B54959ae63";
-export const BUILDER_FEE = 20; // 2 bps in tenths-of-bps
-export const BUILDER_FEE_PERCENT = 0.0002;
-export const BUILDER_FEE_DISPLAY = "0.02%";
+export const BUILDER_FEE = 15; // 1.5 bps in tenths-of-bps
+export const BUILDER_FEE_PERCENT = 0.00015;
+export const BUILDER_FEE_DISPLAY = "0.015%";
 
 // ─── Agent wallet management ────────────────────────────────────────────────
 // Agent wallets are local keypairs authorized by the user's main wallet.
