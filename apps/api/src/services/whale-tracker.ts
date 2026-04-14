@@ -72,6 +72,9 @@ export async function runWhaleCheck(): Promise<void> {
             currentMap.set(pos.coin, { size, side: size > 0 ? "long" : "short" });
           }
 
+          // Flag MMs by position diversity (>12 simultaneous positions)
+          checkPositionDiversity(whale.address, currentMap.size);
+
           // Compare with previous
           const prevMap = previousPositions.get(whale.address.toLowerCase()) || new Map();
           const name = getTraderDisplayName(whale.address, whale.displayName);
@@ -86,7 +89,7 @@ export async function runWhaleCheck(): Promise<void> {
             if (!prev) {
               if (seedRun) {
                 // First run: emit existing large positions so the feed isn't empty
-                if (posValue >= 100_000) {
+                if (posValue >= 250_000 && !mmByDiversity.has(whale.address.toLowerCase()) && !isKnownMM(name)) {
                   addEvent({
                     whaleAddress: whale.address,
                     whaleName: name,
@@ -186,26 +189,38 @@ export async function runWhaleCheck(): Promise<void> {
   }
 }
 
-// ─── Bot detection: track event frequency per address ───────────────────────
-// Market makers flip/adjust constantly — if an address fires >N events in a
-// rolling window, it's likely a bot and we suppress it.
+// ─── Bot / MM detection ─────────────────────────────────────────────────────
+// Market makers are the largest accounts but their constant hedging/adjusting
+// creates noise. We filter them out via:
+// 1. Event frequency (>4 events/hr = bot)
+// 2. Position diversity (>12 simultaneous positions = MM)
+// 3. Known MM addresses/names
 
 const BOT_WINDOW_MS = 60 * 60 * 1000; // 1 hour window
-const BOT_EVENT_THRESHOLD = 6;         // >6 events/hr = likely bot/MM
+const BOT_EVENT_THRESHOLD = 4;         // >4 events/hr = likely bot/MM
 const addressEventTimes = new Map<string, number[]>();  // address → timestamps
 const knownBots = new Set<string>(); // addresses flagged as bots
 
-// Known market makers / HFT bots — suppress from day 1
-const KNOWN_MM_NAMES = new Set([
-  "@auros", "@abc", "@bobbybigsize", "@wintermute", "@cumberland",
-  "@jump", "@flowtraders", "@dvchain", "@gsr", "@alameda",
-]);
+// Addresses with too many simultaneous positions (detected at runtime)
+const mmByDiversity = new Set<string>();
 
+// Known market makers — match against display name (from leaderboard) or generated name
+const KNOWN_MM_PATTERNS = [
+  "wintermute", "cumberland", "jump", "flowtraders", "dvchain", "gsr",
+  "alameda", "auros", "bobbybigsize", "hummingbot", "amber",
+  "galaxy", "b2c2", "genesis", "virtu", "citadel", "jane street",
+];
+
+function isKnownMM(name: string): boolean {
+  const lower = name.toLowerCase();
+  return KNOWN_MM_PATTERNS.some(mm => lower.includes(mm));
+}
 
 function isLikelyBot(address: string): boolean {
-  if (knownBots.has(address.toLowerCase())) return true;
-
   const addr = address.toLowerCase();
+  if (knownBots.has(addr)) return true;
+  if (mmByDiversity.has(addr)) return true;
+
   const times = addressEventTimes.get(addr) || [];
   const now = Date.now();
 
@@ -215,10 +230,21 @@ function isLikelyBot(address: string): boolean {
 
   if (recent.length >= BOT_EVENT_THRESHOLD) {
     knownBots.add(addr);
-    console.log(`[whale-tracker] Flagged bot: ${address} (${recent.length} events/hr)`);
+    console.log(`[whale-tracker] Flagged bot (frequency): ${address} (${recent.length} events/hr)`);
     return true;
   }
   return false;
+}
+
+/** Flag addresses with too many positions as MMs (called during position scan) */
+function checkPositionDiversity(address: string, positionCount: number) {
+  if (positionCount > 12) {
+    const addr = address.toLowerCase();
+    if (!mmByDiversity.has(addr)) {
+      mmByDiversity.add(addr);
+      console.log(`[whale-tracker] Flagged MM (${positionCount} positions): ${address}`);
+    }
+  }
 }
 
 function trackEventFrequency(address: string) {
@@ -229,11 +255,11 @@ function trackEventFrequency(address: string) {
 }
 
 function addEvent(event: Omit<WhaleEvent, "id" | "detectedAt">, skipBotCheck = false) {
-  // Skip small position changes — minimum $100K position value to be whale-worthy
-  if (Math.abs(event.positionValueUsd) < 100_000) return;
+  // Skip small position changes — minimum $250K position value for whale alerts
+  if (Math.abs(event.positionValueUsd) < 250_000) return;
 
-  // Skip known market makers by name
-  if (KNOWN_MM_NAMES.has(event.whaleName.toLowerCase())) return;
+  // Skip known market makers by name pattern
+  if (isKnownMM(event.whaleName)) return;
 
   // Track frequency and skip if likely market maker bot (skip during seed run)
   if (!skipBotCheck) {
