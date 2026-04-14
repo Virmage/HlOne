@@ -27,7 +27,8 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
     if (!a.divergence && b.divergence) return 1;
     return (b.score ?? 0) - (a.score ?? 0);
   });
-  const visibleFlows = expanded ? sorted : sorted;
+  const INLINE_LIMIT = 15;
+  const visibleFlows = expanded ? sorted : sorted.slice(0, INLINE_LIMIT);
 
   const renderTable = (items: SharpFlow[], inModal = false) => (
     <table className="w-full text-[11px] min-w-[420px]">

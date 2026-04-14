@@ -223,7 +223,8 @@ async function getTickersForExpiry(currency: string, expiryDate: string): Promis
       } as DeriveTicker;
     }
     return normalized;
-  } catch {
+  } catch (err) {
+    console.error(`[derive] get_tickers failed for ${currency} ${expiryDate}:`, (err as Error).message);
     return {};
   }
 }
@@ -233,7 +234,7 @@ function parseExpiryTimestamp(dateStr: string): number {
   const y = parseInt(dateStr.slice(0, 4));
   const m = parseInt(dateStr.slice(4, 6)) - 1;
   const d = parseInt(dateStr.slice(6, 8));
-  return Math.floor(new Date(y, m, d, 8, 0, 0).getTime() / 1000); // 8:00 UTC settlement
+  return Math.floor(Date.UTC(y, m, d, 8, 0, 0) / 1000); // 8:00 UTC settlement
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -244,6 +245,12 @@ function getTotalOI(ticker: DeriveTicker): number {
   if (oi.PM2) total += oi.PM2.reduce((s, o) => s + parseFloat(o.current_open_interest || "0"), 0);
   if (oi.PM) total += oi.PM.reduce((s, o) => s + parseFloat(o.current_open_interest || "0"), 0);
   if (oi.SM) total += oi.SM.reduce((s, o) => s + parseFloat(o.current_open_interest || "0"), 0);
+  // Batch get_tickers returns OI in stats.oi instead of the structured open_interest object
+  if (total === 0 && ticker.stats) {
+    const s = ticker.stats as Record<string, string>;
+    const statsOi = s.open_interest || s.oi;
+    if (statsOi) total = parseFloat(statsOi);
+  }
   return total;
 }
 
@@ -357,14 +364,24 @@ async function fetchTickersForCoin(currency: string, instruments: DeriveInstrume
     })
   );
 
-  return results.flat();
+  const flat = results.flat();
+  if (flat.length === 0) {
+    console.log(`[derive] ${currency}: 0 tickers from ${cappedExpiries.length} expiries`);
+  }
+  return flat;
 }
 
 function computeSnapshot(currency: string, allTickers: DeriveTicker[]): DeriveOptionsSnapshot | null {
-  if (allTickers.length === 0) return null;
+  if (allTickers.length === 0) {
+    console.log(`[derive] ${currency}: no tickers to compute snapshot`);
+    return null;
+  }
 
   const spotPrice = parseFloat(allTickers[0]?.index_price || "0");
-  if (spotPrice === 0) return null;
+  if (spotPrice === 0) {
+    console.log(`[derive] ${currency}: spot price is 0, skipping`);
+    return null;
+  }
 
   const options: OptionEntry[] = [];
   let totalCallOI = 0;
@@ -395,7 +412,10 @@ function computeSnapshot(currency: string, allTickers: DeriveTicker[]): DeriveOp
     options.push({ strike, isCall, oi, iv, delta, gamma, expiry: details.expiry, expiryLabel: formatExpiryLabel(details.expiry) });
   }
 
-  if (totalCallOI === 0 && totalPutOI === 0) return null;
+  if (totalCallOI === 0 && totalPutOI === 0) {
+    console.log(`[derive] ${currency}: totalCallOI=0, totalPutOI=0 — no OI found in ${allTickers.length} tickers`);
+    return null;
+  }
 
   const { maxPain, expiry, topStrikes } = computeMaxPain(options);
   const maxPainDistance = spotPrice > 0 ? ((maxPain - spotPrice) / spotPrice) * 100 : 0;

@@ -57,7 +57,8 @@ export function LargeTradeTape({ trades, onSelectToken }: LargeTradeTapeProps) {
     );
   }
 
-  const visibleTrades = trades;
+  const INLINE_LIMIT = 15;
+  const visibleTrades = expanded ? trades : trades.slice(0, INLINE_LIMIT);
 
   return (
     <div>

@@ -199,7 +199,18 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             }));
             if (candles.length > 0) {
               candleCache.set(`${coin}:${interval}`, { candles, fetchedAt: Date.now() });
-              setDetail(prev => prev ? { ...prev, candles } : prev);
+              setDetail(prev => {
+                if (!prev) return prev;
+                // Skip re-render if candles haven't materially changed
+                const pLast = prev.candles[prev.candles.length - 1];
+                const nLast = candles[candles.length - 1];
+                if (pLast && nLast && prev.candles.length === candles.length &&
+                    pLast.time === nLast.time && pLast.close === nLast.close &&
+                    pLast.high === nLast.high && pLast.low === nLast.low) {
+                  return prev; // identical — skip re-render
+                }
+                return { ...prev, candles };
+              });
             }
           })
           .catch(e => { console.warn("[PriceChart] poll failed:", e); });
@@ -932,20 +943,31 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const prevDomainRef = useRef({ min: 0, max: 0, dataLen: 0 });
   const [containerSize, setContainerSize] = useState({ w: 900, h: 400 });
 
-  // Measure container size so SVG viewBox matches pixel dimensions (no stretching)
+  // Measure container size so SVG viewBox matches pixel dimensions (no stretching).
+  // Debounced + threshold to prevent layout jolts from sub-pixel changes.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    let raf = 0;
     const measure = () => {
-      const rect = el.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        setContainerSize({ w: Math.round(rect.width), h: Math.round(rect.height) });
-      }
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const rect = el.getBoundingClientRect();
+        const w = Math.round(rect.width);
+        const h = Math.round(rect.height);
+        if (w > 0 && h > 0) {
+          setContainerSize(prev => {
+            // Only update if size changed by >2px — prevents micro-jitter
+            if (Math.abs(prev.w - w) <= 2 && Math.abs(prev.h - h) <= 2) return prev;
+            return { w, h };
+          });
+        }
+      });
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => { ro.disconnect(); cancelAnimationFrame(raf); };
   }, []);
 
   const totalCandles = candles.length;
@@ -1208,13 +1230,15 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const halfRange = ((rawPriceMax - rawPriceMin) / 2 + rawPad) / priceZoom;
   // Apply vertical pan: pricePanOffset is normalized (0-1 range maps to full price range)
   const panAmount = pricePanOffset * rawRange;
-  // Stabilize domain: only update if change exceeds 0.3% of range (prevents poll jitter)
+  // Stabilize domain: only update if change exceeds 1% of range (prevents poll jitter).
+  // Allow stabilization even when a new candle is added (dataLen ±2) so the chart
+  // doesn't jump when a candle boundary is crossed during polling.
   let domainMin = midPrice - halfRange + panAmount;
   let domainMax = midPrice + halfRange + panAmount;
   const prev = prevDomainRef.current;
-  if (prev.max > prev.min && prev.dataLen === data.length) {
+  if (prev.max > prev.min && Math.abs(prev.dataLen - data.length) <= 2) {
     const prevRange = prev.max - prev.min;
-    const threshold = prevRange * 0.003;
+    const threshold = prevRange * 0.01;
     if (Math.abs(domainMin - prev.min) < threshold && Math.abs(domainMax - prev.max) < threshold) {
       domainMin = prev.min;
       domainMax = prev.max;

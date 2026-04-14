@@ -9,6 +9,11 @@ const queryClient = new QueryClient();
 export function Providers({ children }: { children: ReactNode }) {
   const [WalletStack, setWalletStack] = useState<React.ComponentType<{ children: ReactNode }> | null>(null);
 
+  // Hide the static HTML loader once React has hydrated
+  useEffect(() => {
+    (window as unknown as { __hideStaticLoader?: () => void }).__hideStaticLoader?.();
+  }, []);
+
   useEffect(() => {
     // Check if localStorage is functional before loading wallet stack.
     // In sandboxed browsers (e.g. Claude Preview), localStorage.getItem

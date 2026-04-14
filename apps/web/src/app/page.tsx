@@ -396,27 +396,27 @@ export default function HomePage() {
             ))}
           </div>
 
-          {/* Tab content — fixed height, panels scroll internally */}
+          {/* Tab content — fixed height, no scroll — click panels to expand */}
           <div className="h-[480px]">
             {dataTab === "signals" && (
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)] h-full">
-                <div className="bg-[var(--background)] p-3 overflow-y-auto">
+                <div className="bg-[var(--background)] p-3 overflow-hidden">
                   <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
                 </div>
-                <div className="bg-[var(--background)] p-3 overflow-y-auto">
+                <div className="bg-[var(--background)] p-3 overflow-hidden">
                   <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
                 </div>
               </div>
             )}
             {dataTab === "whales" && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)] h-full">
-                <div className="bg-[var(--background)] p-3 overflow-y-auto">
+                <div className="bg-[var(--background)] p-3 overflow-hidden">
                   <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
                 </div>
-                <div className="bg-[var(--background)] p-3 overflow-y-auto">
+                <div className="bg-[var(--background)] p-3 overflow-hidden">
                   <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
                 </div>
-                <div className="bg-[var(--background)] p-3 overflow-y-auto">
+                <div className="bg-[var(--background)] p-3 overflow-hidden">
                   <WhaleAccumulationPanel data={data?.whaleAccumulation || []} onSelectToken={handleSelectToken} />
                 </div>
               </div>

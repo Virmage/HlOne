@@ -50,6 +50,15 @@ const CATEGORY_LABELS: Record<string, string> = {
   crypto: "Crypto",
 };
 
+const DEX_LABELS: Record<string, string> = {
+  xyz: "XYZ",
+  flx: "FLX",
+  vntl: "Vantail",
+  hyna: "Hyena",
+  km: "KM",
+  cash: "Cash",
+};
+
 export function EcosystemPanel({ data }: EcosystemPanelProps) {
   if (!data) {
     return (
@@ -125,32 +134,33 @@ export function EcosystemPanel({ data }: EcosystemPanelProps) {
               <div className="text-[9px] text-[var(--hl-muted)]">{hip3 ? formatUsd(hip3.totalVolume24h) + " vol" : ""}</div>
             </div>
           </div>
-          {/* Top validators */}
-          <div className="overflow-hidden">
-            <div className="flex items-center px-2 py-1 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
-              <span className="flex-1">Validator</span>
-              <span className="w-20 text-right">Stake</span>
-              <span className="w-14 text-right">APR</span>
-              <span className="w-14 text-right">Fee</span>
-            </div>
-            {staking.topValidators.slice(0, 8).map((v, i) => (
-              <div key={i} className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)]">
-                <span className="flex-1 text-[var(--foreground)] truncate">{v.name}</span>
-                <span className="w-20 text-right tabular-nums text-[var(--foreground)]">{formatHype(v.stake)}</span>
-                <span className="w-14 text-right tabular-nums text-[var(--hl-green)]">{v.apr.toFixed(2)}%</span>
-                <span className="w-14 text-right tabular-nums text-[var(--hl-muted)]">{(v.commission * 100).toFixed(0)}%</span>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
-      {/* HIP-3 Builder Perps breakdown */}
-      {hip3 && hip3.byCategory.length > 0 && (
+      {/* HIP-3 Builder Perps breakdown — by builder DEX + category */}
+      {hip3 && (hip3.byDex?.length > 0 || hip3.byCategory.length > 0) && (
         <div className="mb-3">
           <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">
             HIP-3 Builder Perps
           </h3>
+          {/* By Builder DEX */}
+          {hip3.byDex && hip3.byDex.length > 0 && (
+            <div className="overflow-hidden mb-2">
+              <div className="flex items-center px-2 py-1 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
+                <span className="flex-1">Builder</span>
+                <span className="w-10 text-right">#</span>
+                <span className="w-20 text-right">24h Vol</span>
+              </div>
+              {hip3.byDex.map((dex, i) => (
+                <div key={i} className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)]">
+                  <span className="flex-1 text-[var(--foreground)] font-medium">{DEX_LABELS[dex.dex] || dex.dex}</span>
+                  <span className="w-10 text-right tabular-nums text-[var(--hl-muted)]">{dex.count}</span>
+                  <span className="w-20 text-right tabular-nums text-[var(--foreground)]">{formatUsd(dex.volume24h)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* By Category */}
           <div className="overflow-hidden">
             <div className="flex items-center px-2 py-1 text-[10px] text-[var(--hl-muted)] uppercase tracking-wider border-b border-[var(--hl-border)]">
               <span className="flex-1">Category</span>

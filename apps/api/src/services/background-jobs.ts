@@ -63,6 +63,9 @@ export function startBackgroundJobs() {
   setTimeout(() => {
     console.log("[bg] Phase 2: starting all background jobs...");
 
+    // Warm Derive options cache early so /terminal has data
+    getAllDeriveOptionsData().catch(e => console.error("[bg] Derive warm:", (e as Error).message));
+
     // Start trade tape polling (every 20s, self-managed interval)
     startTradeTapeTracking();
     // Start order flow tracking (every 20s, self-managed interval)

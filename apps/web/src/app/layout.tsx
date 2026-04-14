@@ -57,6 +57,23 @@ export default function RootLayout({
       <body
         className="min-h-screen bg-[var(--background)] text-[var(--foreground)] antialiased"
       >
+        {/* Static loading screen — visible instantly before JS loads.
+            Covers the entire viewport so nothing behind can flash (red bar fix).
+            React app calls window.__hideStaticLoader() on mount to remove it. */}
+        <div id="static-loader" style={{
+          position: 'fixed', inset: 0, zIndex: 99999,
+          background: '#060a0c', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <img src="/portalspin.gif" alt="" width={112} height={112} />
+        </div>
+        <script dangerouslySetInnerHTML={{ __html: `
+          window.__hideStaticLoader=function(){var el=document.getElementById('static-loader');if(el)el.style.display='none'};
+          // Match theme for loader background
+          try{var t=localStorage.getItem('hlone-theme');if(t==='light'){var el=document.getElementById('static-loader');if(el)el.style.background='#faf8f5'}}catch(e){}
+          // Safety: hide after 12s even if React never mounts
+          setTimeout(window.__hideStaticLoader,12000);
+        ` }} />
         <Providers>
           <Header />
           <main className="w-full px-2 sm:px-6 lg:px-8 py-2 sm:py-6">{children}</main>
