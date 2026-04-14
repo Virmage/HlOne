@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* Kill Next.js error overlay red bar before JS loads */
+nextjs-portal,
+[data-nextjs-dialog-overlay],
+[data-nextjs-toast],
+[class*="nextjs-container-errors"],
+#__next-build-indicator {
+  display: none !important;
+}
+
 :root,
 [data-theme="dark"] {
   /* Neon Cyan — electric cyan glow on void black */
