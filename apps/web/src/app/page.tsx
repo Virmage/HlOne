@@ -185,10 +185,10 @@ function LoadingScreen() {
     return () => globalThis.clearInterval(t);
   }, []);
   return (
-    <div className="fixed inset-0 z-[9999] overflow-hidden" style={{ background: '#060a0c' }}>
-      <div className="absolute inset-0" style={{ background: '#060a0c' }} />
+    <div className="fixed inset-0 z-[9999] overflow-hidden bg-[var(--background)]">
+      <div className="absolute inset-0 bg-[var(--background)]" />
       <div className="relative flex items-center justify-center h-full w-full">
-        <div className="text-center flex flex-col items-center" style={{ background: '#060a0c' }}>
+        <div className="text-center flex flex-col items-center bg-[var(--background)]">
           <img src="/portalspin.gif" alt="" className="w-28 h-28" />
           <div
             key={idx}
