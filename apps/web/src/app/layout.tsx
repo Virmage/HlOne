@@ -25,9 +25,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning>
+    <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning
+      style={{ background: '#060a0c', colorScheme: 'dark' }}>
       <head>
-        <style dangerouslySetInnerHTML={{ __html: `nextjs-portal,nextjs-portal *,[data-nextjs-dialog-overlay],[data-nextjs-dialog-overlay] *,[data-nextjs-toast],[data-nextjs-toast] *,#__next-build-indicator,#__next-build-indicator *,[class*="nextjs-container-errors"],[class*="nextjs-container-errors"] *,[data-nextjs-scroll-focus-boundary]>[role="dialog"],body>iframe[style*="border"][style*="z-index"]{display:none!important;visibility:hidden!important;opacity:0!important;height:0!important;width:0!important;overflow:hidden!important;position:absolute!important;pointer-events:none!important;max-height:0!important}` }} />
+        <meta name="theme-color" content="#060a0c" />
+        <meta name="color-scheme" content="dark" />
+        <style dangerouslySetInnerHTML={{ __html: `html,body{background:#060a0c!important}nextjs-portal,nextjs-portal *,[data-nextjs-dialog-overlay],[data-nextjs-dialog-overlay] *,[data-nextjs-toast],[data-nextjs-toast] *,#__next-build-indicator,#__next-build-indicator *,[class*="nextjs-container-errors"],[class*="nextjs-container-errors"] *,[data-nextjs-scroll-focus-boundary]>[role="dialog"],body>iframe[style*="border"][style*="z-index"]{display:none!important;visibility:hidden!important;opacity:0!important;height:0!important;width:0!important;overflow:hidden!important;position:absolute!important;pointer-events:none!important;max-height:0!important}` }} />
         <script dangerouslySetInnerHTML={{ __html: `
           // localStorage polyfill — must run before ANY other JS
           (function(){var n=false;try{if(typeof localStorage==='undefined'){n=true}else if(typeof localStorage.getItem!=='function'){n=true}else{localStorage.setItem('__t','1');localStorage.removeItem('__t')}}catch(e){n=true}if(n){var m={};var p={getItem:function(k){return m.hasOwnProperty(k)?m[k]:null},setItem:function(k,v){m[k]=String(v)},removeItem:function(k){delete m[k]},clear:function(){m={}},get length(){return Object.keys(m).length},key:function(i){return Object.keys(m)[i]||null}};try{Object.defineProperty(window,'localStorage',{value:p,writable:true,configurable:true})}catch(e){try{window.localStorage=p}catch(e2){}}}})();
@@ -69,8 +72,8 @@ export default function RootLayout({
         </div>
         <script dangerouslySetInnerHTML={{ __html: `
           window.__hideStaticLoader=function(){var el=document.getElementById('static-loader');if(el)el.style.display='none'};
-          // Match theme for loader background
-          try{var t=localStorage.getItem('hlone-theme');if(t==='light'){var el=document.getElementById('static-loader');if(el)el.style.background='#faf8f5'}}catch(e){}
+          // Match theme for loader background + html bg
+          try{var t=localStorage.getItem('hlone-theme');if(t==='light'){document.documentElement.style.background='#faf8f5';document.body.style.background='#faf8f5';var el=document.getElementById('static-loader');if(el)el.style.background='#faf8f5';var tc=document.querySelector('meta[name=theme-color]');if(tc)tc.setAttribute('content','#faf8f5')}}catch(e){}
           // Safety: hide after 12s even if React never mounts
           setTimeout(window.__hideStaticLoader,12000);
         ` }} />
