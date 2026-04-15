@@ -362,10 +362,9 @@ async function signOrder(
 
 // ─── API helpers ────────────────────────────────────────────────────────────
 
-// Derive proxy runs as a Next.js API route (Vercel serverless, US region).
-// This avoids Derive's geo-blocking of AU/restricted server IPs on Railway.
-// In production: same-origin "/api/derive-proxy". Dev: local Next.js server.
-const DERIVE_PROXY_URL = "";
+// Derive proxy runs as a Cloudflare Worker (Cloudflare edge IPs aren't blocked).
+// Vercel/AWS IPs are blocked by Derive's nginx — Cloudflare IPs are not.
+const DERIVE_PROXY_URL = "https://derive-proxy.hlone.workers.dev";
 
 async function derivePost(
   endpoint: string,
@@ -382,31 +381,12 @@ async function derivePost(
     ? { ...body, wallet: (body.wallet as string).toLowerCase() }
     : body;
 
-  // Build headers — auth headers for private endpoints
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (endpoint.startsWith("/private/") && auth) {
-    if (walletLower) headers["X-LYRAWALLET"] = walletLower;
-    headers["X-LYRATIMESTAMP"] = auth.timestamp;
-    headers["X-LYRASIGNATURE"] = auth.signature;
-  }
-
-  // Call Derive API directly from the browser (no proxy needed if user
-  // is in a non-restricted region). Falls back to proxy if direct fails with CORS.
   let res: Response;
-  try {
-    res = await fetch(`${DERIVE_API}${endpoint}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(fixedBody),
-    });
-  } catch (directErr) {
-    // CORS or network error — try through proxy as fallback
-    console.warn("[derive] Direct call failed, trying proxy:", (directErr as Error).message);
-    if (!endpoint.startsWith("/private/")) throw directErr;
 
-    const proxyRes = await fetch(`${DERIVE_PROXY_URL}/api/derive-proxy`, {
+  if (endpoint.startsWith("/private/")) {
+    // Private endpoints go through Cloudflare Worker proxy
+    // (Derive blocks Vercel/AWS IPs but not Cloudflare edge)
+    res = await fetch(DERIVE_PROXY_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -417,12 +397,13 @@ async function derivePost(
         authSignature: auth?.signature,
       }),
     });
-
-    if (!proxyRes.ok) {
-      const text = await proxyRes.text();
-      throw new Error(`Derive proxy error: ${proxyRes.status} ${text}`);
-    }
-    res = proxyRes;
+  } else {
+    // Public endpoints go direct
+    res = await fetch(`${DERIVE_API}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fixedBody),
+    });
   }
 
   if (!res.ok) {
@@ -529,36 +510,18 @@ export async function derivePostRaw(
     ? { ...body, wallet: (body.wallet as string).toLowerCase() }
     : body;
 
-  // Build headers for direct call
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (auth) {
-    if (walletLower) headers["X-LYRAWALLET"] = walletLower;
-    headers["X-LYRATIMESTAMP"] = auth.timestamp;
-    headers["X-LYRASIGNATURE"] = auth.signature;
-  }
-
-  // Try direct first, fall back to proxy
-  let res: Response;
-  try {
-    res = await fetch(`${DERIVE_API}${endpoint}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(fixedBody),
-    });
-  } catch {
-    // CORS blocked — try proxy
-    res = await fetch(`${DERIVE_PROXY_URL}/api/derive-proxy`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        endpoint,
-        body: fixedBody,
-        wallet: walletLower,
-        authTimestamp: auth?.timestamp,
-        authSignature: auth?.signature,
-      }),
-    });
-  }
+  // Call through Cloudflare Worker proxy
+  const res = await fetch(DERIVE_PROXY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      endpoint,
+      body: fixedBody,
+      wallet: walletLower,
+      authTimestamp: auth?.timestamp,
+      authSignature: auth?.signature,
+    }),
+  });
 
   const text = await res.text();
   try {
