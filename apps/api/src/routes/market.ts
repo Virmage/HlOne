@@ -1158,7 +1158,6 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   // Proxies requests to Derive's private API to avoid CORS issues.
   // Only whitelisted endpoints are allowed.
 
-  const DERIVE_API = "https://api.lyra.finance";
   const DERIVE_ALLOWED_ENDPOINTS = new Set([
     "/private/get_subaccounts",
     "/private/get_subaccount",
@@ -1186,17 +1185,24 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         headers["X-LyraWallet"] = wallet;
       }
 
-      try {
-        const res = await fetch(`${DERIVE_API}${endpoint}`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-        });
-        const data = await res.json();
-        return reply.status(res.status).send(data);
-      } catch (err) {
-        return reply.status(502).send({ error: "Derive API unreachable" });
+      // Try both API domains — Derive migrated from api.lyra.finance to api.derive.xyz
+      const DERIVE_URLS = ["https://api.derive.xyz", "https://api.lyra.finance"];
+      for (const baseUrl of DERIVE_URLS) {
+        try {
+          const res = await fetch(`${baseUrl}${endpoint}`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(10_000),
+          });
+          const data = await res.json();
+          return reply.status(res.status).send(data);
+        } catch (err) {
+          console.error(`[derive-proxy] ${baseUrl}${endpoint} failed:`, (err as Error).message);
+          continue; // try next URL
+        }
       }
+      return reply.status(502).send({ error: "Derive API unreachable on all endpoints" });
     },
   );
 };
