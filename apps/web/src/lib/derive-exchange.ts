@@ -325,10 +325,10 @@ async function signOrder(
 
 // ─── API helpers ────────────────────────────────────────────────────────────
 
-// Backend proxy URL for Derive private endpoints (avoids CORS issues)
-const PROXY_URL = typeof window !== "undefined" && process.env.NODE_ENV === "production"
-  ? ""  // Relative — proxied via next.config rewrites
-  : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001");
+// Derive proxy runs as a Next.js API route (Vercel serverless, US region).
+// This avoids Derive's geo-blocking of AU/restricted server IPs on Railway.
+// In production: same-origin "/api/derive-proxy". Dev: local Next.js server.
+const DERIVE_PROXY_URL = "";
 
 async function derivePost(
   endpoint: string,
@@ -346,7 +346,7 @@ async function derivePost(
     const fixedBody = body.wallet && typeof body.wallet === "string"
       ? { ...body, wallet: (body.wallet as string).toLowerCase() }
       : body;
-    const res = await fetch(`${PROXY_URL}/api/market/derive-proxy`, {
+    const res = await fetch(`${DERIVE_PROXY_URL}/api/derive-proxy`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
