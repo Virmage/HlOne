@@ -373,19 +373,40 @@ async function derivePost(
   walletAddress?: string,
   authHeaders?: { timestamp: string; signature: string },
 ): Promise<Record<string, unknown>> {
-  // Private endpoints go through our backend proxy to avoid CORS
-  if (endpoint.startsWith("/private/")) {
-    // Auto-attach cached auth if none provided
-    const auth = authHeaders ?? getCachedDeriveAuth() ?? undefined;
-    // Use the Derive smart contract wallet (not EOA) as X-LyraWallet.
-    // Priority: explicit walletAddress → cached deriveWallet from auth.
-    const resolvedWallet = walletAddress ?? (auth as { deriveWallet?: string })?.deriveWallet ?? undefined;
-    const walletLower = resolvedWallet?.toLowerCase();
-    // Also lowercase any wallet field in the body
-    const fixedBody = body.wallet && typeof body.wallet === "string"
-      ? { ...body, wallet: (body.wallet as string).toLowerCase() }
-      : body;
-    const res = await fetch(`${DERIVE_PROXY_URL}/api/derive-proxy`, {
+  const auth = authHeaders ?? getCachedDeriveAuth() ?? undefined;
+  const resolvedWallet = walletAddress ?? (auth as { deriveWallet?: string })?.deriveWallet ?? undefined;
+  const walletLower = resolvedWallet?.toLowerCase();
+
+  // Lowercase wallet fields in body
+  const fixedBody = body.wallet && typeof body.wallet === "string"
+    ? { ...body, wallet: (body.wallet as string).toLowerCase() }
+    : body;
+
+  // Build headers — auth headers for private endpoints
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (endpoint.startsWith("/private/") && auth) {
+    if (walletLower) headers["X-LYRAWALLET"] = walletLower;
+    headers["X-LYRATIMESTAMP"] = auth.timestamp;
+    headers["X-LYRASIGNATURE"] = auth.signature;
+  }
+
+  // Call Derive API directly from the browser (no proxy needed if user
+  // is in a non-restricted region). Falls back to proxy if direct fails with CORS.
+  let res: Response;
+  try {
+    res = await fetch(`${DERIVE_API}${endpoint}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(fixedBody),
+    });
+  } catch (directErr) {
+    // CORS or network error — try through proxy as fallback
+    console.warn("[derive] Direct call failed, trying proxy:", (directErr as Error).message);
+    if (!endpoint.startsWith("/private/")) throw directErr;
+
+    const proxyRes = await fetch(`${DERIVE_PROXY_URL}/api/derive-proxy`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -397,37 +418,16 @@ async function derivePost(
       }),
     });
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Derive proxy error: ${res.status} ${text}`);
+    if (!proxyRes.ok) {
+      const text = await proxyRes.text();
+      throw new Error(`Derive proxy error: ${proxyRes.status} ${text}`);
     }
-
-    const data = await res.json() as Record<string, unknown>;
-    // Derive returns 200 with { error: { code, message } } for app-level errors
-    if (data.error && typeof data.error === "object") {
-      const err = data.error as { code?: number; message?: string };
-      // 14000 = "Account not found" — not a hard error, just means no account yet
-      if (err.code !== 14000) {
-        throw new Error(err.message || `Derive error ${err.code}`);
-      }
-    }
-    return data;
+    res = proxyRes;
   }
-
-  // Public endpoints can go direct
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-
-  const res = await fetch(`${DERIVE_API}${endpoint}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Derive API error: ${res.status} ${text}`);
+    throw new Error(`Derive API error: ${res.status} ${text.slice(0, 200)}`);
   }
 
   const data = await res.json() as Record<string, unknown>;
@@ -514,8 +514,8 @@ export function getCachedDeriveWallet(): string | null {
 }
 
 /**
- * Raw version of derivePost — returns whatever the proxy/API sends back,
- * including error responses. Never throws. For debugging auth issues.
+ * Raw version of derivePost — returns whatever the API sends back,
+ * including error responses. Never throws. For debugging.
  */
 export async function derivePostRaw(
   endpoint: string,
@@ -529,21 +529,40 @@ export async function derivePostRaw(
     ? { ...body, wallet: (body.wallet as string).toLowerCase() }
     : body;
 
-  const res = await fetch(`${DERIVE_PROXY_URL}/api/derive-proxy`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      endpoint,
-      body: fixedBody,
-      wallet: walletLower,
-      authTimestamp: auth?.timestamp,
-      authSignature: auth?.signature,
-    }),
-  });
+  // Build headers for direct call
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (auth) {
+    if (walletLower) headers["X-LYRAWALLET"] = walletLower;
+    headers["X-LYRATIMESTAMP"] = auth.timestamp;
+    headers["X-LYRASIGNATURE"] = auth.signature;
+  }
+
+  // Try direct first, fall back to proxy
+  let res: Response;
+  try {
+    res = await fetch(`${DERIVE_API}${endpoint}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(fixedBody),
+    });
+  } catch {
+    // CORS blocked — try proxy
+    res = await fetch(`${DERIVE_PROXY_URL}/api/derive-proxy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint,
+        body: fixedBody,
+        wallet: walletLower,
+        authTimestamp: auth?.timestamp,
+        authSignature: auth?.signature,
+      }),
+    });
+  }
 
   const text = await res.text();
   try {
-    return { _status: res.status, ...JSON.parse(text) };
+    return { _status: res.status, _direct: true, ...JSON.parse(text) };
   } catch {
     return { _status: res.status, _raw: text.slice(0, 300) };
   }
