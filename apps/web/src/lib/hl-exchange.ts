@@ -894,11 +894,11 @@ export async function approveBuilderFee(
 }
 
 // ─── Withdraw (HL L1 → Arbitrum) ────────────────────────────────────────────
-// Withdrawals are L1 actions signed by the agent wallet.
-// Hyperliquid processes the withdrawal and sends USDC to the user's Arbitrum address.
+// Withdrawals are user-level L1 actions — must be signed by the actual wallet,
+// NOT an agent key. Uses EIP-712 typed data signing like transferBetweenSpotAndPerp.
 
 export async function withdraw(
-  agentKey: `0x${string}`,
+  walletClient: WalletClient,
   address: `0x${string}`,
   amount: number, // USDC amount
 ): Promise<{ success: boolean; error?: string }> {
@@ -913,9 +913,48 @@ export async function withdraw(
       destination: address,
     };
 
-    const signature = await signL1Action(agentKey, action, nonce);
-    const result = await submitToExchange(action, nonce, signature);
+    // Withdraw is a user L1 action — signed by the actual wallet, not an agent
+    const signature = await walletClient.signTypedData({
+      account: address,
+      domain: {
+        name: "HyperliquidSignTransaction",
+        version: "1",
+        chainId: 42161,
+        verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+      },
+      types: {
+        "HyperliquidTransaction:Withdraw": [
+          { name: "hyperliquidChain", type: "string" },
+          { name: "destination", type: "string" },
+          { name: "amount", type: "string" },
+          { name: "time", type: "uint64" },
+        ],
+      },
+      primaryType: "HyperliquidTransaction:Withdraw",
+      message: {
+        hyperliquidChain: "Mainnet",
+        destination: address,
+        amount: floatToWire(amount),
+        time: BigInt(nonce),
+      },
+    });
 
+    const r = signature.slice(0, 66);
+    const s = `0x${signature.slice(66, 130)}`;
+    const v = normalizeV(parseInt(signature.slice(130, 132), 16));
+
+    const res = await fetch(`${HL_API}/exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        nonce,
+        signature: { r, s, v },
+        vaultAddress: null,
+      }),
+    });
+
+    const result = await res.json();
     if ((result as { status?: string }).status === "ok") {
       return { success: true };
     }
@@ -924,10 +963,6 @@ export async function withdraw(
       || JSON.stringify(result);
     return { success: false, error: apiErr };
   } catch (err) {
-    if (err instanceof StaleAgentError) {
-      clearStoredAgent(address);
-      return { success: false, error: STALE_AGENT_MSG };
-    }
     return { success: false, error: extractError(err) };
   }
 }

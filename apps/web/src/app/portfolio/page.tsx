@@ -416,10 +416,8 @@ function TransferBar({ address }: { address: string }) {
       ]);
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) { setResult({ ok: false, msg: "No wallet" }); return; }
-      // Withdraw requires an agent key — ensure one exists
-      const agent = await exchange.ensureAgent(walletClient, address as `0x${string}`);
-      if (agent.error) { setResult({ ok: false, msg: agent.error }); return; }
-      const res = await exchange.withdraw(agent.agentKey, address as `0x${string}`, amt);
+      // Withdraw is a user-level action — signed by wallet directly, no agent needed
+      const res = await exchange.withdraw(walletClient, address as `0x${string}`, amt);
       setResult(res.success
         ? { ok: true, msg: `Withdrawal of $${amt} initiated` }
         : { ok: false, msg: res.error || "Withdrawal failed" }
