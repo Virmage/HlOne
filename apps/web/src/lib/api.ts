@@ -687,7 +687,7 @@ export interface Hip3Stats {
   totalVolume24h: number;
   totalOI: number;
   byCategory: { category: string; count: number; volume24h: number; oi: number }[];
-  byDex: { dex: string; count: number; volume24h: number }[];
+  byDex: { dex: string; count: number; volume24h: number; oi: number }[];
 }
 
 export interface EcosystemData {

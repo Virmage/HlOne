@@ -63,9 +63,10 @@ export default function RootLayout({
         {/* Static loading screen — visible instantly before JS loads.
             Covers the entire viewport so nothing behind can flash (red bar fix).
             React app calls window.__hideStaticLoader() on mount to remove it. */}
-        <div id="static-loader" className="bg-[var(--background)]" style={{
+        <div id="static-loader" style={{
           position: 'fixed', inset: 0, zIndex: 99999,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: '#060a0c',
           willChange: 'transform',
         }}>
           <img src="/portalspin.gif" alt="" width={112} height={112} />

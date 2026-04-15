@@ -74,7 +74,7 @@ export interface Hip3Stats {
   totalVolume24h: number;
   totalOI: number;
   byCategory: { category: string; count: number; volume24h: number; oi: number }[];
-  byDex: { dex: string; count: number; volume24h: number }[];
+  byDex: { dex: string; count: number; volume24h: number; oi: number }[];
 }
 
 export interface EcosystemData {
@@ -295,7 +295,7 @@ async function buildHip3Stats(): Promise<Hip3Stats | null> {
     if (!tokens.length) return null;
 
     const byCategory = new Map<string, { count: number; volume24h: number; oi: number }>();
-    const byDex = new Map<string, { count: number; volume24h: number }>();
+    const byDex = new Map<string, { count: number; volume24h: number; oi: number }>();
     let totalVolume = 0;
     let totalOI = 0;
 
@@ -309,9 +309,10 @@ async function buildHip3Stats(): Promise<Hip3Stats | null> {
       cat.oi += t.openInterest;
       byCategory.set(t.category, cat);
 
-      const dex = byDex.get(t.dex) || { count: 0, volume24h: 0 };
+      const dex = byDex.get(t.dex) || { count: 0, volume24h: 0, oi: 0 };
       dex.count++;
       dex.volume24h += t.volume24h;
+      dex.oi += t.openInterest;
       byDex.set(t.dex, dex);
     }
 

@@ -185,7 +185,7 @@ function LoadingScreen() {
     return () => globalThis.clearInterval(t);
   }, []);
   return (
-    <div className="fixed inset-0 z-[99999] overflow-hidden bg-[var(--background)]" style={{ willChange: 'transform', transform: 'translateZ(0)' }}>
+    <div className="fixed inset-0 z-[99999] overflow-hidden" style={{ background: '#060a0c', willChange: 'transform', transform: 'translateZ(0)' }}>
       <div className="flex items-center justify-center h-full w-full">
         <div className="text-center flex flex-col items-center">
           <img src="/portalspin.gif" alt="" className="w-28 h-28" />

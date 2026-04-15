@@ -113,26 +113,22 @@ export function EcosystemPanel({ data }: EcosystemPanelProps) {
           <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">
             HYPE Staking
           </h3>
-          <div className="grid grid-cols-4 gap-px bg-[var(--hl-border)] mb-2">
-            <div className="bg-[var(--background)] p-2">
-              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-0.5">Total Staked</div>
-              <div className="text-[13px] font-semibold tabular-nums text-[var(--foreground)]">{formatHype(staking.totalStaked)}</div>
-              <div className="text-[9px] text-[var(--hl-muted)]">HYPE</div>
-            </div>
-            <div className="bg-[var(--background)] p-2">
-              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-0.5">Validators</div>
-              <div className="text-[13px] font-semibold tabular-nums text-[var(--foreground)]">{staking.activeValidators}</div>
-              <div className="text-[9px] text-[var(--hl-muted)]">{staking.totalValidators} total</div>
-            </div>
-            <div className="bg-[var(--background)] p-2">
-              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-0.5">Avg APR</div>
-              <div className="text-[13px] font-semibold tabular-nums text-[var(--hl-green)]">{staking.avgApr.toFixed(2)}%</div>
-            </div>
-            <div className="bg-[var(--background)] p-2">
-              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-0.5">HIP-3 Assets</div>
-              <div className="text-[13px] font-semibold tabular-nums text-[var(--foreground)]">{hip3?.totalAssets || platform.hip3AssetCount}</div>
-              <div className="text-[9px] text-[var(--hl-muted)]">{hip3 ? formatUsd(hip3.totalVolume24h) + " vol" : ""}</div>
-            </div>
+          <div className="grid grid-cols-3 gap-px bg-[var(--hl-border)]">
+            <StatCard
+              label="Total Staked"
+              value={formatHype(staking.totalStaked)}
+              sub="HYPE"
+            />
+            <StatCard
+              label="Validators"
+              value={String(staking.activeValidators)}
+              sub={`${staking.totalValidators} total`}
+            />
+            <StatCard
+              label="Avg APR"
+              value={`${staking.avgApr.toFixed(2)}%`}
+              valueColor="text-[var(--hl-green)]"
+            />
           </div>
         </div>
       )}
@@ -150,12 +146,14 @@ export function EcosystemPanel({ data }: EcosystemPanelProps) {
                 <span className="flex-1">Builder</span>
                 <span className="w-10 text-right">#</span>
                 <span className="w-20 text-right">24h Vol</span>
+                <span className="w-20 text-right">OI</span>
               </div>
               {hip3.byDex.map((dex, i) => (
                 <div key={i} className="flex items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)]">
                   <span className="flex-1 text-[var(--foreground)] font-medium">{DEX_LABELS[dex.dex] || dex.dex}</span>
                   <span className="w-10 text-right tabular-nums text-[var(--hl-muted)]">{dex.count}</span>
                   <span className="w-20 text-right tabular-nums text-[var(--foreground)]">{formatUsd(dex.volume24h)}</span>
+                  <span className="w-20 text-right tabular-nums text-[var(--hl-muted)]">{formatUsd(dex.oi)}</span>
                 </div>
               ))}
             </div>
