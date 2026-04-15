@@ -340,13 +340,19 @@ async function derivePost(
   if (endpoint.startsWith("/private/")) {
     // Auto-attach cached auth if none provided
     const auth = authHeaders ?? getCachedDeriveAuth() ?? undefined;
+    // Derive requires lowercase wallet addresses everywhere
+    const walletLower = walletAddress?.toLowerCase();
+    // Also lowercase any wallet field in the body
+    const fixedBody = body.wallet && typeof body.wallet === "string"
+      ? { ...body, wallet: (body.wallet as string).toLowerCase() }
+      : body;
     const res = await fetch(`${PROXY_URL}/api/market/derive-proxy`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         endpoint,
-        body,
-        wallet: walletAddress,
+        body: fixedBody,
+        wallet: walletLower,
         authTimestamp: auth?.timestamp,
         authSignature: auth?.signature,
       }),
@@ -393,7 +399,7 @@ export async function getDeriveAuth(
   walletClient: WalletClient,
   address: `0x${string}`,
 ): Promise<{ timestamp: string; signature: string }> {
-  if (cachedAuth && cachedAuth.wallet === address && Date.now() < cachedAuth.expiresAt) {
+  if (cachedAuth && cachedAuth.wallet.toLowerCase() === address.toLowerCase() && Date.now() < cachedAuth.expiresAt) {
     return { timestamp: cachedAuth.timestamp, signature: cachedAuth.signature };
   }
 
@@ -417,7 +423,7 @@ export async function getDeriveAuth(
  * Check if we have valid cached auth (avoid prompting wallet).
  */
 export function hasCachedDeriveAuth(address: string): boolean {
-  return !!cachedAuth && cachedAuth.wallet === address && Date.now() < cachedAuth.expiresAt;
+  return !!cachedAuth && cachedAuth.wallet.toLowerCase() === address.toLowerCase() && Date.now() < cachedAuth.expiresAt;
 }
 
 /**

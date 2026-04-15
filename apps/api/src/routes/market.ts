@@ -1184,11 +1184,14 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         return reply.status(400).send({ error: "Invalid endpoint" });
       }
 
+      // Derive requires lowercase wallet address
+      const walletLower = wallet?.toLowerCase();
+
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
-      if (wallet) {
-        headers["X-LyraWallet"] = wallet;
+      if (walletLower) {
+        headers["X-LyraWallet"] = walletLower;
       }
       // Derive private endpoints require timestamp + signature auth headers
       if (authTimestamp) {
@@ -1197,6 +1200,8 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       if (authSignature) {
         headers["X-LyraSignature"] = authSignature;
       }
+
+      console.log(`[derive-proxy] ${endpoint} wallet=${walletLower?.slice(0, 10)}... hasAuth=${!!authTimestamp && !!authSignature}`);
 
       const DERIVE_URL = "https://api.lyra.finance";
       try {
@@ -1211,6 +1216,9 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
         if (!contentType.includes("json")) {
           const text = await res.text();
           console.error(`[derive-proxy] ${endpoint} returned non-JSON (${res.status}):`, text.slice(0, 200));
+          if (res.status === 401) {
+            console.error(`[derive-proxy] 401 — headers sent: wallet=${!!walletLower} timestamp=${!!authTimestamp} signature=${!!authSignature}`);
+          }
           return reply.status(res.status).send({
             error: `Derive API returned ${res.status}`,
             needsAuth: res.status === 401,
