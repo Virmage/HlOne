@@ -917,55 +917,27 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
               <p className="text-[9px] text-[var(--hl-muted)] text-center">Sign to check your Derive options account</p>
             </div>
           ) : deriveSubaccount === null ? (
-            /* ─── Connected but no Derive account: in-app create ─── */
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-[var(--hl-muted)]">Deposit USDC</span>
-                <span className="text-[10px] text-[var(--hl-muted)]">$</span>
-                <input
-                  type="number"
-                  value={depositAmount}
-                  onChange={e => setDepositAmount(e.target.value)}
-                  placeholder="100"
-                  className="w-16 bg-transparent text-right text-[11px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none border-b border-[var(--hl-border)]"
-                />
+            /* ─── Connected but no Derive account: link to onboard ─── */
+            <div className="space-y-3">
+              <div className="text-center">
+                <div className="text-[11px] text-[var(--hl-muted)] mb-2">No Derive account found for this wallet</div>
+                <a
+                  href="https://derive.xyz/options/ETH"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block w-full py-2.5 rounded font-semibold text-[12px] text-center transition-colors bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30"
+                >
+                  Set Up on Derive
+                </a>
+                <p className="text-[9px] text-[var(--hl-muted)] mt-2">Create your account and deposit USDC on derive.xyz, then return here to trade</p>
               </div>
               <button
-                onClick={async () => {
-                  if (!address || setupStep !== "idle") return;
-                  setSetupStep("creating");
-                  setOrderResult(null);
-                  try {
-                    const [wagmiCore, derive, wagmiConfig] = await Promise.all([
-                      import("@wagmi/core"),
-                      import("@/lib/derive-exchange"),
-                      import("@/config/wagmi"),
-                    ]);
-                    const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
-                    if (!walletClient) { setSetupStep("idle"); return; }
-                    const res = await derive.createSubaccount(walletClient, address as `0x${string}`, {
-                      amount: depositAmount || "100",
-                      marginType: "SM",
-                    });
-                    if (res.success && res.subaccountId) {
-                      setDeriveSubaccount(res.subaccountId);
-                      setDeriveBalance(parseFloat(depositAmount || "100"));
-                      setOrderResult({ ok: true, msg: "Derive account created" });
-                    } else {
-                      setOrderResult({ ok: false, msg: res.error || "Failed to create account" });
-                    }
-                  } catch (err) {
-                    setOrderResult({ ok: false, msg: (err as Error).message || "Failed" });
-                  } finally {
-                    setSetupStep("idle");
-                  }
-                }}
-                disabled={setupStep !== "idle"}
-                className="w-full py-2.5 rounded font-semibold text-[12px] text-center transition-colors bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 disabled:opacity-50"
+                onClick={connectDerive}
+                disabled={setupStep === "connecting"}
+                className="w-full py-1.5 rounded text-[10px] text-center transition-colors text-[var(--hl-muted)] hover:text-[var(--foreground)] border border-[var(--hl-border)] hover:border-[var(--hl-accent)]"
               >
-                {setupStep === "creating" ? "Signing..." : "Create Derive Account"}
+                {setupStep === "connecting" ? "Checking..." : "Re-check Account"}
               </button>
-              <p className="text-[9px] text-[var(--hl-muted)] text-center">Creates a Derive subaccount with your wallet</p>
             </div>
           ) : (
             /* ─── Has account: show balance + trade or deposit ─── */

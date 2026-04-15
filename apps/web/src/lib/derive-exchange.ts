@@ -624,46 +624,13 @@ async function signDepositAction(
   });
 }
 
-// ─── Create account (registration) ─────────────────────────────────────────
-
-/**
- * Register a wallet with Derive. Must be called before create_subaccount.
- * Uses /private/create_account (requires auth headers).
- * Idempotent — returns success if account already exists.
- */
-async function ensureDeriveAccount(address: string): Promise<void> {
-  const wallet = address.toLowerCase();
-  const auth = getCachedDeriveAuth();
-  const res = await fetch(`${DERIVE_PROXY_URL}/api/derive-proxy`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      endpoint: "/private/create_account",
-      body: { wallet },
-      wallet,
-      authTimestamp: auth?.timestamp,
-      authSignature: auth?.signature,
-    }),
-  });
-  const data = await res.json().catch(() => null);
-  // If account already exists or was just created, that's fine
-  if (data?.error && typeof data.error === "object") {
-    const err = data.error as { code?: number; message?: string };
-    // Ignore "already exists" type errors
-    if (err.code && err.code !== 14000) {
-      console.warn("[derive] ensureDeriveAccount warning:", err.message);
-      // Don't throw — let create_subaccount handle the error
-    }
-  }
-  console.log("[derive] ensureDeriveAccount:", data?.status || data?.result || "done");
-}
-
 // ─── Create subaccount ──────────────────────────────────────────────────────
 
 /**
  * Create a new subaccount on Derive with an initial deposit.
- * Step 1: Register wallet with /public/create_account (idempotent).
- * Step 2: Create subaccount with /private/create_subaccount (EIP-712 signed).
+ * NOTE: Requires the wallet to already be registered on Derive (via derive.xyz).
+ * Derive does not expose a public account creation API — users must onboard
+ * through derive.xyz first.
  */
 export async function createSubaccount(
   walletClient: WalletClient,
@@ -674,10 +641,6 @@ export async function createSubaccount(
   },
 ): Promise<DeriveSubaccountResult> {
   try {
-    // Step 1: Ensure wallet is registered with Derive
-    await ensureDeriveAccount(address);
-
-    // Step 2: Create subaccount with deposit
     const nonce = generateNonce();
     const expiryTimestamp = Math.floor(Date.now() / 1000) + 600;
 
