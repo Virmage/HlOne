@@ -798,22 +798,36 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
         wallet = walletLower;
       }
 
+      console.log("[derive] Connecting with EOA:", address, "Derive wallet:", wallet);
+
       // Sign auth — EOA signs timestamp, Derive wallet used as X-LyraWallet
       await derive.getDeriveAuth(walletClient, address as `0x${string}`, wallet);
       setDeriveConnected(true);
-      // Check for subaccount
+
+      // First check if account exists via get_account
+      const accountInfo = await derive.getAccount(wallet);
+      console.log("[derive] get_account result:", JSON.stringify(accountInfo).slice(0, 500));
+
+      if (!accountInfo) {
+        setOrderResult({ ok: false, msg: `No Derive account for wallet ${wallet.slice(0, 10)}... — set up on derive.xyz first` });
+        return;
+      }
+
+      // Then get subaccounts
       const subs = await derive.getSubaccounts(wallet);
+      console.log("[derive] getSubaccounts result:", subs.length, "subaccounts");
       if (subs.length > 0) {
         const subId = subs[0].subaccountId;
         setDeriveSubaccount(subId);
         const bal = await derive.getUsdcBalance(wallet, subId);
         setDeriveBalance(bal);
-        setOrderResult({ ok: true, msg: "Connected to Derive" });
+        setOrderResult({ ok: true, msg: `Connected to Derive (${wallet.slice(0, 8)}...)` });
       } else {
-        setOrderResult({ ok: false, msg: "No Derive account found — set up on derive.xyz first" });
+        setOrderResult({ ok: false, msg: "Account found but no subaccounts — create one on derive.xyz" });
       }
     } catch (err) {
-      setOrderResult({ ok: false, msg: `Connection failed: ${(err as Error).message?.slice(0, 100)}` });
+      console.error("[derive] connectDerive error:", err);
+      setOrderResult({ ok: false, msg: `Connection failed: ${(err as Error).message?.slice(0, 120)}` });
     } finally {
       setSetupStep("idle");
     }

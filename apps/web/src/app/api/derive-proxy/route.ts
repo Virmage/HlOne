@@ -17,6 +17,7 @@ const DERIVE_URL = "https://api.lyra.finance";
 const ALLOWED_ENDPOINTS = new Set([
   "/public/create_account",
   "/private/create_account",
+  "/private/get_account",
   "/private/get_subaccounts",
   "/private/get_subaccount",
   "/private/get_collaterals",
@@ -61,6 +62,8 @@ export async function POST(req: NextRequest) {
       ? { ...fixedBody, signer: fixedBody.signer.toLowerCase() }
       : fixedBody;
 
+    console.log(`[derive-proxy] ${endpoint} wallet=${walletLower?.slice(0, 10)} hasAuth=${!!authTimestamp}`);
+
     const res = await fetch(`${DERIVE_URL}${endpoint}`, {
       method: "POST",
       headers,
@@ -71,6 +74,7 @@ export async function POST(req: NextRequest) {
     const contentType = res.headers.get("content-type") || "";
     if (!contentType.includes("json")) {
       const text = await res.text();
+      console.log(`[derive-proxy] ${endpoint} non-JSON ${res.status}: ${text.slice(0, 100)}`);
       return NextResponse.json(
         { error: `Derive API returned ${res.status}`, needsAuth: res.status === 401, detail: text.slice(0, 200) },
         { status: res.status },
@@ -78,6 +82,7 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await res.json();
+    console.log(`[derive-proxy] ${endpoint} ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
     return NextResponse.json(data, { status: res.status });
   } catch (err) {
     console.error("[derive-proxy] Failed:", (err as Error).message);

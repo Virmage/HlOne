@@ -795,6 +795,40 @@ export async function depositToSubaccount(
   }
 }
 
+// ─── Get account ───────────────────────────────────────────────────────────
+
+/**
+ * Check if a Derive account exists for this wallet.
+ * Returns the account info or null if no account.
+ */
+export async function getAccount(
+  walletAddress: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const result = await derivePost(
+      "/private/get_account",
+      { wallet: walletAddress },
+      walletAddress,
+      getCachedDeriveAuth() ?? undefined,
+    );
+
+    console.log("[derive] getAccount raw:", JSON.stringify(result).slice(0, 500));
+
+    // Check for error response (code 14000 = account not found)
+    if (result.error && typeof result.error === "object") {
+      const err = result.error as { code?: number };
+      if (err.code === 14000) return null;
+    }
+
+    const r = result as Record<string, unknown>;
+    const inner = (r.result as Record<string, unknown>) ?? r;
+    return inner;
+  } catch (err) {
+    console.error("[derive] getAccount failed:", (err as Error).message);
+    return null;
+  }
+}
+
 // ─── Get subaccounts ────────────────────────────────────────────────────────
 
 export async function getSubaccounts(
@@ -809,7 +843,14 @@ export async function getSubaccounts(
       auth ?? getCachedDeriveAuth() ?? undefined,
     );
 
-    console.log("[derive] getSubaccounts raw response:", JSON.stringify(result).slice(0, 500));
+    console.log("[derive] getSubaccounts raw response:", JSON.stringify(result).slice(0, 800));
+
+    // Check for error response (code 14000 = account not found)
+    if (result.error && typeof result.error === "object") {
+      const err = result.error as { code?: number; message?: string };
+      console.warn("[derive] getSubaccounts API error:", err.code, err.message);
+      return [];
+    }
 
     // API may return { result: { subaccount_ids: [...] } } or { subaccounts: [...] }
     const r = result as Record<string, unknown>;
