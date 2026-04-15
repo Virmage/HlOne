@@ -16,6 +16,7 @@ const DERIVE_URL = "https://api.lyra.finance";
 
 const ALLOWED_ENDPOINTS = new Set([
   "/public/create_account",
+  "/private/create_account",
   "/private/get_subaccounts",
   "/private/get_subaccount",
   "/private/get_collaterals",

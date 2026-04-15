@@ -628,28 +628,34 @@ async function signDepositAction(
 
 /**
  * Register a wallet with Derive. Must be called before create_subaccount.
- * This is a public endpoint (no auth needed) that creates the Derive
- * smart-contract wallet wrapper around the user's EOA.
+ * Uses /private/create_account (requires auth headers).
+ * Idempotent — returns success if account already exists.
  */
 async function ensureDeriveAccount(address: string): Promise<void> {
   const wallet = address.toLowerCase();
-  // Route through proxy to avoid geo-blocking
+  const auth = getCachedDeriveAuth();
   const res = await fetch(`${DERIVE_PROXY_URL}/api/derive-proxy`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      endpoint: "/public/create_account",
+      endpoint: "/private/create_account",
       body: { wallet },
       wallet,
+      authTimestamp: auth?.timestamp,
+      authSignature: auth?.signature,
     }),
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Derive account registration failed: ${text}`);
+  const data = await res.json().catch(() => null);
+  // If account already exists or was just created, that's fine
+  if (data?.error && typeof data.error === "object") {
+    const err = data.error as { code?: number; message?: string };
+    // Ignore "already exists" type errors
+    if (err.code && err.code !== 14000) {
+      console.warn("[derive] ensureDeriveAccount warning:", err.message);
+      // Don't throw — let create_subaccount handle the error
+    }
   }
-  const data = await res.json();
-  // "created" or "exists" are both fine
-  console.log("[derive] ensureDeriveAccount:", data?.status || data);
+  console.log("[derive] ensureDeriveAccount:", data?.status || data?.result || "done");
 }
 
 // ─── Create subaccount ──────────────────────────────────────────────────────
