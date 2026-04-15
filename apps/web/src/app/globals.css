@@ -59,8 +59,11 @@ nextjs-portal,
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 
-body {
+html {
   background: var(--background);
+}
+body {
+  background: transparent;
   color: var(--foreground);
   font-family: system-ui, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", sans-serif;
 }

@@ -30,7 +30,7 @@ export default function RootLayout({
       <head>
         <meta name="theme-color" content="#060a0c" />
         <meta name="color-scheme" content="dark" />
-        <style dangerouslySetInnerHTML={{ __html: `:root,[data-theme="dark"]{--background:#060a0c}[data-theme="light"]{--background:#faf8f5}html,body,#static-loader{background:var(--background)!important}nextjs-portal,nextjs-portal *,[data-nextjs-dialog-overlay],[data-nextjs-dialog-overlay] *,[data-nextjs-toast],[data-nextjs-toast] *,#__next-build-indicator,#__next-build-indicator *,[class*="nextjs-container-errors"],[class*="nextjs-container-errors"] *,[data-nextjs-scroll-focus-boundary]>[role="dialog"],body>iframe[style*="border"][style*="z-index"]{display:none!important;visibility:hidden!important;opacity:0!important;height:0!important;width:0!important;overflow:hidden!important;position:absolute!important;pointer-events:none!important;max-height:0!important}` }} />
+        <style dangerouslySetInnerHTML={{ __html: `:root,[data-theme="dark"]{--background:#060a0c;--hl-nav:#040808}[data-theme="light"]{--background:#faf8f5;--hl-nav:#fdfcf9}html{background:var(--background)!important}body{background:transparent!important}nextjs-portal,nextjs-portal *,[data-nextjs-dialog-overlay],[data-nextjs-dialog-overlay] *,[data-nextjs-toast],[data-nextjs-toast] *,#__next-build-indicator,#__next-build-indicator *,[class*="nextjs-container-errors"],[class*="nextjs-container-errors"] *,[data-nextjs-scroll-focus-boundary]>[role="dialog"],body>iframe[style*="border"][style*="z-index"]{display:none!important;visibility:hidden!important;opacity:0!important;height:0!important;width:0!important;overflow:hidden!important;position:absolute!important;pointer-events:none!important;max-height:0!important}` }} />
         <script dangerouslySetInnerHTML={{ __html: `
           // localStorage polyfill — must run before ANY other JS
           (function(){var n=false;try{if(typeof localStorage==='undefined'){n=true}else if(typeof localStorage.getItem!=='function'){n=true}else{localStorage.setItem('__t','1');localStorage.removeItem('__t')}}catch(e){n=true}if(n){var m={};var p={getItem:function(k){return m.hasOwnProperty(k)?m[k]:null},setItem:function(k,v){m[k]=String(v)},removeItem:function(k){delete m[k]},clear:function(){m={}},get length(){return Object.keys(m).length},key:function(i){return Object.keys(m)[i]||null}};try{Object.defineProperty(window,'localStorage',{value:p,writable:true,configurable:true})}catch(e){try{window.localStorage=p}catch(e2){}}}})();
@@ -58,14 +58,15 @@ export default function RootLayout({
         ` }} />
       </head>
       <body
-        className="min-h-screen bg-[var(--background)] text-[var(--foreground)] antialiased"
+        className="min-h-screen text-[var(--foreground)] antialiased"
       >
         {/* Static loading screen — visible instantly before JS loads.
             Covers the entire viewport so nothing behind can flash (red bar fix).
             React app calls window.__hideStaticLoader() on mount to remove it. */}
-        <div id="static-loader" style={{
+        <div id="static-loader" className="bg-[var(--background)]" style={{
           position: 'fixed', inset: 0, zIndex: 99999,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
+          willChange: 'transform',
         }}>
           <img src="/portalspin.gif" alt="" width={112} height={112} />
         </div>
