@@ -376,6 +376,12 @@ function TransferBar({ address }: { address: string }) {
   if (mode === "none") {
     return (
       <div className="flex items-center gap-2 flex-wrap">
+        <a href="https://app.hyperliquid.xyz/deposit" target="_blank" rel="noopener noreferrer" className={`${btnClass} text-[var(--foreground)] no-underline`}>
+          Deposit
+        </a>
+        <a href="https://app.hyperliquid.xyz/withdraw" target="_blank" rel="noopener noreferrer" className={`${btnClass} text-[var(--foreground)] no-underline`}>
+          Withdraw
+        </a>
         <button onClick={() => { setMode("toPerps"); setResult(null); }} className={`${btnClass} text-[var(--hl-green)]`}>
           Spot → Perps <span className="text-[var(--hl-muted)] text-[9px] ml-1">{fmtBal(spotBalance)}</span>
         </button>
