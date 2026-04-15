@@ -686,40 +686,25 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
   const [orderResult, setOrderResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [deriveSubaccount, setDeriveSubaccount] = useState<number | null>(null);
   const [deriveBalance, setDeriveBalance] = useState<number | null>(null);
-  const [setupStep, setSetupStep] = useState<"idle" | "creating" | "depositing">("idle");
+  const [deriveConnected, setDeriveConnected] = useState(false);
+  const [setupStep, setSetupStep] = useState<"idle" | "creating" | "depositing" | "connecting">("idle");
   const [depositAmount, setDepositAmount] = useState("100");
   const [postOnly, setPostOnly] = useState(true);
   const [timeInForce, setTimeInForce] = useState<"gtc" | "ioc">("gtc");
   const { address } = useSafeAccount();
 
-  // Check for Derive subaccount + balance when wallet connects — re-check periodically.
-  // First call signs auth with wallet (one MetaMask popup), subsequent polls use cached auth.
+  // Poll Derive subaccount + balance — only runs when auth is already cached (no wallet prompts).
+  // Auth gets cached when user explicitly clicks "Connect to Derive" or "Create Account".
   useEffect(() => {
     if (!isConnected || !address) return;
     let cancelled = false;
 
-    const checkDerive = async (isFirstRun: boolean) => {
+    const checkDerive = async () => {
       try {
         const derive = await import("@/lib/derive-exchange");
-
-        // First run: sign auth with wallet (prompts MetaMask once, cached ~4 min)
-        if (isFirstRun && !derive.hasCachedDeriveAuth(address)) {
-          try {
-            const [wagmiCore, wagmiConfig] = await Promise.all([
-              import("@wagmi/core"),
-              import("@/config/wagmi"),
-            ]);
-            const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
-            if (walletClient) {
-              await derive.getDeriveAuth(walletClient, address as `0x${string}`);
-            }
-          } catch {
-            // Wallet sign rejected or unavailable — continue without auth
-          }
-        }
-
-        // Skip poll if no cached auth (don't re-prompt every 15s)
+        // Only poll if we already have auth (user previously connected)
         if (!derive.hasCachedDeriveAuth(address)) return;
+        if (!deriveConnected) setDeriveConnected(true);
 
         if (cancelled) return;
         const subs = await derive.getSubaccounts(address);
@@ -733,10 +718,39 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       } catch {}
     };
 
-    checkDerive(true);
-    const interval = setInterval(() => checkDerive(false), 15_000);
+    checkDerive();
+    const interval = setInterval(checkDerive, 15_000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [isConnected, address]);
+  }, [isConnected, address, deriveConnected]);
+
+  // Connect to Derive — signs auth with wallet (one MetaMask popup), then checks subaccounts
+  const connectDerive = async () => {
+    if (!address || setupStep !== "idle") return;
+    setSetupStep("connecting");
+    try {
+      const [wagmiCore, derive, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"),
+        import("@/lib/derive-exchange"),
+        import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) { setSetupStep("idle"); return; }
+      await derive.getDeriveAuth(walletClient, address as `0x${string}`);
+      setDeriveConnected(true);
+      // Immediately check for subaccount
+      const subs = await derive.getSubaccounts(address);
+      if (subs.length > 0) {
+        const subId = subs[0].subaccountId;
+        setDeriveSubaccount(subId);
+        const bal = await derive.getUsdcBalance(address, subId);
+        setDeriveBalance(bal);
+      }
+    } catch {
+      setOrderResult({ ok: false, msg: "Failed to connect — try again" });
+    } finally {
+      setSetupStep("idle");
+    }
+  };
 
   // When a new option is selected from the chain, update the form
   useEffect(() => {
@@ -890,8 +904,20 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
             >
               Connect Wallet
             </button>
+          ) : !deriveConnected ? (
+            /* ─── Not connected to Derive yet: prompt to connect ─── */
+            <div className="space-y-2">
+              <button
+                onClick={connectDerive}
+                disabled={setupStep === "connecting"}
+                className="w-full py-2.5 rounded font-semibold text-[12px] text-center transition-colors bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 disabled:opacity-50"
+              >
+                {setupStep === "connecting" ? "Connecting..." : "Connect to Derive"}
+              </button>
+              <p className="text-[9px] text-[var(--hl-muted)] text-center">Sign to check your Derive options account</p>
+            </div>
           ) : deriveSubaccount === null ? (
-            /* ─── No Derive account: in-app create ─── */
+            /* ─── Connected but no Derive account: in-app create ─── */
             <div className="space-y-2">
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-[var(--hl-muted)]">Deposit USDC</span>
