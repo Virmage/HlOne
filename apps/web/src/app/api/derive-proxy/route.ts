@@ -1,16 +1,16 @@
 /**
- * Derive API proxy — runs as a Vercel serverless function in Singapore.
+ * Derive API proxy — runs as a Vercel Edge Function in a non-restricted region.
  *
- * Derive geo-blocks US, AU, CA, and many other regions at the server IP level.
- * We use Singapore (sin1) which is NOT on Derive's restricted list.
+ * Derive geo-blocks US, AU, CA, SG(?) and many other regions at the server IP level.
+ * We try multiple non-restricted regions. Currently: Hong Kong.
  * This handles both read and write endpoints (create_subaccount, order, etc.).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 
-// Force this function to run in Singapore (not restricted by Derive)
+// Force this function to run in a non-restricted region
 export const runtime = "edge";
-export const preferredRegion = "sin1";
+export const preferredRegion = ["hkg1", "hnd1", "kix1"];
 
 const DERIVE_URL = "https://api.lyra.finance";
 

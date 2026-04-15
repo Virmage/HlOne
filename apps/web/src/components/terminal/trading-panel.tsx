@@ -810,9 +810,11 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
 
       // Parse subaccounts from the raw response
       const r = testResult as Record<string, unknown>;
-      if (r.error) {
-        const errObj = r.error as Record<string, unknown>;
-        setOrderResult({ ok: false, msg: `Derive API: ${errObj.message || errObj.code || JSON.stringify(r.error).slice(0, 100)}` });
+      const httpStatus = r._status as number;
+      if (r.error || (httpStatus && httpStatus >= 400)) {
+        const detail = (r.detail as string) || "";
+        const errMsg = typeof r.error === "string" ? r.error : JSON.stringify(r.error ?? "").slice(0, 80);
+        setOrderResult({ ok: false, msg: `[${httpStatus}] ${errMsg}${detail ? ` — ${detail.slice(0, 80)}` : ""}` });
         return;
       }
 
