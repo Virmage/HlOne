@@ -624,11 +624,40 @@ async function signDepositAction(
   });
 }
 
+// ─── Create account (registration) ─────────────────────────────────────────
+
+/**
+ * Register a wallet with Derive. Must be called before create_subaccount.
+ * This is a public endpoint (no auth needed) that creates the Derive
+ * smart-contract wallet wrapper around the user's EOA.
+ */
+async function ensureDeriveAccount(address: string): Promise<void> {
+  const wallet = address.toLowerCase();
+  // Route through proxy to avoid geo-blocking
+  const res = await fetch(`${DERIVE_PROXY_URL}/api/derive-proxy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      endpoint: "/public/create_account",
+      body: { wallet },
+      wallet,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Derive account registration failed: ${text}`);
+  }
+  const data = await res.json();
+  // "created" or "exists" are both fine
+  console.log("[derive] ensureDeriveAccount:", data?.status || data);
+}
+
 // ─── Create subaccount ──────────────────────────────────────────────────────
 
 /**
  * Create a new subaccount on Derive with an initial deposit.
- * Uses proper EIP-712 signing with the Deposit Module.
+ * Step 1: Register wallet with /public/create_account (idempotent).
+ * Step 2: Create subaccount with /private/create_subaccount (EIP-712 signed).
  */
 export async function createSubaccount(
   walletClient: WalletClient,
@@ -639,6 +668,10 @@ export async function createSubaccount(
   },
 ): Promise<DeriveSubaccountResult> {
   try {
+    // Step 1: Ensure wallet is registered with Derive
+    await ensureDeriveAccount(address);
+
+    // Step 2: Create subaccount with deposit
     const nonce = generateNonce();
     const expiryTimestamp = Math.floor(Date.now() / 1000) + 600;
 
@@ -667,9 +700,14 @@ export async function createSubaccount(
       address,
     );
 
+    // Check for subaccount_id in response
+    const r = result as Record<string, unknown>;
+    const subId = (r.subaccount_id as number) ??
+      ((r.result as Record<string, unknown>)?.subaccount_id as number);
+
     return {
       success: true,
-      subaccountId: (result as { subaccount_id?: number }).subaccount_id,
+      subaccountId: subId,
     };
   } catch (err) {
     return {

@@ -571,12 +571,13 @@ export async function getDeriveOptionsChain(coin: string): Promise<{
       if (!details || !pricing) continue;
 
       if (!spotPrice) spotPrice = parseFloat(ticker.index_price || "0");
-      if (details.expiry * 1000 > Date.now()) expirySet.add(details.expiry);
+      const expiryMs = details.expiry * 1000; // Convert seconds → milliseconds
+      if (expiryMs > Date.now()) expirySet.add(expiryMs);
 
       chain.push({
         instrument: ticker.instrument_name,
         expiry: formatExpiryLabel(details.expiry),
-        expiryTimestamp: details.expiry,
+        expiryTimestamp: expiryMs,
         strike: parseFloat(details.strike),
         type: details.option_type,
         markPrice: parseFloat(pricing.mark_price || ticker.mark_price || "0"),
@@ -598,7 +599,7 @@ export async function getDeriveOptionsChain(coin: string): Promise<{
 
     const expiries = [...expirySet]
       .sort((a, b) => a - b)
-      .map(ts => ({ label: formatExpiryLabel(ts), timestamp: ts }));
+      .map(tsMs => ({ label: formatExpiryLabel(tsMs / 1000), timestamp: tsMs }));
 
     return { chain, spotPrice, expiries };
   } catch (err) {
