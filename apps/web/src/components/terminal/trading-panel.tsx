@@ -689,7 +689,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
   const [deriveConnected, setDeriveConnected] = useState(false);
   const [setupStep, setSetupStep] = useState<"idle" | "creating" | "depositing" | "connecting">("idle");
   const [depositAmount, setDepositAmount] = useState("100");
-  const [postOnly, setPostOnly] = useState(true);
+  const [postOnly, setPostOnly] = useState(false);
   const [timeInForce, setTimeInForce] = useState<"gtc" | "ioc">("gtc");
   const { address } = useSafeAccount();
 
