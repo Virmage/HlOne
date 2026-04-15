@@ -362,73 +362,167 @@ async function signOrder(
 
 // ─── API helpers ────────────────────────────────────────────────────────────
 
-// Derive proxy runs as a Cloudflare Worker (Cloudflare edge IPs aren't blocked).
-// Vercel/AWS IPs are blocked by Derive's nginx — Cloudflare IPs are not.
-const DERIVE_PROXY_URL = "https://derive-proxy.hlone.workers.dev";
+// ─── WebSocket transport ───────────────────────────────────────────────────
+// All official Derive SDKs use WebSocket (not HTTP) for private endpoints.
+// HTTP is blocked from datacenter IPs; WebSocket from the browser works
+// because it uses the user's residential IP directly.
+const DERIVE_WS_URL = "wss://api.lyra.finance/ws";
 
+let ws: WebSocket | null = null;
+let wsReady = false;
+let wsLoggedIn = false;
+let wsRequestId = 1;
+const wsPending = new Map<number, {
+  resolve: (v: Record<string, unknown>) => void;
+  reject: (e: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}>();
+
+function ensureWs(): Promise<WebSocket> {
+  if (ws && ws.readyState === WebSocket.OPEN) return Promise.resolve(ws);
+  if (ws && ws.readyState === WebSocket.CONNECTING) {
+    return new Promise((resolve, reject) => {
+      const onOpen = () => { cleanup(); resolve(ws!); };
+      const onErr = (e: Event) => { cleanup(); reject(new Error("WebSocket connect failed")); };
+      const cleanup = () => { ws!.removeEventListener("open", onOpen); ws!.removeEventListener("error", onErr); };
+      ws!.addEventListener("open", onOpen);
+      ws!.addEventListener("error", onErr);
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    wsReady = false;
+    wsLoggedIn = false;
+    ws = new WebSocket(DERIVE_WS_URL);
+
+    ws.onopen = () => {
+      wsReady = true;
+      console.log("[derive-ws] Connected");
+      resolve(ws!);
+    };
+
+    ws.onerror = (e) => {
+      console.error("[derive-ws] Error:", e);
+      reject(new Error("WebSocket connection failed"));
+    };
+
+    ws.onclose = () => {
+      console.log("[derive-ws] Closed");
+      wsReady = false;
+      wsLoggedIn = false;
+      // Reject all pending requests
+      for (const [id, p] of wsPending) {
+        clearTimeout(p.timer);
+        p.reject(new Error("WebSocket closed"));
+      }
+      wsPending.clear();
+      ws = null;
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data as string) as Record<string, unknown>;
+        const id = data.id as number;
+        const pending = wsPending.get(id);
+        if (pending) {
+          clearTimeout(pending.timer);
+          wsPending.delete(id);
+          pending.resolve(data);
+        }
+      } catch (err) {
+        console.warn("[derive-ws] Failed to parse message:", err);
+      }
+    };
+  });
+}
+
+async function wsLogin(): Promise<void> {
+  if (wsLoggedIn) return;
+  const auth = getCachedDeriveAuth();
+  if (!auth || !auth.deriveWallet) throw new Error("No Derive auth cached — sign first");
+
+  const sock = await ensureWs();
+  const id = wsRequestId++;
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { wsPending.delete(id); reject(new Error("Login timeout")); }, 10_000);
+    wsPending.set(id, {
+      resolve: (data) => {
+        console.log("[derive-ws] Login response:", JSON.stringify(data).slice(0, 200));
+        if (data.error) {
+          const err = data.error as Record<string, unknown>;
+          reject(new Error(`Login failed: ${err.message || JSON.stringify(err)}`));
+        } else {
+          wsLoggedIn = true;
+          resolve();
+        }
+      },
+      reject,
+      timer,
+    });
+
+    sock.send(JSON.stringify({
+      method: "public/login",
+      params: {
+        wallet: auth.deriveWallet,
+        timestamp: auth.timestamp,
+        signature: auth.signature,
+      },
+      id,
+    }));
+  });
+}
+
+function wsSend(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      await ensureWs();
+      if (method.startsWith("private/")) await wsLogin();
+
+      const id = wsRequestId++;
+      const timer = setTimeout(() => {
+        wsPending.delete(id);
+        reject(new Error(`Timeout: ${method}`));
+      }, 15_000);
+
+      wsPending.set(id, { resolve, reject, timer });
+
+      ws!.send(JSON.stringify({ method, params, id }));
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/**
+ * Send a request to Derive via WebSocket.
+ * For private endpoints, auto-logs in with cached auth.
+ * For public endpoints, no login needed.
+ */
 async function derivePost(
   endpoint: string,
   body: Record<string, unknown>,
   walletAddress?: string,
-  authHeaders?: { timestamp: string; signature: string },
+  _authHeaders?: { timestamp: string; signature: string },
 ): Promise<Record<string, unknown>> {
-  const auth = authHeaders ?? getCachedDeriveAuth() ?? undefined;
-  const resolvedWallet = walletAddress ?? (auth as { deriveWallet?: string })?.deriveWallet ?? undefined;
-  const walletLower = resolvedWallet?.toLowerCase();
+  // Convert endpoint path to method name: "/private/get_subaccounts" → "private/get_subaccounts"
+  const method = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
 
-  // Lowercase wallet fields in body
+  // Lowercase wallet fields
   const fixedBody = body.wallet && typeof body.wallet === "string"
     ? { ...body, wallet: (body.wallet as string).toLowerCase() }
     : body;
 
-  // Build full headers including auth for private endpoints
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (endpoint.startsWith("/private/") && auth) {
-    if (walletLower) headers["X-LYRAWALLET"] = walletLower;
-    headers["X-LYRATIMESTAMP"] = auth.timestamp;
-    headers["X-LYRASIGNATURE"] = auth.signature;
-  }
+  const data = await wsSend(method, fixedBody);
 
-  // Try direct browser → Derive first (works if CORS allows it).
-  // Fall back to Cloudflare Worker proxy if CORS blocks the preflight.
-  let res: Response;
-  try {
-    res = await fetch(`${DERIVE_API}${endpoint}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(fixedBody),
-    });
-    console.log(`[derive] Direct call ${endpoint} → ${res.status}`);
-  } catch (err) {
-    // CORS or network error — fall back to Cloudflare proxy
-    console.warn(`[derive] Direct ${endpoint} failed (${(err as Error).message}), trying CF proxy`);
-    res = await fetch(DERIVE_PROXY_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        endpoint,
-        body: fixedBody,
-        wallet: walletLower,
-        authTimestamp: auth?.timestamp,
-        authSignature: auth?.signature,
-      }),
-    });
-  }
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Derive API error: ${res.status} ${text.slice(0, 200)}`);
-  }
-
-  const data = await res.json() as Record<string, unknown>;
+  // Handle error responses
   if (data.error && typeof data.error === "object") {
     const err = data.error as { code?: number; message?: string };
     if (err.code !== 14000) {
       throw new Error(err.message || `Derive error ${err.code}`);
     }
   }
+
   return data;
 }
 
@@ -514,48 +608,15 @@ export async function derivePostRaw(
   body: Record<string, unknown>,
   walletAddress?: string,
 ): Promise<Record<string, unknown>> {
-  const auth = getCachedDeriveAuth() ?? undefined;
-  const resolvedWallet = walletAddress ?? (auth as { deriveWallet?: string })?.deriveWallet ?? undefined;
-  const walletLower = resolvedWallet?.toLowerCase();
-  const fixedBody = body.wallet && typeof body.wallet === "string"
-    ? { ...body, wallet: (body.wallet as string).toLowerCase() }
-    : body;
-
-  // Build headers for direct call
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (auth) {
-    if (walletLower) headers["X-LYRAWALLET"] = walletLower;
-    headers["X-LYRATIMESTAMP"] = auth.timestamp;
-    headers["X-LYRASIGNATURE"] = auth.signature;
-  }
-
-  // Try direct, fall back to proxy
-  let res: Response;
   try {
-    res = await fetch(`${DERIVE_API}${endpoint}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(fixedBody),
-    });
-  } catch {
-    res = await fetch(DERIVE_PROXY_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        endpoint,
-        body: fixedBody,
-        wallet: walletLower,
-        authTimestamp: auth?.timestamp,
-        authSignature: auth?.signature,
-      }),
-    });
-  }
-
-  const text = await res.text();
-  try {
-    return { _status: res.status, _direct: true, ...JSON.parse(text) };
-  } catch {
-    return { _status: res.status, _raw: text.slice(0, 300) };
+    const method = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
+    const fixedBody = body.wallet && typeof body.wallet === "string"
+      ? { ...body, wallet: (body.wallet as string).toLowerCase() }
+      : body;
+    const data = await wsSend(method, fixedBody);
+    return { _transport: "ws", ...data };
+  } catch (err) {
+    return { _transport: "ws", _error: (err as Error).message };
   }
 }
 

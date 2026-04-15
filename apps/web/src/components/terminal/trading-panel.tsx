@@ -804,35 +804,17 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       await derive.getDeriveAuth(walletClient, address as `0x${string}`, wallet);
       setDeriveConnected(true);
 
-      // Direct API call — no error hiding. We want to see EXACTLY what Derive returns.
-      const testResult = await derive.derivePostRaw("/private/get_subaccounts", { wallet }, wallet);
-      console.log("[derive] RAW get_subaccounts response:", JSON.stringify(testResult));
-
-      // Parse subaccounts from the raw response
-      const r = testResult as Record<string, unknown>;
-      const httpStatus = r._status as number;
-      if (r.error || (httpStatus && httpStatus >= 400)) {
-        const detail = (r.detail as string) || "";
-        const errMsg = typeof r.error === "string" ? r.error : JSON.stringify(r.error ?? "").slice(0, 80);
-        setOrderResult({ ok: false, msg: `[${httpStatus}] ${errMsg}${detail ? ` — ${detail.slice(0, 80)}` : ""}` });
-        return;
-      }
-
-      const inner = (r.result as Record<string, unknown>) ?? r;
-      const subaccountIds = (inner.subaccount_ids as number[]) ?? [];
-      const subaccounts = (inner.subaccounts as Array<Record<string, unknown>>) ?? [];
-      const allSubs = subaccountIds.length > 0
-        ? subaccountIds.map(id => ({ subaccountId: id, marginType: "SM", label: "" }))
-        : subaccounts.map(s => ({ subaccountId: s.subaccount_id as number, marginType: (s.margin_type as string) ?? "SM", label: (s.label as string) ?? "" }));
-
-      if (allSubs.length > 0) {
-        const subId = allSubs[0].subaccountId;
+      // Get subaccounts via WebSocket
+      const subs = await derive.getSubaccounts(wallet);
+      console.log("[derive] getSubaccounts result:", subs.length, "subaccounts");
+      if (subs.length > 0) {
+        const subId = subs[0].subaccountId;
         setDeriveSubaccount(subId);
         const bal = await derive.getUsdcBalance(wallet, subId);
         setDeriveBalance(bal);
-        setOrderResult({ ok: true, msg: `Connected to Derive (${wallet.slice(0, 8)}...)` });
+        setOrderResult({ ok: true, msg: `Connected to Derive ✓` });
       } else {
-        setOrderResult({ ok: false, msg: `No subaccounts. Raw: ${JSON.stringify(testResult).slice(0, 120)}` });
+        setOrderResult({ ok: false, msg: "No subaccounts found — set up on derive.xyz first" });
       }
     } catch (err) {
       console.error("[derive] connectDerive error:", err);
