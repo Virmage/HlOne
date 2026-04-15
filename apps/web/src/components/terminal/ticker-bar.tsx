@@ -45,8 +45,9 @@ export function TickerBar({ tokens, options = {}, macro = [], onSelectToken }: T
 
   // Build crypto items
   const TRADFI_PREFIXES = ["xyz:", "cash:", "flx:", "km:"];
+  const TICKER_EXCLUDE = new Set(["PAXG", "WATAR"]);
   const cryptoItems: TickerItem[] = tokens
-    .filter(t => !TRADFI_PREFIXES.some(p => t.coin.startsWith(p)) && t.coin !== "PAXG" && t.volume24h >= 1_000_000)
+    .filter(t => !TRADFI_PREFIXES.some(p => t.coin.startsWith(p)) && !TICKER_EXCLUDE.has(t.coin) && t.volume24h >= 1_000_000)
     .sort((a, b) => b.volume24h - a.volume24h)
     .slice(0, 20)
     .map(t => ({
