@@ -309,12 +309,13 @@ function fmtTime(ts: number): string {
 }
 
 function TransferBar({ address }: { address: string }) {
-  const [mode, setMode] = useState<"none" | "toPerps" | "toSpot">("none");
+  const [mode, setMode] = useState<"none" | "deposit" | "withdraw" | "toPerps" | "toSpot">("none");
   const [amount, setAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [spotBalance, setSpotBalance] = useState<number | null>(null);
   const [perpsBalance, setPerpsBalance] = useState<number | null>(null);
+  const [arbUsdcBalance, setArbUsdcBalance] = useState<number | null>(null);
 
   useEffect(() => {
     if (!address) return;
@@ -338,6 +339,12 @@ function TransferBar({ address }: { address: string }) {
         const usdcBal = spotData?.balances?.find((b: { coin: string; total: string }) => b.coin === "USDC");
         setSpotBalance(usdcBal ? parseFloat(usdcBal.total) : 0);
       } catch { setSpotBalance(0); }
+      // Fetch Arbitrum USDC balance for deposit
+      try {
+        const exchange = await import("@/lib/hl-exchange");
+        const bal = await exchange.getArbitrumUsdcBalance(address as `0x${string}`);
+        setArbUsdcBalance(bal);
+      } catch { setArbUsdcBalance(0); }
     };
     fetchBalances();
     const iv = window.setInterval(fetchBalances, 30_000);
@@ -370,19 +377,74 @@ function TransferBar({ address }: { address: string }) {
     }
   }, [amount, address]);
 
+  const handleDeposit = useCallback(async () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"),
+        import("@/lib/hl-exchange"),
+        import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) { setResult({ ok: false, msg: "No wallet" }); return; }
+      const res = await exchange.deposit(walletClient, address as `0x${string}`, amt);
+      setResult(res.success
+        ? { ok: true, msg: `Deposited $${amt} USDC` }
+        : { ok: false, msg: res.error || "Deposit failed" }
+      );
+      if (res.success) { setAmount(""); setArbUsdcBalance(prev => prev !== null ? prev - amt : null); }
+    } catch (err) {
+      setResult({ ok: false, msg: err instanceof Error ? err.message : "Failed" });
+    } finally {
+      setSubmitting(false);
+    }
+  }, [amount, address]);
+
+  const handleWithdraw = useCallback(async () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"),
+        import("@/lib/hl-exchange"),
+        import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) { setResult({ ok: false, msg: "No wallet" }); return; }
+      // Withdraw requires an agent key — ensure one exists
+      const agent = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      if (agent.error) { setResult({ ok: false, msg: agent.error }); return; }
+      const res = await exchange.withdraw(agent.agentKey, address as `0x${string}`, amt);
+      setResult(res.success
+        ? { ok: true, msg: `Withdrawal of $${amt} initiated` }
+        : { ok: false, msg: res.error || "Withdrawal failed" }
+      );
+      if (res.success) { setAmount(""); setPerpsBalance(prev => prev !== null ? prev - amt : null); }
+    } catch (err) {
+      setResult({ ok: false, msg: err instanceof Error ? err.message : "Failed" });
+    } finally {
+      setSubmitting(false);
+    }
+  }, [amount, address]);
+
   const fmtBal = (v: number | null) => v === null ? "..." : `$${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
   const btnClass = "px-3 py-1.5 text-[11px] font-medium rounded border border-[var(--hl-border)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] transition-colors";
 
   if (mode === "none") {
     return (
       <div className="flex items-center gap-2 flex-wrap">
-        <a href="https://app.hyperliquid.xyz/deposit" target="_blank" rel="noopener noreferrer" className={`${btnClass} text-[var(--foreground)] no-underline`}>
-          Deposit
-        </a>
-        <a href="https://app.hyperliquid.xyz/withdraw" target="_blank" rel="noopener noreferrer" className={`${btnClass} text-[var(--foreground)] no-underline`}>
-          Withdraw
-        </a>
-        <button onClick={() => { setMode("toPerps"); setResult(null); }} className={`${btnClass} text-[var(--hl-green)]`}>
+        <button onClick={() => { setMode("deposit"); setResult(null); }} className={`${btnClass} text-[var(--hl-green)]`}>
+          Deposit <span className="text-[var(--hl-muted)] text-[9px] ml-1">{fmtBal(arbUsdcBalance)}</span>
+        </button>
+        <button onClick={() => { setMode("withdraw"); setResult(null); }} className={`${btnClass} text-[var(--foreground)]`}>
+          Withdraw <span className="text-[var(--hl-muted)] text-[9px] ml-1">{fmtBal(perpsBalance)}</span>
+        </button>
+        <button onClick={() => { setMode("toPerps"); setResult(null); }} className={`${btnClass} text-[var(--hl-accent)]`}>
           Spot → Perps <span className="text-[var(--hl-muted)] text-[9px] ml-1">{fmtBal(spotBalance)}</span>
         </button>
         <button onClick={() => { setMode("toSpot"); setResult(null); }} className={`${btnClass} text-[var(--hl-accent)]`}>
@@ -392,16 +454,30 @@ function TransferBar({ address }: { address: string }) {
     );
   }
 
-  const toPerp = mode === "toPerps";
-  const maxBal = toPerp ? spotBalance : perpsBalance;
+  const modeLabels: Record<string, string> = {
+    deposit: "Deposit USDC",
+    withdraw: "Withdraw USDC",
+    toPerps: "Spot → Perps",
+    toSpot: "Perps → Spot",
+  };
+  const maxBal = mode === "deposit" ? arbUsdcBalance
+    : mode === "withdraw" ? perpsBalance
+    : mode === "toPerps" ? spotBalance
+    : perpsBalance;
+  const balLabel = mode === "deposit" ? `Wallet: ${fmtBal(arbUsdcBalance)}`
+    : mode === "withdraw" ? `Withdrawable: ${fmtBal(perpsBalance)}`
+    : mode === "toPerps" ? `Spot: ${fmtBal(spotBalance)}`
+    : `Perps: ${fmtBal(perpsBalance)}`;
+  const handleSubmit = mode === "deposit" ? handleDeposit
+    : mode === "withdraw" ? handleWithdraw
+    : () => handleTransfer(mode === "toPerps");
+  const submitLabel = mode === "deposit" ? "Deposit" : mode === "withdraw" ? "Withdraw" : "Transfer";
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <button onClick={() => { setMode("none"); setResult(null); setAmount(""); }} className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-[14px]">&larr;</button>
-      <span className="text-[11px] font-medium text-[var(--foreground)]">{toPerp ? "Spot → Perps" : "Perps → Spot"}</span>
-      <span className="text-[9px] text-[var(--hl-muted)] tabular-nums">
-        {toPerp ? `Spot: ${fmtBal(spotBalance)}` : `Perps: ${fmtBal(perpsBalance)}`}
-      </span>
+      <span className="text-[11px] font-medium text-[var(--foreground)]">{modeLabels[mode]}</span>
+      <span className="text-[9px] text-[var(--hl-muted)] tabular-nums">{balLabel}</span>
       <div className="flex items-center bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded px-2 py-1">
         <span className="text-[10px] text-[var(--hl-muted)] mr-1">$</span>
         <input
@@ -418,11 +494,11 @@ function TransferBar({ address }: { address: string }) {
         >MAX</button>
       </div>
       <button
-        onClick={() => handleTransfer(toPerp)}
+        onClick={handleSubmit}
         disabled={submitting || !parseFloat(amount)}
         className={`px-3 py-1.5 rounded text-[11px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] transition-colors ${submitting || !parseFloat(amount) ? "opacity-40" : "hover:brightness-110"}`}
       >
-        {submitting ? "..." : "Transfer"}
+        {submitting ? "..." : submitLabel}
       </button>
       {result && (
         <span className={`text-[10px] ${result.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{result.msg}</span>

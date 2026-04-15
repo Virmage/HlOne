@@ -1138,6 +1138,90 @@ export async function placeSpotOrder(
 }
 
 // ─── Deposit (Arbitrum USDC → HL L1) ────────────────────────────────────────
-// For full Arbitrum bridge deposits, use Hyperliquid's native UI.
-// The in-app transfer (spot↔perp) is handled by transferBetweenSpotAndPerp above.
+// Deposits send USDC on Arbitrum to the Hyperliquid bridge contract.
+// This is an on-chain ERC-20 transfer, not an HL API action.
+
+const USDC_ARB_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as `0x${string}`; // Native USDC on Arbitrum
+const HL_BRIDGE_ADDRESS = "0x2Df1c51E09aECF9cacB7bc98cB1742757f163dF7" as `0x${string}`; // HL deposit bridge on Arbitrum
+
+// Standard ERC-20 ABI fragments for balanceOf, allowance, approve, transfer
+const ERC20_ABI = [
+  { name: "balanceOf", type: "function", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }] },
+  { name: "allowance", type: "function", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], outputs: [{ type: "uint256" }] },
+  { name: "approve", type: "function", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
+  { name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
+] as const;
+
+/** Get USDC balance on Arbitrum (returns human-readable amount, USDC has 6 decimals) */
+export async function getArbitrumUsdcBalance(address: `0x${string}`): Promise<number> {
+  try {
+    const { readContract } = await import("@wagmi/core");
+    const { config: wagmiConfig } = await import("@/config/wagmi");
+    const balance = await readContract(wagmiConfig, {
+      address: USDC_ARB_ADDRESS,
+      abi: ERC20_ABI,
+      functionName: "balanceOf",
+      args: [address],
+    });
+    return Number(balance) / 1e6; // USDC has 6 decimals
+  } catch {
+    return 0;
+  }
+}
+
+/** Deposit USDC from Arbitrum wallet into Hyperliquid */
+export async function deposit(
+  walletClient: WalletClient,
+  address: `0x${string}`,
+  amount: number, // USDC amount (human-readable)
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { readContract, writeContract, waitForTransactionReceipt } = await import("@wagmi/core");
+    const { config: wagmiConfig } = await import("@/config/wagmi");
+    const amountRaw = BigInt(Math.floor(amount * 1e6)); // USDC has 6 decimals
+
+    // Check balance
+    const balance = await readContract(wagmiConfig, {
+      address: USDC_ARB_ADDRESS,
+      abi: ERC20_ABI,
+      functionName: "balanceOf",
+      args: [address],
+    });
+    if (BigInt(balance) < amountRaw) {
+      return { success: false, error: `Insufficient USDC balance (have ${(Number(balance) / 1e6).toFixed(2)})` };
+    }
+
+    // Check allowance and approve if needed
+    const allowance = await readContract(wagmiConfig, {
+      address: USDC_ARB_ADDRESS,
+      abi: ERC20_ABI,
+      functionName: "allowance",
+      args: [address, HL_BRIDGE_ADDRESS],
+    });
+    if (BigInt(allowance) < amountRaw) {
+      const approveTx = await writeContract(wagmiConfig, {
+        address: USDC_ARB_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [HL_BRIDGE_ADDRESS, amountRaw],
+        account: address,
+      });
+      await waitForTransactionReceipt(wagmiConfig, { hash: approveTx });
+    }
+
+    // Transfer USDC to the HL bridge contract
+    const txHash = await writeContract(wagmiConfig, {
+      address: USDC_ARB_ADDRESS,
+      abi: ERC20_ABI,
+      functionName: "transfer",
+      args: [HL_BRIDGE_ADDRESS, amountRaw],
+      account: address,
+    });
+    await waitForTransactionReceipt(wagmiConfig, { hash: txHash });
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: extractError(err) };
+  }
+}
 
