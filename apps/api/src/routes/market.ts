@@ -1169,11 +1169,17 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   ]);
 
   app.post<{
-    Body: { endpoint: string; body: Record<string, unknown>; wallet?: string };
+    Body: {
+      endpoint: string;
+      body: Record<string, unknown>;
+      wallet?: string;
+      authTimestamp?: string;
+      authSignature?: string;
+    };
   }>(
     "/derive-proxy",
     async (request, reply) => {
-      const { endpoint, body, wallet } = request.body || {};
+      const { endpoint, body, wallet, authTimestamp, authSignature } = request.body || {};
       if (!endpoint || !DERIVE_ALLOWED_ENDPOINTS.has(endpoint)) {
         return reply.status(400).send({ error: "Invalid endpoint" });
       }
@@ -1184,25 +1190,38 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       if (wallet) {
         headers["X-LyraWallet"] = wallet;
       }
-
-      // Try both API domains — Derive migrated from api.lyra.finance to api.derive.xyz
-      const DERIVE_URLS = ["https://api.derive.xyz", "https://api.lyra.finance"];
-      for (const baseUrl of DERIVE_URLS) {
-        try {
-          const res = await fetch(`${baseUrl}${endpoint}`, {
-            method: "POST",
-            headers,
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(10_000),
-          });
-          const data = await res.json();
-          return reply.status(res.status).send(data);
-        } catch (err) {
-          console.error(`[derive-proxy] ${baseUrl}${endpoint} failed:`, (err as Error).message);
-          continue; // try next URL
-        }
+      // Derive private endpoints require timestamp + signature auth headers
+      if (authTimestamp) {
+        headers["X-LyraTimestamp"] = authTimestamp;
       }
-      return reply.status(502).send({ error: "Derive API unreachable on all endpoints" });
+      if (authSignature) {
+        headers["X-LyraSignature"] = authSignature;
+      }
+
+      const DERIVE_URL = "https://api.lyra.finance";
+      try {
+        const res = await fetch(`${DERIVE_URL}${endpoint}`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(10_000),
+        });
+        // Handle non-JSON responses (e.g. 401 HTML from nginx)
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.includes("json")) {
+          const text = await res.text();
+          console.error(`[derive-proxy] ${endpoint} returned non-JSON (${res.status}):`, text.slice(0, 200));
+          return reply.status(res.status).send({
+            error: `Derive API returned ${res.status}`,
+            needsAuth: res.status === 401,
+          });
+        }
+        const data = await res.json();
+        return reply.status(res.status).send(data);
+      } catch (err) {
+        console.error(`[derive-proxy] ${endpoint} failed:`, (err as Error).message);
+        return reply.status(502).send({ error: "Derive API unreachable" });
+      }
     },
   );
 };

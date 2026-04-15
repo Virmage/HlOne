@@ -334,13 +334,20 @@ async function derivePost(
   endpoint: string,
   body: Record<string, unknown>,
   walletAddress?: string,
+  authHeaders?: { timestamp: string; signature: string },
 ): Promise<Record<string, unknown>> {
   // Private endpoints go through our backend proxy to avoid CORS
   if (endpoint.startsWith("/private/")) {
     const res = await fetch(`${PROXY_URL}/api/market/derive-proxy`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ endpoint, body, wallet: walletAddress }),
+      body: JSON.stringify({
+        endpoint,
+        body,
+        wallet: walletAddress,
+        authTimestamp: authHeaders?.timestamp,
+        authSignature: authHeaders?.signature,
+      }),
     });
 
     if (!res.ok) {
@@ -368,6 +375,69 @@ async function derivePost(
   }
 
   return res.json();
+}
+
+// ─── Derive auth session ────────────────────────────────────────────────────
+// Sign a timestamp once, cache it for up to 5 minutes so we can poll
+// private endpoints without prompting the user for every request.
+
+let cachedAuth: { wallet: string; timestamp: string; signature: string; expiresAt: number } | null = null;
+
+/**
+ * Get or create cached auth headers for Derive private endpoints.
+ * Signs once with the wallet, reuses for ~5 minutes.
+ */
+export async function getDeriveAuth(
+  walletClient: WalletClient,
+  address: `0x${string}`,
+): Promise<{ timestamp: string; signature: string }> {
+  if (cachedAuth && cachedAuth.wallet === address && Date.now() < cachedAuth.expiresAt) {
+    return { timestamp: cachedAuth.timestamp, signature: cachedAuth.signature };
+  }
+
+  const timestamp = Date.now().toString();
+  const signature = await walletClient.signMessage({
+    account: address,
+    message: timestamp,
+  });
+
+  cachedAuth = {
+    wallet: address,
+    timestamp,
+    signature,
+    expiresAt: Date.now() + 4 * 60_000, // 4 min (renew before 5 min limit)
+  };
+
+  return { timestamp, signature };
+}
+
+/**
+ * Check if we have valid cached auth (avoid prompting wallet).
+ */
+export function hasCachedDeriveAuth(address: string): boolean {
+  return !!cachedAuth && cachedAuth.wallet === address && Date.now() < cachedAuth.expiresAt;
+}
+
+/**
+ * Get cached auth without prompting (returns null if expired).
+ */
+export function getCachedDeriveAuth(): { timestamp: string; signature: string } | null {
+  if (cachedAuth && Date.now() < cachedAuth.expiresAt) {
+    return { timestamp: cachedAuth.timestamp, signature: cachedAuth.signature };
+  }
+  return null;
+}
+
+/**
+ * Authenticated version of derivePost for private endpoints.
+ */
+async function derivePostAuth(
+  endpoint: string,
+  body: Record<string, unknown>,
+  walletAddress: string,
+  auth: { timestamp: string; signature: string },
+): Promise<Record<string, unknown>> {
+  return derivePost(endpoint, body, walletAddress, auth);
 }
 
 // ─── Place order (main function) ────────────────────────────────────────────
@@ -637,24 +707,37 @@ export async function depositToSubaccount(
 
 export async function getSubaccounts(
   walletAddress: string,
+  auth?: { timestamp: string; signature: string },
 ): Promise<{ subaccountId: number; marginType: string; label: string }[]> {
   try {
     const result = await derivePost(
       "/private/get_subaccounts",
       { wallet: walletAddress },
       walletAddress,
+      auth ?? getCachedDeriveAuth() ?? undefined,
     );
 
-    const subaccounts =
-      (result as { subaccounts?: Array<Record<string, unknown>> })
-        .subaccounts ?? [];
+    // API may return { result: { subaccount_ids: [...] } } or { subaccounts: [...] }
+    const r = result as Record<string, unknown>;
+    const inner = (r.result as Record<string, unknown>) ?? r;
+    const subaccountIds = (inner.subaccount_ids as number[]) ?? [];
+    const subaccounts = (inner.subaccounts as Array<Record<string, unknown>>) ?? [];
+
+    if (subaccountIds.length > 0) {
+      return subaccountIds.map((id) => ({
+        subaccountId: id,
+        marginType: "SM",
+        label: "",
+      }));
+    }
 
     return subaccounts.map((s) => ({
       subaccountId: s.subaccount_id as number,
-      marginType: s.margin_type as string,
+      marginType: (s.margin_type as string) ?? "SM",
       label: (s.label as string) ?? "",
     }));
-  } catch {
+  } catch (err) {
+    console.error("[derive] getSubaccounts failed:", (err as Error).message);
     return [];
   }
 }
@@ -680,6 +763,7 @@ export async function getCollaterals(
       "/private/get_collaterals",
       { subaccount_id: subaccountId },
       walletAddress,
+      getCachedDeriveAuth() ?? undefined,
     );
 
     const collaterals =

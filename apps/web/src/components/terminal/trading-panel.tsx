@@ -692,24 +692,50 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
   const [timeInForce, setTimeInForce] = useState<"gtc" | "ioc">("gtc");
   const { address } = useSafeAccount();
 
-  // Check for Derive subaccount + balance when wallet connects — re-check periodically
+  // Check for Derive subaccount + balance when wallet connects — re-check periodically.
+  // First call signs auth with wallet (one MetaMask popup), subsequent polls use cached auth.
   useEffect(() => {
     if (!isConnected || !address) return;
-    const checkDerive = async () => {
+    let cancelled = false;
+
+    const checkDerive = async (isFirstRun: boolean) => {
       try {
         const derive = await import("@/lib/derive-exchange");
+
+        // First run: sign auth with wallet (prompts MetaMask once, cached ~4 min)
+        if (isFirstRun && !derive.hasCachedDeriveAuth(address)) {
+          try {
+            const [wagmiCore, wagmiConfig] = await Promise.all([
+              import("@wagmi/core"),
+              import("@/config/wagmi"),
+            ]);
+            const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+            if (walletClient) {
+              await derive.getDeriveAuth(walletClient, address as `0x${string}`);
+            }
+          } catch {
+            // Wallet sign rejected or unavailable — continue without auth
+          }
+        }
+
+        // Skip poll if no cached auth (don't re-prompt every 15s)
+        if (!derive.hasCachedDeriveAuth(address)) return;
+
+        if (cancelled) return;
         const subs = await derive.getSubaccounts(address);
+        if (cancelled) return;
         if (subs.length > 0) {
           const subId = subs[0].subaccountId;
           setDeriveSubaccount(subId);
           const bal = await derive.getUsdcBalance(address, subId);
-          setDeriveBalance(bal);
+          if (!cancelled) setDeriveBalance(bal);
         }
       } catch {}
     };
-    checkDerive();
-    const interval = setInterval(checkDerive, 15_000);
-    return () => clearInterval(interval);
+
+    checkDerive(true);
+    const interval = setInterval(() => checkDerive(false), 15_000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, [isConnected, address]);
 
   // When a new option is selected from the chain, update the form
