@@ -1,13 +1,16 @@
 /**
- * Derive API proxy — runs as a Vercel serverless function (US region).
+ * Derive API proxy — runs as a Vercel serverless function in Singapore.
  *
- * Derive geo-blocks certain regions (AU, etc.) at the server IP level.
- * This proxy runs on Vercel (US-East by default) so Derive private API
- * calls always originate from a non-restricted IP, regardless of where
- * the Railway backend or the user is located.
+ * Derive geo-blocks US, AU, CA, and many other regions at the server IP level.
+ * We use Singapore (sin1) which is NOT on Derive's restricted list.
+ * This handles both read and write endpoints (create_subaccount, order, etc.).
  */
 
 import { NextRequest, NextResponse } from "next/server";
+
+// Force this function to run in Singapore (not restricted by Derive)
+export const runtime = "edge";
+export const preferredRegion = "sin1";
 
 const DERIVE_URL = "https://api.lyra.finance";
 
@@ -49,11 +52,16 @@ export async function POST(req: NextRequest) {
       ? { ...body, wallet: body.wallet.toLowerCase() }
       : body;
 
+    // Also lowercase signer field if present
+    const finalBody = fixedBody?.signer && typeof fixedBody.signer === "string"
+      ? { ...fixedBody, signer: fixedBody.signer.toLowerCase() }
+      : fixedBody;
+
     const res = await fetch(`${DERIVE_URL}${endpoint}`, {
       method: "POST",
       headers,
-      body: JSON.stringify(fixedBody),
-      signal: AbortSignal.timeout(10_000),
+      body: JSON.stringify(finalBody),
+      signal: AbortSignal.timeout(15_000),
     });
 
     const contentType = res.headers.get("content-type") || "";

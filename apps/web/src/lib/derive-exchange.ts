@@ -363,7 +363,16 @@ async function derivePost(
       throw new Error(`Derive proxy error: ${res.status} ${text}`);
     }
 
-    return res.json();
+    const data = await res.json() as Record<string, unknown>;
+    // Derive returns 200 with { error: { code, message } } for app-level errors
+    if (data.error && typeof data.error === "object") {
+      const err = data.error as { code?: number; message?: string };
+      // 14000 = "Account not found" — not a hard error, just means no account yet
+      if (err.code !== 14000) {
+        throw new Error(err.message || `Derive error ${err.code}`);
+      }
+    }
+    return data;
   }
 
   // Public endpoints can go direct
@@ -382,7 +391,14 @@ async function derivePost(
     throw new Error(`Derive API error: ${res.status} ${text}`);
   }
 
-  return res.json();
+  const data = await res.json() as Record<string, unknown>;
+  if (data.error && typeof data.error === "object") {
+    const err = data.error as { code?: number; message?: string };
+    if (err.code !== 14000) {
+      throw new Error(err.message || `Derive error ${err.code}`);
+    }
+  }
+  return data;
 }
 
 // ─── Derive auth session ────────────────────────────────────────────────────
