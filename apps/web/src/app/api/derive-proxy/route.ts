@@ -40,8 +40,12 @@ export async function POST(req: NextRequest) {
     const walletLower = wallet?.toLowerCase();
 
     // Header casing matches official Derive Python SDK (X-LYRAWALLET etc.)
+    // Origin/Referer mimic browser request to avoid nginx filtering
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      "Origin": "https://derive.xyz",
+      "Referer": "https://derive.xyz/",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     };
     if (walletLower) {
       headers["X-LYRAWALLET"] = walletLower;
