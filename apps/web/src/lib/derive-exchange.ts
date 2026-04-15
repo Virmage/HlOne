@@ -381,11 +381,29 @@ async function derivePost(
     ? { ...body, wallet: (body.wallet as string).toLowerCase() }
     : body;
 
-  let res: Response;
+  // Build full headers including auth for private endpoints
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (endpoint.startsWith("/private/") && auth) {
+    if (walletLower) headers["X-LYRAWALLET"] = walletLower;
+    headers["X-LYRATIMESTAMP"] = auth.timestamp;
+    headers["X-LYRASIGNATURE"] = auth.signature;
+  }
 
-  if (endpoint.startsWith("/private/")) {
-    // Private endpoints go through Cloudflare Worker proxy
-    // (Derive blocks Vercel/AWS IPs but not Cloudflare edge)
+  // Try direct browser → Derive first (works if CORS allows it).
+  // Fall back to Cloudflare Worker proxy if CORS blocks the preflight.
+  let res: Response;
+  try {
+    res = await fetch(`${DERIVE_API}${endpoint}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(fixedBody),
+    });
+    console.log(`[derive] Direct call ${endpoint} → ${res.status}`);
+  } catch (err) {
+    // CORS or network error — fall back to Cloudflare proxy
+    console.warn(`[derive] Direct ${endpoint} failed (${(err as Error).message}), trying CF proxy`);
     res = await fetch(DERIVE_PROXY_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -396,13 +414,6 @@ async function derivePost(
         authTimestamp: auth?.timestamp,
         authSignature: auth?.signature,
       }),
-    });
-  } else {
-    // Public endpoints go direct
-    res = await fetch(`${DERIVE_API}${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(fixedBody),
     });
   }
 
@@ -510,18 +521,35 @@ export async function derivePostRaw(
     ? { ...body, wallet: (body.wallet as string).toLowerCase() }
     : body;
 
-  // Call through Cloudflare Worker proxy
-  const res = await fetch(DERIVE_PROXY_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      endpoint,
-      body: fixedBody,
-      wallet: walletLower,
-      authTimestamp: auth?.timestamp,
-      authSignature: auth?.signature,
-    }),
-  });
+  // Build headers for direct call
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (auth) {
+    if (walletLower) headers["X-LYRAWALLET"] = walletLower;
+    headers["X-LYRATIMESTAMP"] = auth.timestamp;
+    headers["X-LYRASIGNATURE"] = auth.signature;
+  }
+
+  // Try direct, fall back to proxy
+  let res: Response;
+  try {
+    res = await fetch(`${DERIVE_API}${endpoint}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(fixedBody),
+    });
+  } catch {
+    res = await fetch(DERIVE_PROXY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint,
+        body: fixedBody,
+        wallet: walletLower,
+        authTimestamp: auth?.timestamp,
+        authSignature: auth?.signature,
+      }),
+    });
+  }
 
   const text = await res.text();
   try {
