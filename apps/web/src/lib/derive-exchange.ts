@@ -514,6 +514,42 @@ export function getCachedDeriveWallet(): string | null {
 }
 
 /**
+ * Raw version of derivePost — returns whatever the proxy/API sends back,
+ * including error responses. Never throws. For debugging auth issues.
+ */
+export async function derivePostRaw(
+  endpoint: string,
+  body: Record<string, unknown>,
+  walletAddress?: string,
+): Promise<Record<string, unknown>> {
+  const auth = getCachedDeriveAuth() ?? undefined;
+  const resolvedWallet = walletAddress ?? (auth as { deriveWallet?: string })?.deriveWallet ?? undefined;
+  const walletLower = resolvedWallet?.toLowerCase();
+  const fixedBody = body.wallet && typeof body.wallet === "string"
+    ? { ...body, wallet: (body.wallet as string).toLowerCase() }
+    : body;
+
+  const res = await fetch(`${DERIVE_PROXY_URL}/api/derive-proxy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      endpoint,
+      body: fixedBody,
+      wallet: walletLower,
+      authTimestamp: auth?.timestamp,
+      authSignature: auth?.signature,
+    }),
+  });
+
+  const text = await res.text();
+  try {
+    return { _status: res.status, ...JSON.parse(text) };
+  } catch {
+    return { _status: res.status, _raw: text.slice(0, 300) };
+  }
+}
+
+/**
  * Authenticated version of derivePost for private endpoints.
  */
 async function derivePostAuth(
