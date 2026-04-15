@@ -39,6 +39,14 @@ const DOMAIN_SEPARATOR =
 // Derive mainnet module addresses
 const TRADE_MODULE_ADDRESS =
   "0xB8D20c2B7a1Ad2EE33Bc50eF10876eD3035b5e7b" as `0x${string}`;
+const DEPOSIT_MODULE_ADDRESS =
+  "0x9B3FE5E5a3bcEa5df4E08c41Ce89C4e3Ff01Ace3" as `0x${string}`;
+// Cash asset (USDC representation on Derive L2)
+const CASH_ASSET_ADDRESS =
+  "0x57B03E14d409ADC7fAb6CFc44b5886CAD2D5f02b" as `0x${string}`;
+// Standard Risk Manager — used as managerForNewAccount when creating subaccounts
+const SRM_ADDRESS =
+  "0x28c9ddF9A3B29c2E6a561c1BC520954e5A33de5D" as `0x${string}`;
 
 // Well-known asset addresses (mainnet)
 const ASSET_ADDRESSES: Record<string, `0x${string}`> = {
@@ -54,6 +62,14 @@ function toWei(value: string | number): bigint {
   const str = typeof value === "number" ? value.toString() : value;
   const [whole, frac = ""] = str.split(".");
   const padded = frac.padEnd(18, "0").slice(0, 18);
+  return BigInt(whole + padded);
+}
+
+/** Scale to 6-decimal (USDC native precision) */
+function toWei6(value: string | number): bigint {
+  const str = typeof value === "number" ? value.toString() : value;
+  const [whole, frac = ""] = str.split(".");
+  const padded = frac.padEnd(6, "0").slice(0, 6);
   return BigInt(whole + padded);
 }
 
@@ -129,6 +145,23 @@ function encodeTradeModuleData(params: {
       params.subaccountId,
       params.isBid,
     ],
+  );
+}
+
+// ─── Deposit module data encoding ──────────────────────────────────────────
+
+/**
+ * Encode deposit module data for EIP-712 hashing.
+ * DepositData struct: (uint256 amount, address asset, address managerForNewAccount)
+ */
+function encodeDepositModuleData(params: {
+  amount: bigint;         // USDC in 6-decimal
+  asset: `0x${string}`;  // Cash asset address
+  managerForNewAccount: `0x${string}`; // SRM address (for new accounts), zero for existing
+}): Hex {
+  return encodeAbiParameters(
+    parseAbiParameters("uint256, address, address"),
+    [params.amount, params.asset, params.managerForNewAccount],
   );
 }
 
@@ -434,43 +467,81 @@ export async function placeOptionOrder(
   });
 }
 
+// ─── Deposit signing helper ─────────────────────────────────────────────────
+
+/**
+ * Sign a deposit action (used for both createSubaccount and deposit).
+ * Uses proper EIP-712 hashing with the Deposit Module.
+ */
+async function signDepositAction(
+  walletClient: WalletClient,
+  address: `0x${string}`,
+  params: {
+    subaccountId: number; // 0 for new accounts
+    amount: string;       // USDC amount as string
+    nonce: number;
+    expiryTimestamp: number;
+    isNewAccount: boolean;
+  },
+): Promise<Hex> {
+  const amountWei = toWei6(params.amount);
+
+  const encodedModuleData = encodeDepositModuleData({
+    amount: amountWei,
+    asset: CASH_ASSET_ADDRESS,
+    managerForNewAccount: params.isNewAccount
+      ? SRM_ADDRESS
+      : ("0x0000000000000000000000000000000000000000" as `0x${string}`),
+  });
+  const encodedDataHash = keccak256(encodedModuleData);
+
+  const actionHash = computeActionHash({
+    subaccountId: BigInt(params.subaccountId),
+    nonce: BigInt(params.nonce),
+    module: DEPOSIT_MODULE_ADDRESS,
+    encodedDataHash,
+    expiry: BigInt(params.expiryTimestamp),
+    owner: address,
+    signer: address,
+  });
+
+  const eip712Hash = computeEip712Hash(actionHash);
+
+  return walletClient.signMessage({
+    account: address,
+    message: { raw: eip712Hash },
+  });
+}
+
 // ─── Create subaccount ──────────────────────────────────────────────────────
 
 /**
  * Create a new subaccount on Derive with an initial deposit.
- *
- * Derive requires subaccounts for trading. Each subaccount has a margin type:
- * - PM: Portfolio margin (lower requirements, cross-margining)
- * - SM: Standard margin
- * - PM2: Portfolio margin v2
+ * Uses proper EIP-712 signing with the Deposit Module.
  */
 export async function createSubaccount(
   walletClient: WalletClient,
   address: `0x${string}`,
   params: {
-    amount: string;        // initial deposit amount
-    assetName: string;     // e.g. "USDC"
-    marginType: "PM" | "SM" | "PM2";
+    amount: string;        // initial deposit amount in USDC
+    marginType: "PM" | "SM";
   },
 ): Promise<DeriveSubaccountResult> {
   try {
     const nonce = generateNonce();
     const expiryTimestamp = Math.floor(Date.now() / 1000) + 600;
 
-    // Sign the create_subaccount action
-    // Uses EIP-712 signing with the deposit module
-    const signature = await walletClient.signMessage({
-      account: address,
-      message: {
-        raw: toHex(
-          `Create subaccount: ${params.marginType} with ${params.amount} ${params.assetName}`,
-        ),
-      },
+    const signature = await signDepositAction(walletClient, address, {
+      subaccountId: 0, // new account
+      amount: params.amount,
+      nonce,
+      expiryTimestamp,
+      isNewAccount: true,
     });
 
     const body: Record<string, unknown> = {
       amount: params.amount,
-      asset_name: params.assetName,
+      asset_name: "USDC",
       margin_type: params.marginType,
       nonce,
       signature,
@@ -489,6 +560,54 @@ export async function createSubaccount(
       success: true,
       subaccountId: (result as { subaccount_id?: number }).subaccount_id,
     };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Unknown error",
+    };
+  }
+}
+
+// ─── Deposit to existing subaccount ─────────────────────────────────────────
+
+/**
+ * Deposit USDC into an existing Derive subaccount.
+ */
+export async function depositToSubaccount(
+  walletClient: WalletClient,
+  address: `0x${string}`,
+  params: {
+    subaccountId: number;
+    amount: string; // USDC amount
+  },
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const nonce = generateNonce();
+    const expiryTimestamp = Math.floor(Date.now() / 1000) + 600;
+
+    const signature = await signDepositAction(walletClient, address, {
+      subaccountId: params.subaccountId,
+      amount: params.amount,
+      nonce,
+      expiryTimestamp,
+      isNewAccount: false,
+    });
+
+    await derivePost(
+      "/private/deposit",
+      {
+        subaccount_id: params.subaccountId,
+        amount: params.amount,
+        asset_name: "USDC",
+        nonce,
+        signature,
+        signature_expiry_sec: expiryTimestamp,
+        signer: address,
+      },
+      address,
+    );
+
+    return { success: true };
   } catch (err) {
     return {
       success: false,
@@ -521,6 +640,57 @@ export async function getSubaccounts(
   } catch {
     return [];
   }
+}
+
+// ─── Get subaccount collaterals (balance check) ────────────────────────────
+
+export interface DeriveCollateral {
+  amount: number;
+  assetName: string;
+  markValue: number;
+}
+
+/**
+ * Get USDC balance for a subaccount.
+ * Returns the collateral amount (primarily USDC).
+ */
+export async function getCollaterals(
+  walletAddress: string,
+  subaccountId: number,
+): Promise<DeriveCollateral[]> {
+  try {
+    const result = await derivePost(
+      "/private/get_collaterals",
+      { subaccount_id: subaccountId },
+      walletAddress,
+    );
+
+    const collaterals =
+      ((result as Record<string, unknown>).result as Record<string, unknown>)
+        ?.collaterals as Array<Record<string, unknown>> ??
+      (result as { collaterals?: Array<Record<string, unknown>> })
+        .collaterals ?? [];
+
+    return collaterals.map((c) => ({
+      amount: parseFloat((c.amount as string) ?? "0"),
+      assetName: (c.asset_name as string) ?? "USDC",
+      markValue: parseFloat((c.mark_value as string) ?? "0"),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Get USDC balance for a subaccount (convenience wrapper).
+ */
+export async function getUsdcBalance(
+  walletAddress: string,
+  subaccountId: number,
+): Promise<number> {
+  const collaterals = await getCollaterals(walletAddress, subaccountId);
+  const usdc = collaterals.find((c) => c.assetName === "USDC");
+  return usdc?.amount ?? 0;
 }
 
 // ─── Session key management ─────────────────────────────────────────────────

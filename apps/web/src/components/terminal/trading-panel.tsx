@@ -685,19 +685,27 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
   const [submitting, setSubmitting] = useState(false);
   const [orderResult, setOrderResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [deriveSubaccount, setDeriveSubaccount] = useState<number | null>(null);
+  const [deriveBalance, setDeriveBalance] = useState<number | null>(null);
+  const [setupStep, setSetupStep] = useState<"idle" | "creating" | "depositing">("idle");
+  const [depositAmount, setDepositAmount] = useState("100");
   const [postOnly, setPostOnly] = useState(true);
   const [timeInForce, setTimeInForce] = useState<"gtc" | "ioc">("gtc");
   const { address } = useSafeAccount();
 
-  // Check for Derive subaccount when wallet connects — re-check periodically
+  // Check for Derive subaccount + balance when wallet connects — re-check periodically
   useEffect(() => {
     if (!isConnected || !address) return;
-    const checkDerive = () => {
-      import("@/lib/derive-exchange").then(derive => {
-        derive.getSubaccounts(address).then(subs => {
-          if (subs.length > 0) setDeriveSubaccount(subs[0].subaccountId);
-        });
-      }).catch(() => {});
+    const checkDerive = async () => {
+      try {
+        const derive = await import("@/lib/derive-exchange");
+        const subs = await derive.getSubaccounts(address);
+        if (subs.length > 0) {
+          const subId = subs[0].subaccountId;
+          setDeriveSubaccount(subId);
+          const bal = await derive.getUsdcBalance(address, subId);
+          setDeriveBalance(bal);
+        }
+      } catch {}
     };
     checkDerive();
     const interval = setInterval(checkDerive, 15_000);
@@ -844,7 +852,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
             </select>
           </div>
 
-          {/* Execute button */}
+          {/* Execute button / Setup flow */}
           {geo.restricted ? (
             <div className="w-full py-2.5 rounded text-[11px] text-center bg-[var(--hl-surface)] text-[var(--hl-muted)] border border-[var(--hl-border)]">
               Options unavailable in your region
@@ -857,65 +865,175 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
               Connect Wallet
             </button>
           ) : deriveSubaccount === null ? (
+            /* ─── No Derive account: in-app create ─── */
             <div className="space-y-2">
-              <a
-                href="https://derive.xyz/options/ETH"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-2.5 rounded font-semibold text-[12px] text-center block transition-colors bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30"
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-[var(--hl-muted)]">Deposit USDC</span>
+                <span className="text-[10px] text-[var(--hl-muted)]">$</span>
+                <input
+                  type="number"
+                  value={depositAmount}
+                  onChange={e => setDepositAmount(e.target.value)}
+                  placeholder="100"
+                  className="w-16 bg-transparent text-right text-[11px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none border-b border-[var(--hl-border)]"
+                />
+              </div>
+              <button
+                onClick={async () => {
+                  if (!address || setupStep !== "idle") return;
+                  setSetupStep("creating");
+                  setOrderResult(null);
+                  try {
+                    const [wagmiCore, derive, wagmiConfig] = await Promise.all([
+                      import("@wagmi/core"),
+                      import("@/lib/derive-exchange"),
+                      import("@/config/wagmi"),
+                    ]);
+                    const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+                    if (!walletClient) { setSetupStep("idle"); return; }
+                    const res = await derive.createSubaccount(walletClient, address as `0x${string}`, {
+                      amount: depositAmount || "100",
+                      marginType: "SM",
+                    });
+                    if (res.success && res.subaccountId) {
+                      setDeriveSubaccount(res.subaccountId);
+                      setDeriveBalance(parseFloat(depositAmount || "100"));
+                      setOrderResult({ ok: true, msg: "Derive account created" });
+                    } else {
+                      setOrderResult({ ok: false, msg: res.error || "Failed to create account" });
+                    }
+                  } catch (err) {
+                    setOrderResult({ ok: false, msg: (err as Error).message || "Failed" });
+                  } finally {
+                    setSetupStep("idle");
+                  }
+                }}
+                disabled={setupStep !== "idle"}
+                className="w-full py-2.5 rounded font-semibold text-[12px] text-center transition-colors bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 disabled:opacity-50"
               >
-                Set Up Derive Account &rarr;
-              </a>
-              <p className="text-[9px] text-[var(--hl-muted)] text-center">Connect wallet on Derive and deposit USDC to trade options</p>
+                {setupStep === "creating" ? "Signing..." : "Create Derive Account"}
+              </button>
+              <p className="text-[9px] text-[var(--hl-muted)] text-center">Creates a Derive subaccount with your wallet</p>
             </div>
           ) : (
-            <button
-              onClick={async () => {
-                if (!opt || !address || submitting || deriveSubaccount === null) return;
-                setSubmitting(true);
-                setOrderResult(null);
-                try {
-                  const [wagmiCore, derive, wagmiConfig] = await Promise.all([
-                    import("@wagmi/core"),
-                    import("@/lib/derive-exchange"),
-                    import("@/config/wagmi"),
-                  ]);
-                  const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
-                  if (!walletClient) { setSubmitting(false); return; }
+            /* ─── Has account: show balance + trade or deposit ─── */
+            <div className="space-y-2">
+              {/* Balance display */}
+              {deriveBalance !== null && (
+                <div className="flex items-center justify-between text-[10px] mb-1">
+                  <span className="text-[var(--hl-muted)]">Derive Balance</span>
+                  <span className="tabular-nums text-[var(--foreground)] font-medium">${deriveBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                </div>
+              )}
+              {/* Deposit more (collapsible) */}
+              {setupStep === "depositing" ? (
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-[10px] text-[var(--hl-muted)]">$</span>
+                  <input
+                    type="number"
+                    value={depositAmount}
+                    onChange={e => setDepositAmount(e.target.value)}
+                    placeholder="100"
+                    className="flex-1 bg-transparent text-right text-[11px] text-[var(--foreground)] tabular-nums placeholder:text-[var(--hl-muted)] outline-none border-b border-[var(--hl-border)]"
+                    autoFocus
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!address || !deriveSubaccount || submitting) return;
+                      setSubmitting(true);
+                      setOrderResult(null);
+                      try {
+                        const [wagmiCore, derive, wagmiConfig] = await Promise.all([
+                          import("@wagmi/core"),
+                          import("@/lib/derive-exchange"),
+                          import("@/config/wagmi"),
+                        ]);
+                        const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+                        if (!walletClient) { setSubmitting(false); return; }
+                        const res = await derive.depositToSubaccount(walletClient, address as `0x${string}`, {
+                          subaccountId: deriveSubaccount,
+                          amount: depositAmount || "100",
+                        });
+                        if (res.success) {
+                          setDeriveBalance(prev => (prev ?? 0) + parseFloat(depositAmount || "100"));
+                          setOrderResult({ ok: true, msg: `Deposited $${depositAmount}` });
+                          setSetupStep("idle");
+                        } else {
+                          setOrderResult({ ok: false, msg: res.error || "Deposit failed" });
+                        }
+                      } catch (err) {
+                        setOrderResult({ ok: false, msg: (err as Error).message || "Failed" });
+                      } finally {
+                        setSubmitting(false);
+                      }
+                    }}
+                    disabled={submitting}
+                    className="px-2 py-1 text-[10px] font-semibold rounded bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 disabled:opacity-50"
+                  >
+                    {submitting ? "..." : "Deposit"}
+                  </button>
+                  <button
+                    onClick={() => setSetupStep("idle")}
+                    className="text-[var(--hl-muted)] hover:text-[var(--foreground)] text-sm"
+                  >&times;</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setSetupStep("depositing")}
+                  className="text-[9px] text-purple-400 hover:text-purple-300 transition-colors"
+                >
+                  + Deposit USDC
+                </button>
+              )}
+              {/* Trade button */}
+              <button
+                onClick={async () => {
+                  if (!opt || !address || submitting || deriveSubaccount === null) return;
+                  setSubmitting(true);
+                  setOrderResult(null);
+                  try {
+                    const [wagmiCore, derive, wagmiConfig] = await Promise.all([
+                      import("@wagmi/core"),
+                      import("@/lib/derive-exchange"),
+                      import("@/config/wagmi"),
+                    ]);
+                    const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+                    if (!walletClient) { setSubmitting(false); return; }
 
-                  const result = await derive.placeOrder(walletClient, address as `0x${string}`, {
-                    instrumentName: opt.instrument,
-                    direction: optionSide,
-                    amount: amount || "1",
-                    limitPrice: optOrderType === "market"
-                      ? (optionSide === "buy" ? (opt.askPrice * 1.05).toFixed(2) : (opt.bidPrice * 0.95).toFixed(2))
-                      : limitPrice,
-                    maxFee: "10",
-                    subaccountId: deriveSubaccount,
-                    timeInForce: postOnly ? "post_only" : timeInForce,
-                    orderType: optOrderType,
-                    label: "hlone",
-                  });
+                    const result = await derive.placeOrder(walletClient, address as `0x${string}`, {
+                      instrumentName: opt.instrument,
+                      direction: optionSide,
+                      amount: amount || "1",
+                      limitPrice: optOrderType === "market"
+                        ? (optionSide === "buy" ? (opt.askPrice * 1.05).toFixed(2) : (opt.bidPrice * 0.95).toFixed(2))
+                        : limitPrice,
+                      maxFee: "10",
+                      subaccountId: deriveSubaccount,
+                      timeInForce: postOnly ? "post_only" : timeInForce,
+                      orderType: optOrderType,
+                      label: "hlone",
+                    });
 
-                  setOrderResult({
-                    ok: result.success,
-                    msg: result.success ? `Order placed${result.orderId ? ` #${result.orderId}` : ""}` : (result.error || "Order failed"),
-                  });
-                } catch (err) {
-                  setOrderResult({ ok: false, msg: (err as Error).message || "Unknown error" });
-                } finally {
-                  setSubmitting(false);
-                }
-              }}
-              disabled={submitting || !limitPrice && optOrderType === "limit" || !amount}
-              className={`w-full py-2.5 rounded font-semibold text-[12px] transition-colors disabled:opacity-50 ${
-                optionSide === "buy"
-                  ? "bg-[var(--hl-green)] text-white hover:brightness-110"
-                  : "bg-[var(--hl-red)] text-white hover:brightness-110"
-              }`}
-            >
-              {submitting ? "Signing..." : `${optionSide === "buy" ? "Buy" : "Sell"} ${typeLabel}`}
-            </button>
+                    setOrderResult({
+                      ok: result.success,
+                      msg: result.success ? `Order placed${result.orderId ? ` #${result.orderId}` : ""}` : (result.error || "Order failed"),
+                    });
+                  } catch (err) {
+                    setOrderResult({ ok: false, msg: (err as Error).message || "Unknown error" });
+                  } finally {
+                    setSubmitting(false);
+                  }
+                }}
+                disabled={submitting || (!limitPrice && optOrderType === "limit") || !amount}
+                className={`w-full py-2.5 rounded font-semibold text-[12px] transition-colors disabled:opacity-50 ${
+                  optionSide === "buy"
+                    ? "bg-[var(--hl-green)] text-white hover:brightness-110"
+                    : "bg-[var(--hl-red)] text-white hover:brightness-110"
+                }`}
+              >
+                {submitting ? "Signing..." : `${optionSide === "buy" ? "Buy" : "Sell"} ${typeLabel}`}
+              </button>
+            </div>
           )}
 
           {/* Order result */}
