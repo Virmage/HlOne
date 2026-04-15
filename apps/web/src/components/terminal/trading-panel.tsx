@@ -804,16 +804,18 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       await derive.getDeriveAuth(walletClient, address as `0x${string}`, wallet);
       setDeriveConnected(true);
 
-      // First check if account exists via get_account
-      const accountInfo = await derive.getAccount(wallet);
-      console.log("[derive] get_account result:", JSON.stringify(accountInfo).slice(0, 500));
-
-      if (!accountInfo) {
-        setOrderResult({ ok: false, msg: `No Derive account for wallet ${wallet.slice(0, 10)}... — set up on derive.xyz first` });
-        return;
+      // Check account + subaccounts — errors now propagate (no silent swallowing)
+      let accountExists = false;
+      try {
+        const accountInfo = await derive.getAccount(wallet);
+        console.log("[derive] get_account result:", JSON.stringify(accountInfo).slice(0, 500));
+        accountExists = accountInfo !== null;
+      } catch (accErr) {
+        // get_account might fail (e.g. 401) — log but continue to try get_subaccounts
+        console.warn("[derive] get_account failed (trying get_subaccounts):", (accErr as Error).message);
       }
 
-      // Then get subaccounts
+      // Try get subaccounts regardless — it might work even if get_account errored
       const subs = await derive.getSubaccounts(wallet);
       console.log("[derive] getSubaccounts result:", subs.length, "subaccounts");
       if (subs.length > 0) {
@@ -822,6 +824,8 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
         const bal = await derive.getUsdcBalance(wallet, subId);
         setDeriveBalance(bal);
         setOrderResult({ ok: true, msg: `Connected to Derive (${wallet.slice(0, 8)}...)` });
+      } else if (!accountExists) {
+        setOrderResult({ ok: false, msg: `No account for ${wallet.slice(0, 10)}... — set up on derive.xyz` });
       } else {
         setOrderResult({ ok: false, msg: "Account found but no subaccounts — create one on derive.xyz" });
       }

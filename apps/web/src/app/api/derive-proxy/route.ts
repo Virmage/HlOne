@@ -39,17 +39,18 @@ export async function POST(req: NextRequest) {
 
     const walletLower = wallet?.toLowerCase();
 
+    // Header casing matches official Derive Python SDK (X-LYRAWALLET etc.)
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
     if (walletLower) {
-      headers["X-LyraWallet"] = walletLower;
+      headers["X-LYRAWALLET"] = walletLower;
     }
     if (authTimestamp) {
-      headers["X-LyraTimestamp"] = authTimestamp;
+      headers["X-LYRATIMESTAMP"] = authTimestamp;
     }
     if (authSignature) {
-      headers["X-LyraSignature"] = authSignature;
+      headers["X-LYRASIGNATURE"] = authSignature;
     }
 
     // Lowercase wallet in body too
