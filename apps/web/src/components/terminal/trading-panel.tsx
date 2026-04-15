@@ -691,29 +691,80 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
   const [depositAmount, setDepositAmount] = useState("100");
   const [postOnly, setPostOnly] = useState(false);
   const [timeInForce, setTimeInForce] = useState<"gtc" | "ioc">("gtc");
+  const [showPositions, setShowPositions] = useState(false);
+  const [positions, setPositions] = useState<Array<{
+    instrumentName: string;
+    direction: "buy" | "sell";
+    amount: number;
+    averagePrice: number;
+    markPrice: number;
+    unrealizedPnl: number;
+  }>>([]);
+  const [openOrders, setOpenOrders] = useState<Array<{
+    orderId: string;
+    instrumentName: string;
+    direction: "buy" | "sell";
+    amount: number;
+    filledAmount: number;
+    limitPrice: number;
+    status: string;
+  }>>([]);
   const { address } = useSafeAccount();
 
-  // Poll Derive subaccount + balance — only runs when auth is already cached (no wallet prompts).
-  // Auth gets cached when user explicitly clicks "Connect to Derive" or "Create Account".
+  // Derive wallet address (smart contract wallet on Derive L2, derived from EOA)
+  const [deriveWallet, setDeriveWallet] = useState<string>("");
+
+  // Auto-lookup Derive wallet from EOA via on-chain factory
   useEffect(() => {
-    if (!isConnected || !address) return;
+    if (!address) return;
+    // Check localStorage cache first
+    const saved = localStorage.getItem(`derive-wallet-${address.toLowerCase()}`);
+    if (saved) { setDeriveWallet(saved); return; }
+    // Look up from factory contract
+    let cancelled = false;
+    (async () => {
+      try {
+        const derive = await import("@/lib/derive-exchange");
+        const wallet = await derive.lookupDeriveWallet(address as `0x${string}`);
+        if (!cancelled && wallet) {
+          const walletLower = wallet.toLowerCase();
+          setDeriveWallet(walletLower);
+          localStorage.setItem(`derive-wallet-${address.toLowerCase()}`, walletLower);
+        }
+      } catch (err) {
+        console.error("[derive] Failed to lookup wallet:", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [address]);
+
+  // Poll Derive subaccount + balance + positions — only runs when auth is already cached (no wallet prompts).
+  useEffect(() => {
+    if (!isConnected || !address || !deriveWallet) return;
     let cancelled = false;
 
     const checkDerive = async () => {
       try {
         const derive = await import("@/lib/derive-exchange");
-        // Only poll if we already have auth (user previously connected)
         if (!derive.hasCachedDeriveAuth(address)) return;
         if (!deriveConnected) setDeriveConnected(true);
 
         if (cancelled) return;
-        const subs = await derive.getSubaccounts(address);
+        const subs = await derive.getSubaccounts(deriveWallet);
         if (cancelled) return;
         if (subs.length > 0) {
           const subId = subs[0].subaccountId;
           setDeriveSubaccount(subId);
-          const bal = await derive.getUsdcBalance(address, subId);
-          if (!cancelled) setDeriveBalance(bal);
+          const [bal, pos, orders] = await Promise.all([
+            derive.getUsdcBalance(deriveWallet, subId),
+            derive.getPositions(deriveWallet, subId),
+            derive.getOpenOrders(deriveWallet, subId),
+          ]);
+          if (!cancelled) {
+            setDeriveBalance(bal);
+            setPositions(pos);
+            setOpenOrders(orders);
+          }
         }
       } catch {}
     };
@@ -721,12 +772,13 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
     checkDerive();
     const interval = setInterval(checkDerive, 15_000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [isConnected, address, deriveConnected]);
+  }, [isConnected, address, deriveWallet, deriveConnected]);
 
-  // Connect to Derive — signs auth with wallet (one MetaMask popup), then checks subaccounts
+  // Connect to Derive — signs auth with EOA, auto-resolves Derive wallet via factory
   const connectDerive = async () => {
     if (!address || setupStep !== "idle") return;
     setSetupStep("connecting");
+    setOrderResult(null);
     try {
       const [wagmiCore, derive, wagmiConfig] = await Promise.all([
         import("@wagmi/core"),
@@ -735,18 +787,30 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       ]);
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) { setSetupStep("idle"); return; }
-      await derive.getDeriveAuth(walletClient, address as `0x${string}`);
+
+      // Auto-lookup Derive wallet if not yet resolved
+      let wallet = deriveWallet;
+      if (!wallet || !wallet.startsWith("0x")) {
+        wallet = await derive.lookupDeriveWallet(address as `0x${string}`);
+        const walletLower = wallet.toLowerCase();
+        setDeriveWallet(walletLower);
+        localStorage.setItem(`derive-wallet-${address.toLowerCase()}`, walletLower);
+        wallet = walletLower;
+      }
+
+      // Sign auth — EOA signs timestamp, Derive wallet used as X-LyraWallet
+      await derive.getDeriveAuth(walletClient, address as `0x${string}`, wallet);
       setDeriveConnected(true);
-      // Immediately check for subaccount
-      const subs = await derive.getSubaccounts(address);
-      console.log("[derive] connectDerive found", subs.length, "subaccounts for", address);
+      // Check for subaccount
+      const subs = await derive.getSubaccounts(wallet);
       if (subs.length > 0) {
         const subId = subs[0].subaccountId;
         setDeriveSubaccount(subId);
-        const bal = await derive.getUsdcBalance(address, subId);
+        const bal = await derive.getUsdcBalance(wallet, subId);
         setDeriveBalance(bal);
+        setOrderResult({ ok: true, msg: "Connected to Derive" });
       } else {
-        setOrderResult({ ok: false, msg: `No Derive account found for ${address.slice(0, 6)}...${address.slice(-4)}` });
+        setOrderResult({ ok: false, msg: "No Derive account found — set up on derive.xyz first" });
       }
     } catch (err) {
       setOrderResult({ ok: false, msg: `Connection failed: ${(err as Error).message?.slice(0, 100)}` });
@@ -1130,6 +1194,108 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
             <span className="text-[var(--foreground)] tabular-nums">{opt.openInterest.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
         </>
+      )}
+
+      {/* ─── Positions & Orders Section ─── */}
+      {deriveConnected && deriveSubaccount !== null && (
+        <div className="mt-4 pt-3 border-t border-[var(--hl-border)]">
+          <button
+            onClick={() => setShowPositions(!showPositions)}
+            className="flex items-center justify-between w-full text-[11px] font-medium text-[var(--foreground)] mb-2"
+          >
+            <span>Positions & Orders</span>
+            <span className="text-[var(--hl-muted)] text-[9px]">
+              {positions.length > 0 ? `${positions.length} pos` : ""}
+              {openOrders.length > 0 ? `${positions.length > 0 ? " · " : ""}${openOrders.length} orders` : ""}
+              {positions.length === 0 && openOrders.length === 0 ? "none" : ""}
+              {" "}{showPositions ? "▾" : "▸"}
+            </span>
+          </button>
+
+          {showPositions && (
+            <div className="space-y-3">
+              {/* Open Positions */}
+              {positions.length > 0 && (
+                <div>
+                  <div className="text-[9px] text-purple-400 font-medium mb-1.5">Open Positions</div>
+                  <div className="space-y-1.5">
+                    {positions.map((p) => {
+                      const parts = p.instrumentName.split("-");
+                      const shortName = parts.length >= 4
+                        ? `${parts[0]} $${parts[2]} ${parts[3] === "C" ? "Call" : "Put"} ${parts[1]}`
+                        : p.instrumentName;
+                      return (
+                        <div key={p.instrumentName} className="bg-[var(--hl-surface)] rounded p-2 text-[10px]">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-medium text-[var(--foreground)]">{shortName}</span>
+                            <span className={`font-medium ${p.direction === "buy" ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                              {p.direction === "buy" ? "LONG" : "SHORT"}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[9px]">
+                            <div className="flex justify-between">
+                              <span className="text-[var(--hl-muted)]">Size</span>
+                              <span className="tabular-nums">{p.amount.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-[var(--hl-muted)]">Entry</span>
+                              <span className="tabular-nums">${p.averagePrice.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-[var(--hl-muted)]">Mark</span>
+                              <span className="tabular-nums">${p.markPrice.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-[var(--hl-muted)]">PnL</span>
+                              <span className={`tabular-nums font-medium ${p.unrealizedPnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                                {p.unrealizedPnl >= 0 ? "+" : ""}${p.unrealizedPnl.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Open Orders */}
+              {openOrders.length > 0 && (
+                <div>
+                  <div className="text-[9px] text-purple-400 font-medium mb-1.5">Open Orders</div>
+                  <div className="space-y-1.5">
+                    {openOrders.map((o) => {
+                      const parts = o.instrumentName.split("-");
+                      const shortName = parts.length >= 4
+                        ? `${parts[0]} $${parts[2]} ${parts[3] === "C" ? "C" : "P"} ${parts[1]}`
+                        : o.instrumentName;
+                      return (
+                        <div key={o.orderId} className="bg-[var(--hl-surface)] rounded p-2 text-[10px] flex items-center justify-between">
+                          <div>
+                            <span className="font-medium text-[var(--foreground)]">{shortName}</span>
+                            <span className={`ml-1.5 text-[9px] ${o.direction === "buy" ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+                              {o.direction.toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="text-[9px] tabular-nums text-[var(--hl-muted)]">
+                            {o.filledAmount}/{o.amount} @ ${o.limitPrice.toFixed(2)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Empty state */}
+              {positions.length === 0 && openOrders.length === 0 && (
+                <div className="text-[10px] text-[var(--hl-muted)] text-center py-3">
+                  No open positions or orders
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

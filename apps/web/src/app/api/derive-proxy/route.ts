@@ -20,6 +20,8 @@ const ALLOWED_ENDPOINTS = new Set([
   "/private/get_subaccounts",
   "/private/get_subaccount",
   "/private/get_collaterals",
+  "/private/get_positions",
+  "/private/get_open_orders",
   "/private/create_subaccount",
   "/private/deposit",
   "/private/order",

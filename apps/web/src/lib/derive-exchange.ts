@@ -10,6 +10,8 @@
 
 import {
   type WalletClient,
+  createPublicClient,
+  http,
   encodeAbiParameters,
   parseAbiParameters,
   keccak256,
@@ -55,6 +57,41 @@ const ASSET_ADDRESSES: Record<string, `0x${string}`> = {
   ETH_PERP: "0xAf65752C4643E25C02F693f9D4FE19cF23a095E3",
   BTC_PERP: "0xDBa83C0C654DB1cd914FA2710bA743e925B53086",
 };
+
+// ─── Derive wallet lookup (EOA → smart contract wallet) ────────────────────
+// Derive uses Alchemy's LightAccountFactory on their L2 (chain 957).
+// The smart contract wallet address is deterministic: factory.getAddress(owner, 0).
+const DERIVE_CHAIN_RPC = "https://rpc.lyra.finance";
+const LIGHT_ACCOUNT_FACTORY = "0x000000893A26168158fbeaDD9335Be5bC96592E2" as `0x${string}`;
+
+const deriveRpcClient = createPublicClient({
+  transport: http(DERIVE_CHAIN_RPC),
+});
+
+/**
+ * Look up the Derive smart contract wallet for a given EOA.
+ * Uses the LightAccountFactory's deterministic CREATE2 address.
+ */
+export async function lookupDeriveWallet(eoa: `0x${string}`): Promise<`0x${string}`> {
+  const result = await deriveRpcClient.readContract({
+    address: LIGHT_ACCOUNT_FACTORY,
+    abi: [
+      {
+        name: "getAddress",
+        type: "function",
+        stateMutability: "view",
+        inputs: [
+          { name: "owner", type: "address" },
+          { name: "salt", type: "uint256" },
+        ],
+        outputs: [{ name: "", type: "address" }],
+      },
+    ],
+    functionName: "getAddress",
+    args: [eoa, BigInt(0)],
+  });
+  return result as `0x${string}`;
+}
 
 // ─── Scaling helpers (Derive uses 18-decimal fixed point) ───────────────────
 
@@ -340,8 +377,10 @@ async function derivePost(
   if (endpoint.startsWith("/private/")) {
     // Auto-attach cached auth if none provided
     const auth = authHeaders ?? getCachedDeriveAuth() ?? undefined;
-    // Derive requires lowercase wallet addresses everywhere
-    const walletLower = walletAddress?.toLowerCase();
+    // Use the Derive smart contract wallet (not EOA) as X-LyraWallet.
+    // Priority: explicit walletAddress → cached deriveWallet from auth.
+    const resolvedWallet = walletAddress ?? (auth as { deriveWallet?: string })?.deriveWallet ?? undefined;
+    const walletLower = resolvedWallet?.toLowerCase();
     // Also lowercase any wallet field in the body
     const fixedBody = body.wallet && typeof body.wallet === "string"
       ? { ...body, wallet: (body.wallet as string).toLowerCase() }
@@ -405,17 +444,25 @@ async function derivePost(
 // Sign a timestamp once, cache it for up to 5 minutes so we can poll
 // private endpoints without prompting the user for every request.
 
-let cachedAuth: { wallet: string; timestamp: string; signature: string; expiresAt: number } | null = null;
+let cachedAuth: {
+  signer: string;        // EOA that signed the timestamp
+  deriveWallet: string;  // Derive smart contract wallet (used as X-LyraWallet)
+  timestamp: string;
+  signature: string;
+  expiresAt: number;
+} | null = null;
 
 /**
  * Get or create cached auth headers for Derive private endpoints.
- * Signs once with the wallet, reuses for ~5 minutes.
+ * Signs once with the EOA wallet, reuses for ~5 minutes.
+ * @param deriveWallet The Derive smart contract wallet address (used as X-LyraWallet)
  */
 export async function getDeriveAuth(
   walletClient: WalletClient,
   address: `0x${string}`,
+  deriveWallet?: string,
 ): Promise<{ timestamp: string; signature: string }> {
-  if (cachedAuth && cachedAuth.wallet.toLowerCase() === address.toLowerCase() && Date.now() < cachedAuth.expiresAt) {
+  if (cachedAuth && cachedAuth.signer.toLowerCase() === address.toLowerCase() && Date.now() < cachedAuth.expiresAt) {
     return { timestamp: cachedAuth.timestamp, signature: cachedAuth.signature };
   }
 
@@ -425,8 +472,12 @@ export async function getDeriveAuth(
     message: timestamp,
   });
 
+  // Look up the Derive wallet automatically if not provided
+  const resolvedDeriveWallet = deriveWallet || (await lookupDeriveWallet(address));
+
   cachedAuth = {
-    wallet: address,
+    signer: address,
+    deriveWallet: resolvedDeriveWallet.toLowerCase(),
     timestamp,
     signature,
     expiresAt: Date.now() + 4 * 60_000, // 4 min (renew before 5 min limit)
@@ -439,15 +490,25 @@ export async function getDeriveAuth(
  * Check if we have valid cached auth (avoid prompting wallet).
  */
 export function hasCachedDeriveAuth(address: string): boolean {
-  return !!cachedAuth && cachedAuth.wallet.toLowerCase() === address.toLowerCase() && Date.now() < cachedAuth.expiresAt;
+  return !!cachedAuth && cachedAuth.signer.toLowerCase() === address.toLowerCase() && Date.now() < cachedAuth.expiresAt;
 }
 
 /**
  * Get cached auth without prompting (returns null if expired).
  */
-export function getCachedDeriveAuth(): { timestamp: string; signature: string } | null {
+export function getCachedDeriveAuth(): { timestamp: string; signature: string; deriveWallet?: string } | null {
   if (cachedAuth && Date.now() < cachedAuth.expiresAt) {
-    return { timestamp: cachedAuth.timestamp, signature: cachedAuth.signature };
+    return { timestamp: cachedAuth.timestamp, signature: cachedAuth.signature, deriveWallet: cachedAuth.deriveWallet };
+  }
+  return null;
+}
+
+/**
+ * Get the cached Derive wallet address (returns null if no auth cached).
+ */
+export function getCachedDeriveWallet(): string | null {
+  if (cachedAuth && Date.now() < cachedAuth.expiresAt) {
+    return cachedAuth.deriveWallet;
   }
   return null;
 }
@@ -827,6 +888,118 @@ export async function getUsdcBalance(
   const collaterals = await getCollaterals(walletAddress, subaccountId);
   const usdc = collaterals.find((c) => c.assetName === "USDC");
   return usdc?.amount ?? 0;
+}
+
+// ─── Get positions ─────────────────────────────────────────────────────────
+
+export interface DerivePosition {
+  instrumentName: string;
+  direction: "buy" | "sell";
+  amount: number;
+  averagePrice: number;
+  markPrice: number;
+  indexPrice: number;
+  unrealizedPnl: number;
+  realizedPnl: number;
+  liquidationPrice: number;
+  maintenanceMargin: number;
+  delta: number;
+  gamma: number;
+  theta: number;
+  vega: number;
+}
+
+/**
+ * Get open positions for a subaccount.
+ */
+export async function getPositions(
+  walletAddress: string,
+  subaccountId: number,
+): Promise<DerivePosition[]> {
+  try {
+    const result = await derivePost(
+      "/private/get_positions",
+      { subaccount_id: subaccountId },
+      walletAddress,
+      getCachedDeriveAuth() ?? undefined,
+    );
+
+    const r = result as Record<string, unknown>;
+    const inner = (r.result as Record<string, unknown>) ?? r;
+    const positions = (inner.positions as Array<Record<string, unknown>>) ?? [];
+
+    return positions.map((p) => ({
+      instrumentName: (p.instrument_name as string) ?? "",
+      direction: (p.direction as "buy" | "sell") ?? "buy",
+      amount: parseFloat((p.amount as string) ?? "0"),
+      averagePrice: parseFloat((p.average_price as string) ?? "0"),
+      markPrice: parseFloat((p.mark_price as string) ?? "0"),
+      indexPrice: parseFloat((p.index_price as string) ?? "0"),
+      unrealizedPnl: parseFloat((p.unrealized_pnl as string) ?? "0"),
+      realizedPnl: parseFloat((p.realized_pnl as string) ?? "0"),
+      liquidationPrice: parseFloat((p.liquidation_price as string) ?? "0"),
+      maintenanceMargin: parseFloat((p.maintenance_margin as string) ?? "0"),
+      delta: parseFloat((p.delta as string) ?? "0"),
+      gamma: parseFloat((p.gamma as string) ?? "0"),
+      theta: parseFloat((p.theta as string) ?? "0"),
+      vega: parseFloat((p.vega as string) ?? "0"),
+    }));
+  } catch (err) {
+    console.error("[derive] getPositions failed:", (err as Error).message);
+    return [];
+  }
+}
+
+// ─── Get open orders ──────────────────────────────────────────────────────
+
+export interface DeriveOpenOrder {
+  orderId: string;
+  instrumentName: string;
+  direction: "buy" | "sell";
+  amount: number;
+  filledAmount: number;
+  limitPrice: number;
+  orderType: string;
+  timeInForce: string;
+  status: string;
+  createdAt: number;
+}
+
+/**
+ * Get open orders for a subaccount.
+ */
+export async function getOpenOrders(
+  walletAddress: string,
+  subaccountId: number,
+): Promise<DeriveOpenOrder[]> {
+  try {
+    const result = await derivePost(
+      "/private/get_open_orders",
+      { subaccount_id: subaccountId },
+      walletAddress,
+      getCachedDeriveAuth() ?? undefined,
+    );
+
+    const r = result as Record<string, unknown>;
+    const inner = (r.result as Record<string, unknown>) ?? r;
+    const orders = (inner.orders as Array<Record<string, unknown>>) ?? [];
+
+    return orders.map((o) => ({
+      orderId: (o.order_id as string) ?? "",
+      instrumentName: (o.instrument_name as string) ?? "",
+      direction: (o.direction as "buy" | "sell") ?? "buy",
+      amount: parseFloat((o.amount as string) ?? "0"),
+      filledAmount: parseFloat((o.filled_amount as string) ?? "0"),
+      limitPrice: parseFloat((o.limit_price as string) ?? "0"),
+      orderType: (o.order_type as string) ?? "limit",
+      timeInForce: (o.time_in_force as string) ?? "gtc",
+      status: (o.status as string) ?? "open",
+      createdAt: (o.created_timestamp_ms as number) ?? 0,
+    }));
+  } catch (err) {
+    console.error("[derive] getOpenOrders failed:", (err as Error).message);
+    return [];
+  }
 }
 
 // ─── Session key management ─────────────────────────────────────────────────
