@@ -5,6 +5,7 @@ import type { TokenOverview, HLOneScore } from "@/lib/api";
 import type { PlaceOrderResult } from "@/lib/hl-exchange";
 import { BUILDER_FEE_PERCENT, BUILDER_FEE_DISPLAY } from "@/lib/hl-exchange";
 import { useSafeAccount } from "@/hooks/use-safe-account";
+import { useGeoCheck } from "@/hooks/use-geo-check";
 import { hasDeriveOptions } from "./hype-options";
 import type { SelectedOption } from "./inline-options-chain";
 
@@ -676,6 +677,7 @@ interface OptionsOrderPanelProps {
 }
 
 function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }: OptionsOrderPanelProps) {
+  const geo = useGeoCheck();
   const [optionSide, setOptionSide] = useState<"buy" | "sell">("buy");
   const [optOrderType, setOptOrderType] = useState<"limit" | "market">("limit");
   const [limitPrice, setLimitPrice] = useState("");
@@ -683,21 +685,24 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
   const [submitting, setSubmitting] = useState(false);
   const [orderResult, setOrderResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [deriveSubaccount, setDeriveSubaccount] = useState<number | null>(null);
-  const [deriveChecked, setDeriveChecked] = useState(false);
   const [postOnly, setPostOnly] = useState(true);
   const [timeInForce, setTimeInForce] = useState<"gtc" | "ioc">("gtc");
   const { address } = useSafeAccount();
 
-  // Check for Derive subaccount when wallet connects
+  // Check for Derive subaccount when wallet connects — re-check periodically
   useEffect(() => {
-    if (!isConnected || !address || deriveChecked) return;
-    setDeriveChecked(true);
-    import("@/lib/derive-exchange").then(derive => {
-      derive.getSubaccounts(address).then(subs => {
-        if (subs.length > 0) setDeriveSubaccount(subs[0].subaccountId);
-      });
-    }).catch(() => {});
-  }, [isConnected, address, deriveChecked]);
+    if (!isConnected || !address) return;
+    const checkDerive = () => {
+      import("@/lib/derive-exchange").then(derive => {
+        derive.getSubaccounts(address).then(subs => {
+          if (subs.length > 0) setDeriveSubaccount(subs[0].subaccountId);
+        });
+      }).catch(() => {});
+    };
+    checkDerive();
+    const interval = setInterval(checkDerive, 15_000);
+    return () => clearInterval(interval);
+  }, [isConnected, address]);
 
   // When a new option is selected from the chain, update the form
   useEffect(() => {
@@ -840,7 +845,11 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
           </div>
 
           {/* Execute button */}
-          {!isConnected ? (
+          {geo.restricted ? (
+            <div className="w-full py-2.5 rounded text-[11px] text-center bg-[var(--hl-surface)] text-[var(--hl-muted)] border border-[var(--hl-border)]">
+              Options unavailable in your region
+            </div>
+          ) : !isConnected ? (
             <button
               disabled
               className="w-full py-2.5 rounded font-semibold text-[12px] bg-[var(--hl-surface)] text-[var(--hl-muted)] border border-[var(--hl-border)] cursor-not-allowed"
@@ -850,14 +859,14 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
           ) : deriveSubaccount === null ? (
             <div className="space-y-2">
               <a
-                href="https://derive.xyz/portfolio"
+                href="https://derive.xyz/options/ETH"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full py-2.5 rounded font-semibold text-[12px] text-center block transition-colors bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30"
               >
                 Set Up Derive Account &rarr;
               </a>
-              <p className="text-[9px] text-[var(--hl-muted)] text-center">Deposit USDC on Derive to start trading options</p>
+              <p className="text-[9px] text-[var(--hl-muted)] text-center">Connect wallet on Derive and deposit USDC to trade options</p>
             </div>
           ) : (
             <button

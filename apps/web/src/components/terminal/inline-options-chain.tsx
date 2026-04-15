@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { DeriveOptionsChain, HypeOptionRow } from "@/lib/api";
 import { getDeriveOptionsChain } from "@/lib/api";
+import { useGeoCheck } from "@/hooks/use-geo-check";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -184,11 +185,13 @@ async function fetchDirectFromDerive(coin: string): Promise<DeriveOptionsChain> 
 const DERIVE_COINS = ["BTC", "ETH", "SOL", "HYPE"];
 
 export function InlineOptionsChain({ coin, onSelectOption, selectedOption, onChangeCoin }: InlineOptionsChainProps) {
+  const geo = useGeoCheck();
   const [data, setData] = useState<DeriveOptionsChain | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedExpiry, setSelectedExpiry] = useState<string | null>(null);
   const atmRef = useRef<HTMLTableRowElement>(null);
+  const needsAutoSelect = useRef(true);
 
   const fetchData = useCallback(async () => {
     try {
@@ -196,7 +199,8 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption, onCha
       const result = await getDeriveOptionsChain(coin);
       setData(result);
       setError(null);
-      if (result?.expiries.length && !selectedExpiry) {
+      if (result?.expiries.length && needsAutoSelect.current) {
+        needsAutoSelect.current = false;
         setSelectedExpiry(result.expiries[0].label);
       }
     } catch (err) {
@@ -206,7 +210,8 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption, onCha
         const result = await fetchDirectFromDerive(coin);
         setData(result);
         setError(null);
-        if (result?.expiries.length && !selectedExpiry) {
+        if (result?.expiries.length && needsAutoSelect.current) {
+          needsAutoSelect.current = false;
           setSelectedExpiry(result.expiries[0].label);
         }
       } catch (err2) {
@@ -219,6 +224,7 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption, onCha
   }, [coin]);
 
   useEffect(() => {
+    needsAutoSelect.current = true;
     setSelectedExpiry(null);
     setData(null);
     setLoading(true);
@@ -287,7 +293,21 @@ export function InlineOptionsChain({ coin, onSelectOption, selectedOption, onCha
     ? `${daysToExpiry}d ${hoursToExpiry % 24}h`
     : hoursToExpiry > 0 ? `${hoursToExpiry}h` : "";
 
-  if (loading) {
+  // Geo-restriction: block Derive options for restricted jurisdictions
+  if (geo.restricted) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center max-w-xs space-y-2 px-4">
+          <div className="text-[14px] font-medium text-[var(--foreground)]">Options Unavailable</div>
+          <div className="text-[11px] text-[var(--hl-muted)] leading-relaxed">
+            Options trading via Derive is not available in your region due to regulatory restrictions.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading || geo.loading) {
     return (
       <div className="flex items-center justify-center h-full text-[var(--hl-muted)] text-[12px]">
         Loading {coin} options chain...
