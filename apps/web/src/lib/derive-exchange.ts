@@ -325,19 +325,36 @@ async function signOrder(
 
 // ─── API helpers ────────────────────────────────────────────────────────────
 
+// Backend proxy URL for Derive private endpoints (avoids CORS issues)
+const PROXY_URL = typeof window !== "undefined" && process.env.NODE_ENV === "production"
+  ? ""  // Relative — proxied via next.config rewrites
+  : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001");
+
 async function derivePost(
   endpoint: string,
   body: Record<string, unknown>,
   walletAddress?: string,
 ): Promise<Record<string, unknown>> {
+  // Private endpoints go through our backend proxy to avoid CORS
+  if (endpoint.startsWith("/private/")) {
+    const res = await fetch(`${PROXY_URL}/api/market/derive-proxy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint, body, wallet: walletAddress }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Derive proxy error: ${res.status} ${text}`);
+    }
+
+    return res.json();
+  }
+
+  // Public endpoints can go direct
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-
-  // Derive requires the wallet address in a header for private endpoints
-  if (walletAddress) {
-    headers["X-LyraWallet"] = walletAddress;
-  }
 
   const res = await fetch(`${DERIVE_API}${endpoint}`, {
     method: "POST",
