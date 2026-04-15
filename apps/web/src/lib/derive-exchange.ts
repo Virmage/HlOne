@@ -748,11 +748,15 @@ export async function getSubaccounts(
       auth ?? getCachedDeriveAuth() ?? undefined,
     );
 
+    console.log("[derive] getSubaccounts raw response:", JSON.stringify(result).slice(0, 500));
+
     // API may return { result: { subaccount_ids: [...] } } or { subaccounts: [...] }
     const r = result as Record<string, unknown>;
     const inner = (r.result as Record<string, unknown>) ?? r;
     const subaccountIds = (inner.subaccount_ids as number[]) ?? [];
     const subaccounts = (inner.subaccounts as Array<Record<string, unknown>>) ?? [];
+
+    console.log("[derive] parsed: subaccountIds=", subaccountIds, "subaccounts=", subaccounts.length);
 
     if (subaccountIds.length > 0) {
       return subaccountIds.map((id) => ({

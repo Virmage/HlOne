@@ -739,14 +739,17 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       setDeriveConnected(true);
       // Immediately check for subaccount
       const subs = await derive.getSubaccounts(address);
+      console.log("[derive] connectDerive found", subs.length, "subaccounts for", address);
       if (subs.length > 0) {
         const subId = subs[0].subaccountId;
         setDeriveSubaccount(subId);
         const bal = await derive.getUsdcBalance(address, subId);
         setDeriveBalance(bal);
+      } else {
+        setOrderResult({ ok: false, msg: `No Derive account found for ${address.slice(0, 6)}...${address.slice(-4)}` });
       }
-    } catch {
-      setOrderResult({ ok: false, msg: "Failed to connect — try again" });
+    } catch (err) {
+      setOrderResult({ ok: false, msg: `Connection failed: ${(err as Error).message?.slice(0, 100)}` });
     } finally {
       setSetupStep("idle");
     }
