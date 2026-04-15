@@ -338,6 +338,8 @@ async function derivePost(
 ): Promise<Record<string, unknown>> {
   // Private endpoints go through our backend proxy to avoid CORS
   if (endpoint.startsWith("/private/")) {
+    // Auto-attach cached auth if none provided
+    const auth = authHeaders ?? getCachedDeriveAuth() ?? undefined;
     const res = await fetch(`${PROXY_URL}/api/market/derive-proxy`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -345,8 +347,8 @@ async function derivePost(
         endpoint,
         body,
         wallet: walletAddress,
-        authTimestamp: authHeaders?.timestamp,
-        authSignature: authHeaders?.signature,
+        authTimestamp: auth?.timestamp,
+        authSignature: auth?.signature,
       }),
     });
 
