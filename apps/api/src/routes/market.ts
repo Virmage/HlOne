@@ -1172,7 +1172,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   app.post<{
     Body: { endpoint: string; body: Record<string, unknown>; wallet?: string };
   }>(
-    "/api/market/derive-proxy",
+    "/derive-proxy",
     async (request, reply) => {
       const { endpoint, body, wallet } = request.body || {};
       if (!endpoint || !DERIVE_ALLOWED_ENDPOINTS.has(endpoint)) {
