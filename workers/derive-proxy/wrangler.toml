@@ -1,3 +1,9 @@
 name = "derive-proxy"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
+
+# Force worker to run near the backend (US) instead of at the edge (user's region)
+# This bypasses Derive's geo-blocking on login since the upstream connection
+# comes from a US Cloudflare IP rather than the user's region.
+[placement]
+mode = "smart"

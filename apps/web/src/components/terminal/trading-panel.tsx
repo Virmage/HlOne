@@ -823,7 +823,8 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       }
     } catch (err) {
       console.error("[derive] connectDerive error:", err);
-      setOrderResult({ ok: false, msg: `Connection failed: ${(err as Error).message?.slice(0, 120)}` });
+      const errMsg = (err as Error).message || "Unknown error";
+      setOrderResult({ ok: false, msg: errMsg.slice(0, 200) });
     } finally {
       setSetupStep("idle");
     }

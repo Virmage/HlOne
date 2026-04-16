@@ -439,45 +439,65 @@ function ensureWs(): Promise<WebSocket> {
 async function wsLogin(): Promise<void> {
   if (wsLoggedIn) return;
   const auth = getCachedDeriveAuth();
-  if (!auth || !auth.deriveWallet) throw new Error("No Derive auth cached — sign first");
+  if (!auth) throw new Error("No Derive auth cached — sign first");
 
   const sock = await ensureWs();
-  const id = wsRequestId++;
 
-  // Derive API expects: wallet = Derive smart contract wallet (NOT EOA)
-  // Signature = EOA signs the timestamp, WITH 0x prefix
-  // Confirmed by Hummingbot's derive_auth.py: X-LyraWallet = Derive wallet, signature via session key
-  const loginParams = {
-    wallet: auth.deriveWallet!.toLowerCase(),
-    timestamp: auth.timestamp,
-    signature: auth.signature,
-    accept: "application/json",
-  };
-  console.log("[derive-ws] Login with deriveWallet:", auth.deriveWallet, "signer(EOA):", cachedAuth!.signer);
-  console.log("[derive-ws] Login params:", JSON.stringify(loginParams).slice(0, 300));
+  // Try multiple wallet addresses for login:
+  // 1. Derive smart contract wallet (from factory lookup)
+  // 2. EOA directly (some accounts use the EOA as identifier)
+  const walletsToTry = [
+    ...(auth.deriveWallet ? [auth.deriveWallet.toLowerCase()] : []),
+    cachedAuth!.signer.toLowerCase(),
+  ];
+  // Deduplicate
+  const uniqueWallets = [...new Set(walletsToTry)];
 
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { wsPending.delete(id); reject(new Error("Login timeout")); }, 10_000);
-    wsPending.set(id, {
-      resolve: (data) => {
-        console.log("[derive-ws] Login response:", JSON.stringify(data).slice(0, 300));
-        if (data.error) {
-          reject(new Error(`Login failed: ${JSON.stringify(data.error).slice(0, 150)}`));
-        } else {
-          wsLoggedIn = true;
-          resolve();
-        }
-      },
-      reject,
-      timer,
+  let lastError = "";
+  for (const wallet of uniqueWallets) {
+    const id = wsRequestId++;
+    const loginParams = {
+      wallet,
+      timestamp: auth.timestamp,
+      signature: auth.signature,
+    };
+
+    console.log(`[derive-ws] Trying login with wallet: ${wallet} (signer: ${cachedAuth!.signer})`);
+
+    const result = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      const timer = setTimeout(() => {
+        wsPending.delete(id);
+        resolve({ ok: false, error: "Login timeout" });
+      }, 10_000);
+
+      wsPending.set(id, {
+        resolve: (data) => {
+          console.log(`[derive-ws] Login response (wallet=${wallet}):`, JSON.stringify(data).slice(0, 400));
+          if (data.error) {
+            const errObj = data.error as { code?: number; message?: string; data?: string };
+            resolve({ ok: false, error: `[${errObj.code}] ${errObj.message}${errObj.data ? ` — ${errObj.data}` : ""}` });
+          } else {
+            resolve({ ok: true });
+          }
+        },
+        reject: (err) => resolve({ ok: false, error: err.message }),
+        timer,
+      });
+
+      sock.send(JSON.stringify({ method: "public/login", params: loginParams, id }));
     });
 
-    sock.send(JSON.stringify({
-      method: "public/login",
-      params: loginParams,
-      id,
-    }));
-  });
+    if (result.ok) {
+      wsLoggedIn = true;
+      console.log(`[derive-ws] Login SUCCESS with wallet: ${wallet}`);
+      return;
+    }
+
+    lastError = result.error || "Unknown error";
+    console.warn(`[derive-ws] Login failed with wallet ${wallet}: ${lastError}`);
+  }
+
+  throw new Error(`Login failed (tried ${uniqueWallets.length} wallets): ${lastError}`);
 }
 
 function wsSend(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
