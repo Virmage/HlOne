@@ -804,9 +804,12 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       await derive.getDeriveAuth(walletClient, address as `0x${string}`, wallet);
       setDeriveConnected(true);
 
-      // Get subaccounts via WebSocket
+      // Get subaccounts via WebSocket — show raw response for debugging
+      const rawResult = await derive.derivePostRaw("/private/get_subaccounts", { wallet }, wallet);
+      console.log("[derive] RAW get_subaccounts:", JSON.stringify(rawResult));
+
       const subs = await derive.getSubaccounts(wallet);
-      console.log("[derive] getSubaccounts result:", subs.length, "subaccounts");
+      console.log("[derive] Parsed subaccounts:", subs.length);
       if (subs.length > 0) {
         const subId = subs[0].subaccountId;
         setDeriveSubaccount(subId);
@@ -814,7 +817,9 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
         setDeriveBalance(bal);
         setOrderResult({ ok: true, msg: `Connected to Derive ✓` });
       } else {
-        setOrderResult({ ok: false, msg: "No subaccounts found — set up on derive.xyz first" });
+        // Show raw response so we can see what Derive actually returned
+        const rawStr = JSON.stringify(rawResult).slice(0, 150);
+        setOrderResult({ ok: false, msg: `No subs. Raw: ${rawStr}` });
       }
     } catch (err) {
       console.error("[derive] connectDerive error:", err);
