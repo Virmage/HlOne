@@ -444,14 +444,23 @@ async function wsLogin(): Promise<void> {
   const sock = await ensureWs();
   const id = wsRequestId++;
 
+  // Derive Python SDK sends signature without 0x prefix
+  const sig = auth.signature.startsWith("0x") ? auth.signature.slice(2) : auth.signature;
+
+  const loginParams = {
+    wallet: auth.deriveWallet,
+    timestamp: auth.timestamp,
+    signature: sig,
+  };
+  console.log("[derive-ws] Login params:", JSON.stringify(loginParams).slice(0, 200));
+
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { wsPending.delete(id); reject(new Error("Login timeout")); }, 10_000);
     wsPending.set(id, {
       resolve: (data) => {
-        console.log("[derive-ws] Login response:", JSON.stringify(data).slice(0, 200));
+        console.log("[derive-ws] Login response:", JSON.stringify(data).slice(0, 300));
         if (data.error) {
-          const err = data.error as Record<string, unknown>;
-          reject(new Error(`Login failed: ${err.message || JSON.stringify(err)}`));
+          reject(new Error(`Login failed: ${JSON.stringify(data.error).slice(0, 150)}`));
         } else {
           wsLoggedIn = true;
           resolve();
@@ -463,11 +472,7 @@ async function wsLogin(): Promise<void> {
 
     sock.send(JSON.stringify({
       method: "public/login",
-      params: {
-        wallet: auth.deriveWallet,
-        timestamp: auth.timestamp,
-        signature: auth.signature,
-      },
+      params: loginParams,
       id,
     }));
   });
