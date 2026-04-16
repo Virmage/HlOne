@@ -48,12 +48,12 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
   const visibleAlerts = expanded ? alerts : alerts.slice(0, 15);
 
   return (
-    <div>
-    <div className="flex flex-col cursor-pointer" onClick={() => setExpanded(true)}>
+    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0 cursor-pointer" onClick={() => setExpanded(true)}>
       <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1 shrink-0">
         Whale Alerts
       </h2>
-      <div className="overflow-hidden flex-1 space-y-0">
+      <div className="overflow-y-auto flex-1 min-h-0 space-y-0">
         {visibleAlerts.map((alert) => {
           // For flips, resolve direction from newSize
           const resolvedType = alert.eventType === "flip"

@@ -26,11 +26,11 @@ export function WhaleAccumulationPanel({ data, onSelectToken }: Props) {
   }
 
   return (
-    <div>
-      <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">
+    <div className="flex flex-col h-full min-h-0">
+      <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1 shrink-0">
         Whale Accumulation
       </h2>
-      <div className="overflow-x-auto">
+      <div className="overflow-auto flex-1 min-h-0">
         <table className="w-full text-[11px]">
           <thead>
             <tr className="border-b border-[var(--hl-border)] text-[var(--hl-muted)]">

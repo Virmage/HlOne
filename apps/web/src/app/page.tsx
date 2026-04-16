@@ -409,13 +409,13 @@ export default function HomePage() {
             )}
             {dataTab === "whales" && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)] h-full">
-                <div className="bg-[var(--background)] p-3 overflow-hidden">
+                <div className="bg-[var(--background)] p-3 overflow-hidden flex flex-col">
                   <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
                 </div>
-                <div className="bg-[var(--background)] p-3 overflow-hidden">
+                <div className="bg-[var(--background)] p-3 overflow-hidden flex flex-col">
                   <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
                 </div>
-                <div className="bg-[var(--background)] p-3 overflow-hidden">
+                <div className="bg-[var(--background)] p-3 overflow-hidden flex flex-col">
                   <WhaleAccumulationPanel data={data?.whaleAccumulation || []} onSelectToken={handleSelectToken} />
                 </div>
               </div>

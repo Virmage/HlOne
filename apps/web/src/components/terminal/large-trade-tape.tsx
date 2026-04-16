@@ -61,18 +61,18 @@ export function LargeTradeTape({ trades, onSelectToken }: LargeTradeTapeProps) {
   const visibleTrades = expanded ? trades : trades.slice(0, INLINE_LIMIT);
 
   return (
-    <div>
-      <div className="cursor-pointer" onClick={() => setExpanded(true)}>
-        <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex flex-col h-full min-h-0 cursor-pointer" onClick={() => setExpanded(true)}>
+        <h2 className="text-[13px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-2 px-1 shrink-0">
           Large Trades (&gt;$25K)
         </h2>
-        <div className="overflow-hidden">
+        <div className="overflow-y-auto flex-1 min-h-0">
           {visibleTrades.map((t, i) => (
             <TradeRow key={`${t.hash}-${i}`} t={t} onSelectToken={onSelectToken} />
           ))}
         </div>
         {trades.length > 8 && (
-          <div className="text-[10px] text-[var(--hl-muted)] text-center py-1">Click to see all {trades.length} trades</div>
+          <div className="text-[10px] text-[var(--hl-muted)] text-center py-1 shrink-0">Click to see all {trades.length} trades</div>
         )}
       </div>
       {expanded && (
