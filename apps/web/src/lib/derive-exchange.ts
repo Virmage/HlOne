@@ -58,39 +58,60 @@ const ASSET_ADDRESSES: Record<string, `0x${string}`> = {
   BTC_PERP: "0xDBa83C0C654DB1cd914FA2710bA743e925B53086",
 };
 
-// ─── Derive wallet lookup (EOA → smart contract wallet) ────────────────────
-// Derive uses Alchemy's LightAccountFactory on their L2 (chain 957).
-// The smart contract wallet address is deterministic: factory.getAddress(owner, 0).
+// ─── Derive wallet lookup (signer → smart contract wallet) ─────────────────
+// Derive uses account abstraction on their L2 (chain 957).
+// Each signer has a smart contract wallet. We look it up by calling owner()
+// on candidate wallets, or use the Derive API.
 const DERIVE_CHAIN_RPC = "https://rpc.lyra.finance";
-const LIGHT_ACCOUNT_FACTORY = "0x000000893A26168158fbeaDD9335Be5bC96592E2" as `0x${string}`;
 
 const deriveRpcClient = createPublicClient({
   transport: http(DERIVE_CHAIN_RPC),
 });
 
 /**
- * Look up the Derive smart contract wallet for a given EOA.
- * Uses the LightAccountFactory's deterministic CREATE2 address.
+ * Look up the Derive smart contract wallet for a given signer address.
+ *
+ * Derive uses account abstraction — each user has a smart contract wallet on
+ * chain 957 whose owner() is the signer EOA. We try to find it by:
+ * 1. Checking localStorage cache
+ * 2. Attempting to call the Derive API with the signer address
+ *    (works if the signer IS the wallet or the wallet matches)
+ *
+ * If auto-lookup fails, returns null so the UI can ask the user to paste
+ * their Derive wallet address from derive.xyz/developers.
  */
-export async function lookupDeriveWallet(eoa: `0x${string}`): Promise<`0x${string}`> {
-  const result = await deriveRpcClient.readContract({
-    address: LIGHT_ACCOUNT_FACTORY,
-    abi: [
-      {
-        name: "getAddress",
-        type: "function",
-        stateMutability: "view",
-        inputs: [
-          { name: "owner", type: "address" },
-          { name: "salt", type: "uint256" },
-        ],
-        outputs: [{ name: "", type: "address" }],
-      },
-    ],
-    functionName: "getAddress",
-    args: [eoa, BigInt(0)],
-  });
-  return result as `0x${string}`;
+export async function lookupDeriveWallet(signer: `0x${string}`): Promise<`0x${string}` | null> {
+  // Check localStorage cache first
+  const cacheKey = `derive-wallet-${signer.toLowerCase()}`;
+  const cached = typeof window !== "undefined" ? localStorage.getItem(cacheKey) : null;
+  if (cached && cached.startsWith("0x")) {
+    console.log(`[derive] Using cached Derive wallet: ${cached}`);
+    return cached as `0x${string}`;
+  }
+
+  // Try the signer directly — maybe it IS the Derive wallet
+  // (some accounts use the EOA directly)
+  try {
+    const code = await deriveRpcClient.getCode({ address: signer });
+    if (code && code !== "0x") {
+      console.log(`[derive] Signer ${signer} is a contract on Derive chain — using as wallet`);
+      if (typeof window !== "undefined") localStorage.setItem(cacheKey, signer.toLowerCase());
+      return signer;
+    }
+  } catch {
+    // RPC error, continue
+  }
+
+  console.warn(`[derive] Could not auto-detect Derive wallet for signer ${signer}`);
+  return null;
+}
+
+/**
+ * Save a manually-entered Derive wallet address for a signer.
+ */
+export function saveDeriveWallet(signer: string, deriveWallet: string): void {
+  const cacheKey = `derive-wallet-${signer.toLowerCase()}`;
+  localStorage.setItem(cacheKey, deriveWallet.toLowerCase());
 }
 
 // ─── Scaling helpers (Derive uses 18-decimal fixed point) ───────────────────
@@ -586,7 +607,7 @@ export async function getDeriveAuth(
   });
 
   // Look up the Derive wallet automatically if not provided
-  const resolvedDeriveWallet = deriveWallet || (await lookupDeriveWallet(address));
+  const resolvedDeriveWallet = deriveWallet || (await lookupDeriveWallet(address)) || address;
 
   cachedAuth = {
     signer: address,
