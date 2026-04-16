@@ -16,8 +16,8 @@ export const paginationOffset = z.coerce.number().int().min(0).default(0);
 /** UUID v4 */
 export const uuid = z.string().uuid();
 
-/** Asset/coin name: 1-30 alphanumeric + special chars */
-export const coinName = z.string().min(1).max(30);
+/** Asset/coin name: 1-30 alphanumeric chars, hyphens, colons, @ (e.g. BTC, ETH-PERP, @107) */
+export const coinName = z.string().min(1).max(30).regex(/^[A-Za-z0-9:@\-\.]+$/, "Invalid coin name");
 
 /** Normalize wallet address to lowercase */
 export function normalizeAddress(addr: string): string {

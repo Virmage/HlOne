@@ -13,20 +13,43 @@
 const DERIVE_WS_URL = "wss://api.lyra.finance/ws";
 const DERIVE_HTTP_URL = "https://api.lyra.finance";
 
-// CORS headers for browser access
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Upgrade, Connection",
-};
+// Allowed origins — restrict to your frontend domains only
+const ALLOWED_ORIGINS = new Set([
+  "https://hlone.vercel.app",
+  "https://www.hlone.com",
+  "https://hlone.com",
+  "http://localhost:3000",   // local dev
+  "http://localhost:3001",
+]);
+
+function getCorsHeaders(request: Request): Record<string, string> {
+  const origin = request.headers.get("Origin") || "";
+  const allowedOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "";
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Upgrade, Connection",
+    "Vary": "Origin",
+  };
+}
 
 export default {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
+    const cors = getCorsHeaders(request);
+
+    // Block requests from disallowed origins
+    if (!cors["Access-Control-Allow-Origin"]) {
+      return Response.json(
+        { error: "Origin not allowed" },
+        { status: 403 },
+      );
+    }
+
     // Handle CORS preflight
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      return new Response(null, { status: 204, headers: cors });
     }
 
     // ─── WebSocket upgrade ──────────────────────────────────────────────
@@ -37,20 +60,20 @@ export default {
 
     // ─── HTTP POST proxy (legacy, for non-WS endpoints) ────────────────
     if (request.method === "POST") {
-      return handleHttpPost(request);
+      return handleHttpPost(request, cors);
     }
 
     // Health check
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(
         JSON.stringify({ status: "ok", proxy: "derive-ws-proxy", ws: "/ws" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { headers: { ...cors, "Content-Type": "application/json" } },
       );
     }
 
     return Response.json(
       { error: "Method not allowed. Use WebSocket upgrade or POST." },
-      { status: 405, headers: corsHeaders },
+      { status: 405, headers: cors },
     );
   },
 };
@@ -162,7 +185,7 @@ const ALLOWED_ENDPOINTS = new Set([
   "/private/cancel",
 ]);
 
-async function handleHttpPost(request: Request): Promise<Response> {
+async function handleHttpPost(request: Request, cors: Record<string, string>): Promise<Response> {
   try {
     const { endpoint, body, wallet, authTimestamp, authSignature } =
       (await request.json()) as {
@@ -176,7 +199,7 @@ async function handleHttpPost(request: Request): Promise<Response> {
     if (!endpoint || !ALLOWED_ENDPOINTS.has(endpoint)) {
       return Response.json(
         { error: "Invalid endpoint" },
-        { status: 400, headers: corsHeaders },
+        { status: 400, headers: cors },
       );
     }
 
@@ -216,16 +239,16 @@ async function handleHttpPost(request: Request): Promise<Response> {
           error: `Derive API returned ${res.status}`,
           detail: text.slice(0, 200),
         },
-        { status: res.status, headers: corsHeaders },
+        { status: res.status, headers: cors },
       );
     }
 
     const data = await res.json();
-    return Response.json(data, { status: res.status, headers: corsHeaders });
+    return Response.json(data, { status: res.status, headers: cors });
   } catch (err) {
     return Response.json(
       { error: "Derive API unreachable", detail: (err as Error).message },
-      { status: 502, headers: corsHeaders },
+      { status: 502, headers: cors },
     );
   }
 }

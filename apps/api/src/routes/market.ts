@@ -28,6 +28,7 @@ import { getDeribitFlowCached } from "../services/deribit-flow.js";
 import { getKoreanPremiumCached } from "../services/korean-premium.js";
 import { getEcosystemCached, fetchEcosystemData } from "../services/hyperliquid-ecosystem.js";
 import { logTrade, getTradeLog, getTradeStats } from "../services/trade-log.js";
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { ethAddress, positiveNumber, nonNegativeNumber, coinName } from "../lib/validation.js";
 
@@ -962,7 +963,12 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   app.get("/system-health", async (req, reply) => {
     const IS_PRODUCTION = process.env.NODE_ENV === "production";
     const adminSecret = process.env.ADMIN_SECRET;
-    if (IS_PRODUCTION && (!adminSecret || req.headers["x-admin-secret"] !== adminSecret)) {
+    const provided = req.headers["x-admin-secret"] as string | undefined;
+    // Use constant-time comparison to prevent timing attacks
+    const secretMatch = adminSecret && provided
+      && adminSecret.length === provided.length
+      && timingSafeEqual(Buffer.from(adminSecret), Buffer.from(provided));
+    if (IS_PRODUCTION && (!adminSecret || !secretMatch)) {
       reply.code(403);
       return { error: "Forbidden" };
     }

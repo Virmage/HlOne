@@ -23,6 +23,8 @@ import {
   apiWallets,
   traderProfiles,
   users,
+  decryptPrivateKey,
+  isEncrypted,
 } from "@hl-copy/db";
 import { submitMarketOrder, submitCloseOrder } from "../services/order-execution.js";
 import {
@@ -182,11 +184,15 @@ export function createTradeWorker(redis: RedisConnection, db: Database) {
           continue;
         }
 
+        // Decrypt agent wallet private key (supports both encrypted and legacy raw hex)
+        const rawKey = apiWallet.encryptedPrivateKey;
+        const agentKey = (isEncrypted(rawKey) ? decryptPrivateKey(rawKey) : rawKey) as Hex;
+
         // Execute the order
         let orderResult;
         if (calculation.reduceOnly) {
           orderResult = await submitCloseOrder(
-            apiWallet.encryptedPrivateKey as Hex, // In prod, decrypt this first
+            agentKey,
             user.walletAddress,
             calculation.asset,
             calculation.isBuy ? "short" : "long",
@@ -194,7 +200,7 @@ export function createTradeWorker(redis: RedisConnection, db: Database) {
           );
         } else {
           orderResult = await submitMarketOrder(
-            apiWallet.encryptedPrivateKey as Hex,
+            agentKey,
             user.walletAddress,
             calculation.asset,
             calculation.isBuy,

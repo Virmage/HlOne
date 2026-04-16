@@ -48,7 +48,7 @@ const AGENT_TYPE = {
 
 // ─── Builder fee configuration ──────────────────────────────────────────────
 // Fee is in tenths of basis points: 15 = 1.5 bps = 0.015% (below industry avg of 2-3 bps)
-const BUILDER_ADDRESS = process.env.BUILDER_ADDRESS || "0xB4a59142607C744CCF6C4828f01A6ab79c1f2520";
+const BUILDER_ADDRESS = process.env.BUILDER_ADDRESS || "0xbB0f753321e2B5FD29Bd1d14b532f5B54959ae63";
 const BUILDER_FEE = parseInt(process.env.BUILDER_FEE || "15", 10); // 15 = 0.015% default
 
 export interface OrderRequest {
@@ -70,6 +70,7 @@ export interface OrderResult {
 // ─── Float to wire format conversion ─────────────────────────────────────────
 
 function floatToWire(x: number): string {
+  if (!Number.isFinite(x)) throw new Error(`Invalid order value: ${x}`);
   const rounded = parseFloat(x.toPrecision(5));
   if (Math.abs(rounded) < 1e-8) return "0";
   return rounded.toString();

@@ -58,52 +58,40 @@ const ASSET_ADDRESSES: Record<string, `0x${string}`> = {
   BTC_PERP: "0xDBa83C0C654DB1cd914FA2710bA743e925B53086",
 };
 
-// ─── Derive wallet lookup (signer → smart contract wallet) ─────────────────
-// Derive uses account abstraction on their L2 (chain 957).
-// Each signer has a smart contract wallet. We look it up by calling owner()
-// on candidate wallets, or use the Derive API.
+// ─── Derive wallet lookup (EOA → smart contract wallet) ────────────────────
+// Derive uses Alchemy's LightAccountFactory on their L2 (chain 957).
+// The smart contract wallet address is deterministic: factory.getAddress(owner, 0).
 const DERIVE_CHAIN_RPC = "https://rpc.lyra.finance";
+const LIGHT_ACCOUNT_FACTORY = "0x000000893A26168158fbeaDD9335Be5bC96592E2" as `0x${string}`;
 
 const deriveRpcClient = createPublicClient({
   transport: http(DERIVE_CHAIN_RPC),
 });
 
 /**
- * Look up the Derive smart contract wallet for a given signer address.
- *
- * Derive uses account abstraction — each user has a smart contract wallet on
- * chain 957 whose owner() is the signer EOA. We try to find it by:
- * 1. Checking localStorage cache
- * 2. Attempting to call the Derive API with the signer address
- *    (works if the signer IS the wallet or the wallet matches)
- *
- * If auto-lookup fails, returns null so the UI can ask the user to paste
- * their Derive wallet address from derive.xyz/developers.
+ * Look up the Derive smart contract wallet for a given EOA.
+ * Uses the LightAccountFactory's deterministic CREATE2 address.
  */
-export async function lookupDeriveWallet(signer: `0x${string}`): Promise<`0x${string}` | null> {
-  // Check localStorage cache first
-  const cacheKey = `derive-wallet-${signer.toLowerCase()}`;
-  const cached = typeof window !== "undefined" ? localStorage.getItem(cacheKey) : null;
-  if (cached && cached.startsWith("0x")) {
-    console.log(`[derive] Using cached Derive wallet: ${cached}`);
-    return cached as `0x${string}`;
-  }
-
-  // Try the signer directly — maybe it IS the Derive wallet
-  // (some accounts use the EOA directly)
-  try {
-    const code = await deriveRpcClient.getCode({ address: signer });
-    if (code && code !== "0x") {
-      console.log(`[derive] Signer ${signer} is a contract on Derive chain — using as wallet`);
-      if (typeof window !== "undefined") localStorage.setItem(cacheKey, signer.toLowerCase());
-      return signer;
-    }
-  } catch {
-    // RPC error, continue
-  }
-
-  console.warn(`[derive] Could not auto-detect Derive wallet for signer ${signer}`);
-  return null;
+export async function lookupDeriveWallet(eoa: `0x${string}`): Promise<`0x${string}`> {
+  const result = await deriveRpcClient.readContract({
+    address: LIGHT_ACCOUNT_FACTORY,
+    abi: [
+      {
+        name: "getAddress",
+        type: "function",
+        stateMutability: "view",
+        inputs: [
+          { name: "owner", type: "address" },
+          { name: "salt", type: "uint256" },
+        ],
+        outputs: [{ name: "", type: "address" }],
+      },
+    ],
+    functionName: "getAddress",
+    args: [eoa, BigInt(0)],
+  });
+  console.log(`[derive] Looked up Derive wallet for ${eoa}: ${result}`);
+  return result as `0x${string}`;
 }
 
 /**
@@ -457,7 +445,18 @@ function ensureWs(): Promise<WebSocket> {
   });
 }
 
+// Login lock to prevent concurrent login attempts (race condition fix)
+let wsLoginPromise: Promise<void> | null = null;
+
 async function wsLogin(): Promise<void> {
+  if (wsLoggedIn) return;
+  // If another login is already in progress, wait for it
+  if (wsLoginPromise) return wsLoginPromise;
+  wsLoginPromise = wsLoginInner().finally(() => { wsLoginPromise = null; });
+  return wsLoginPromise;
+}
+
+async function wsLoginInner(): Promise<void> {
   if (wsLoggedIn) return;
   const auth = getCachedDeriveAuth();
   if (!auth) throw new Error("No Derive auth cached — sign first");
@@ -521,24 +520,20 @@ async function wsLogin(): Promise<void> {
   throw new Error(`Login failed (tried ${uniqueWallets.length} wallets): ${lastError}`);
 }
 
-function wsSend(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return new Promise(async (resolve, reject) => {
-    try {
-      await ensureWs();
-      if (method.startsWith("private/")) await wsLogin();
+async function wsSend(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  await ensureWs();
+  if (method.startsWith("private/")) await wsLogin();
 
-      const id = wsRequestId++;
-      const timer = setTimeout(() => {
-        wsPending.delete(id);
-        reject(new Error(`Timeout: ${method}`));
-      }, 15_000);
+  const id = wsRequestId++;
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      wsPending.delete(id);
+      reject(new Error(`Timeout: ${method}`));
+    }, 15_000);
 
-      wsPending.set(id, { resolve, reject, timer });
+    wsPending.set(id, { resolve, reject, timer });
 
-      ws!.send(JSON.stringify({ method, params, id }));
-    } catch (err) {
-      reject(err);
-    }
+    ws!.send(JSON.stringify({ method, params, id }));
   });
 }
 
@@ -607,7 +602,7 @@ export async function getDeriveAuth(
   });
 
   // Look up the Derive wallet automatically if not provided
-  const resolvedDeriveWallet = deriveWallet || (await lookupDeriveWallet(address)) || address;
+  const resolvedDeriveWallet = deriveWallet || (await lookupDeriveWallet(address));
 
   cachedAuth = {
     signer: address,
@@ -666,18 +661,6 @@ export async function derivePostRaw(
   } catch (err) {
     return { _transport: "ws", _error: (err as Error).message };
   }
-}
-
-/**
- * Authenticated version of derivePost for private endpoints.
- */
-async function derivePostAuth(
-  endpoint: string,
-  body: Record<string, unknown>,
-  walletAddress: string,
-  auth: { timestamp: string; signature: string },
-): Promise<Record<string, unknown>> {
-  return derivePost(endpoint, body, walletAddress, auth);
 }
 
 // ─── Place order (main function) ────────────────────────────────────────────

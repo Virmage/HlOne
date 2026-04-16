@@ -711,26 +711,26 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
   }>>([]);
   const { address } = useSafeAccount();
 
-  // Derive wallet address (smart contract wallet on Derive L2)
+  // Derive wallet address (smart contract wallet on Derive L2, auto-detected from EOA)
   const [deriveWallet, setDeriveWallet] = useState<string>("");
-  const [showDeriveWalletInput, setShowDeriveWalletInput] = useState(false);
-  const [deriveWalletInput, setDeriveWalletInput] = useState("");
 
-  // Auto-lookup Derive wallet
+  // Auto-lookup Derive wallet from EOA via on-chain factory
   useEffect(() => {
     if (!address) return;
+    // Check localStorage cache first
+    const cacheKey = `derive-wallet-${address.toLowerCase()}`;
+    const saved = localStorage.getItem(cacheKey);
+    if (saved) { setDeriveWallet(saved); return; }
+    // Look up from factory contract
     let cancelled = false;
     (async () => {
       try {
         const derive = await import("@/lib/derive-exchange");
         const wallet = await derive.lookupDeriveWallet(address as `0x${string}`);
-        if (!cancelled) {
-          if (wallet) {
-            setDeriveWallet(wallet.toLowerCase());
-          } else {
-            // Auto-lookup failed — will show input when user clicks Connect
-            console.log("[derive] Auto-lookup failed, will ask for wallet address");
-          }
+        if (!cancelled && wallet) {
+          const walletLower = wallet.toLowerCase();
+          setDeriveWallet(walletLower);
+          localStorage.setItem(cacheKey, walletLower);
         }
       } catch (err) {
         console.error("[derive] Failed to lookup wallet:", err);
@@ -775,29 +775,9 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
     return () => { cancelled = true; clearInterval(interval); };
   }, [isConnected, address, deriveWallet, deriveConnected]);
 
-  // Save manually-entered Derive wallet
-  const saveDeriveWalletInput = () => {
-    const val = deriveWalletInput.trim().toLowerCase();
-    if (val.startsWith("0x") && val.length === 42 && address) {
-      import("@/lib/derive-exchange").then((derive) => {
-        derive.saveDeriveWallet(address, val);
-      });
-      setDeriveWallet(val);
-      setShowDeriveWalletInput(false);
-      setDeriveWalletInput("");
-    }
-  };
-
-  // Connect to Derive — signs auth, resolves Derive wallet
+  // Connect to Derive — signs auth with EOA, auto-resolves Derive wallet via factory
   const connectDerive = async () => {
     if (!address || setupStep !== "idle") return;
-
-    // If no Derive wallet resolved, show the input
-    if (!deriveWallet || !deriveWallet.startsWith("0x")) {
-      setShowDeriveWalletInput(true);
-      return;
-    }
-
     setSetupStep("connecting");
     setOrderResult(null);
     try {
@@ -809,10 +789,18 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) { setSetupStep("idle"); return; }
 
-      const wallet = deriveWallet;
-      console.log("[derive] Connecting with signer:", address, "Derive wallet:", wallet);
+      // Auto-lookup Derive wallet if not yet resolved
+      let wallet = deriveWallet;
+      if (!wallet || !wallet.startsWith("0x")) {
+        const looked = await derive.lookupDeriveWallet(address as `0x${string}`);
+        wallet = looked.toLowerCase();
+        setDeriveWallet(wallet);
+        localStorage.setItem(`derive-wallet-${address.toLowerCase()}`, wallet);
+      }
 
-      // Sign auth — signer signs timestamp, Derive wallet identifies the account
+      console.log("[derive] Connecting with EOA:", address, "Derive wallet:", wallet);
+
+      // Sign auth — EOA signs timestamp, Derive wallet identifies the account
       await derive.getDeriveAuth(walletClient, address as `0x${string}`, wallet);
       setDeriveConnected(true);
 
@@ -840,13 +828,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
     } catch (err) {
       console.error("[derive] connectDerive error:", err);
       const errMsg = (err as Error).message || "Unknown error";
-      // If account not found, the wallet might be wrong — show input
-      if (errMsg.includes("14000") || errMsg.includes("Account not found")) {
-        setShowDeriveWalletInput(true);
-        setOrderResult({ ok: false, msg: "Derive wallet not found — enter it manually below" });
-      } else {
-        setOrderResult({ ok: false, msg: errMsg.slice(0, 200) });
-      }
+      setOrderResult({ ok: false, msg: errMsg.slice(0, 200) });
     } finally {
       setSetupStep("idle");
     }
@@ -1007,47 +989,14 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
           ) : !deriveConnected ? (
             /* ─── Not connected to Derive yet: prompt to connect ─── */
             <div className="space-y-2">
-              {showDeriveWalletInput ? (
-                <div className="space-y-2">
-                  <p className="text-[10px] text-[var(--hl-muted)]">
-                    Enter your Derive wallet address from{" "}
-                    <a href="https://derive.xyz/developers" target="_blank" rel="noopener noreferrer" className="text-purple-400 underline">derive.xyz/developers</a>
-                  </p>
-                  <input
-                    type="text"
-                    value={deriveWalletInput}
-                    onChange={(e) => setDeriveWalletInput(e.target.value)}
-                    placeholder="0x..."
-                    className="w-full px-2 py-1.5 rounded text-[11px] bg-[var(--hl-bg)] border border-[var(--hl-border)] text-[var(--foreground)] placeholder:text-[var(--hl-muted)] focus:border-purple-500/50 outline-none"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={saveDeriveWalletInput}
-                      disabled={!deriveWalletInput.trim().startsWith("0x") || deriveWalletInput.trim().length !== 42}
-                      className="flex-1 py-1.5 rounded font-semibold text-[11px] bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 disabled:opacity-30"
-                    >
-                      Save & Connect
-                    </button>
-                    <button
-                      onClick={() => setShowDeriveWalletInput(false)}
-                      className="px-3 py-1.5 rounded text-[11px] text-[var(--hl-muted)] border border-[var(--hl-border)] hover:text-[var(--foreground)]"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <button
-                    onClick={connectDerive}
-                    disabled={setupStep === "connecting"}
-                    className="w-full py-2.5 rounded font-semibold text-[12px] text-center transition-colors bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 disabled:opacity-50"
-                  >
-                    {setupStep === "connecting" ? "Connecting..." : "Connect to Derive"}
-                  </button>
-                  <p className="text-[9px] text-[var(--hl-muted)] text-center">Sign to check your Derive options account</p>
-                </>
-              )}
+              <button
+                onClick={connectDerive}
+                disabled={setupStep === "connecting"}
+                className="w-full py-2.5 rounded font-semibold text-[12px] text-center transition-colors bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 disabled:opacity-50"
+              >
+                {setupStep === "connecting" ? "Connecting..." : "Connect to Derive"}
+              </button>
+              <p className="text-[9px] text-[var(--hl-muted)] text-center">Sign to check your Derive options account</p>
             </div>
           ) : deriveSubaccount === null ? (
             /* ─── Connected but no Derive account: link to onboard ─── */
