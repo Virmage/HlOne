@@ -444,15 +444,17 @@ async function wsLogin(): Promise<void> {
   const sock = await ensureWs();
   const id = wsRequestId++;
 
-  // Derive Python SDK sends signature without 0x prefix
-  const sig = auth.signature.startsWith("0x") ? auth.signature.slice(2) : auth.signature;
-
+  // Derive API expects: wallet = Derive smart contract wallet (NOT EOA)
+  // Signature = EOA signs the timestamp, WITH 0x prefix
+  // Confirmed by Hummingbot's derive_auth.py: X-LyraWallet = Derive wallet, signature via session key
   const loginParams = {
-    wallet: auth.deriveWallet,
+    wallet: auth.deriveWallet!.toLowerCase(),
     timestamp: auth.timestamp,
-    signature: sig,
+    signature: auth.signature,
+    accept: "application/json",
   };
-  console.log("[derive-ws] Login params:", JSON.stringify(loginParams).slice(0, 200));
+  console.log("[derive-ws] Login with deriveWallet:", auth.deriveWallet, "signer(EOA):", cachedAuth!.signer);
+  console.log("[derive-ws] Login params:", JSON.stringify(loginParams).slice(0, 300));
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { wsPending.delete(id); reject(new Error("Login timeout")); }, 10_000);
