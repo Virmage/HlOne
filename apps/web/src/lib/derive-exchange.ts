@@ -517,7 +517,18 @@ async function wsLoginInner(): Promise<void> {
     console.warn(`[derive-ws] Login failed with wallet ${wallet}: ${lastError}`);
   }
 
-  throw new Error(`Login failed (tried ${uniqueWallets.length} wallets): ${lastError}`);
+  // If 14000 "Account not found", clear cached Derive wallet so next attempt does a fresh lookup
+  if (lastError.includes("14000")) {
+    const signer = cachedAuth?.signer;
+    if (signer) {
+      const cacheKey = `derive-wallet-${signer.toLowerCase()}`;
+      try { localStorage.removeItem(cacheKey); } catch {}
+      console.warn(`[derive-ws] Cleared stale cached Derive wallet for ${signer}`);
+    }
+  }
+
+  const triedAddrs = uniqueWallets.map(w => w.slice(0, 10) + "…").join(", ");
+  throw new Error(`Login failed (tried ${triedAddrs}): ${lastError}`);
 }
 
 async function wsSend(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {

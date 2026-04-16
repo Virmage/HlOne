@@ -718,14 +718,9 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
   // Derive wallet address (smart contract wallet on Derive L2, auto-detected from EOA)
   const [deriveWallet, setDeriveWallet] = useState<string>("");
 
-  // Auto-lookup Derive wallet from EOA via on-chain factory
+  // Auto-lookup Derive wallet from EOA via on-chain factory (always fresh, no stale cache)
   useEffect(() => {
     if (!address) return;
-    // Check localStorage cache first
-    const cacheKey = `derive-wallet-${address.toLowerCase()}`;
-    const saved = localStorage.getItem(cacheKey);
-    if (saved) { setDeriveWallet(saved); return; }
-    // Look up from factory contract
     let cancelled = false;
     (async () => {
       try {
@@ -734,10 +729,13 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
         if (!cancelled && wallet) {
           const walletLower = wallet.toLowerCase();
           setDeriveWallet(walletLower);
-          localStorage.setItem(cacheKey, walletLower);
+          localStorage.setItem(`derive-wallet-${address.toLowerCase()}`, walletLower);
         }
       } catch (err) {
         console.error("[derive] Failed to lookup wallet:", err);
+        // Fall back to cached value if RPC fails
+        const saved = localStorage.getItem(`derive-wallet-${address.toLowerCase()}`);
+        if (!cancelled && saved) setDeriveWallet(saved);
       }
     })();
     return () => { cancelled = true; };
@@ -793,14 +791,12 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) { setSetupStep("idle"); return; }
 
-      // Auto-lookup Derive wallet if not yet resolved
-      let wallet = deriveWallet;
-      if (!wallet || !wallet.startsWith("0x")) {
-        const looked = await derive.lookupDeriveWallet(address as `0x${string}`);
-        wallet = looked.toLowerCase();
-        setDeriveWallet(wallet);
-        localStorage.setItem(`derive-wallet-${address.toLowerCase()}`, wallet);
-      }
+      // Always do a fresh factory lookup (don't trust stale cache)
+      const cacheKey = `derive-wallet-${address.toLowerCase()}`;
+      const looked = await derive.lookupDeriveWallet(address as `0x${string}`);
+      const wallet = looked.toLowerCase();
+      setDeriveWallet(wallet);
+      localStorage.setItem(cacheKey, wallet);
 
       console.log("[derive] Connecting with EOA:", address, "Derive wallet:", wallet);
 
@@ -826,8 +822,14 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
         setOpenOrders(orders);
         setOrderResult({ ok: true, msg: `Connected to Derive ✓ — $${bal.toFixed(2)} USDC` });
       } else {
+        // Show which addresses we tried so user can verify
         const rawStr = JSON.stringify(rawResult).slice(0, 150);
-        setOrderResult({ ok: false, msg: `No subs. Raw: ${rawStr}` });
+        const isAccountNotFound = rawStr.includes("14000");
+        if (isAccountNotFound) {
+          setOrderResult({ ok: false, msg: `No Derive account found for this wallet (${address.slice(0, 8)}…→${wallet.slice(0, 8)}…). Make sure you're connected with the same wallet you use on derive.xyz` });
+        } else {
+          setOrderResult({ ok: false, msg: `No subs. Raw: ${rawStr}` });
+        }
       }
     } catch (err) {
       console.error("[derive] connectDerive error:", err);
