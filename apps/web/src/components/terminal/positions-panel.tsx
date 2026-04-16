@@ -160,8 +160,21 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
       // Skip polling when tab is hidden — avoids stale/failed fetches
       if (document.hidden) return;
       fetchPositions();
-    }, 15_000);
-    return () => clearInterval(interval);
+    }, 5_000);
+
+    // Instant refresh when a trade fills (fired by TradingPanel)
+    const onTradeFilled = () => {
+      // Small delay — HL API needs a moment to reflect new positions
+      setTimeout(fetchPositions, 500);
+      // Second fetch to catch any propagation delay
+      setTimeout(fetchPositions, 2000);
+    };
+    window.addEventListener("hlone:trade-filled", onTradeFilled);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("hlone:trade-filled", onTradeFilled);
+    };
   }, [isConnected, address, fetchPositions]);
 
   // Fetch tab-specific data when tab changes

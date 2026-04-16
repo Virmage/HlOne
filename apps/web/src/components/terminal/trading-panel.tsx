@@ -223,7 +223,11 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
 
       console.log("[trade] Order result:", result);
       setLastResult(result);
-      if (result.success) { setSize(""); setSizePercent(0); }
+      if (result.success) {
+        setSize(""); setSizePercent(0);
+        // Signal PositionsPanel to refresh immediately (no 15s wait)
+        window.dispatchEvent(new CustomEvent("hlone:trade-filled"));
+      }
 
       const currentPrice = overview?.price ?? 0;
       fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/market/trade-log`, {
