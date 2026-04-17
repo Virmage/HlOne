@@ -841,7 +841,10 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       console.error("[derive] connectDerive error:", err);
       const errMsg = (err as Error).message || "Unknown error";
       // Give clear guidance based on the error type
-      if (errMsg.includes("Build tx failed") || errMsg.includes("registration failed")) {
+      if (errMsg.includes("blocks gasless") || errMsg.includes("bridge")) {
+        // Full bridge instructions — show up to 500 chars
+        setOrderResult({ ok: false, msg: errMsg.slice(0, 500) });
+      } else if (errMsg.includes("Build tx failed") || errMsg.includes("registration failed")) {
         setOrderResult({ ok: false, msg: `Session key error: ${errMsg.slice(0, 300)}` });
       } else if (errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("User rejected")) {
         setOrderResult({ ok: false, msg: "Signature rejected. Approve the sign request to register your session key." });

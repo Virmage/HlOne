@@ -837,20 +837,23 @@ export async function ensureDeriveSessionKey(
   if (!signedRawTx) {
     console.log("[derive] Path C: Falling back to sendTransaction on Derive L2...");
 
-    // Check ETH balance on Derive L2 before showing MetaMask popup
+    // Check ETH balance on Derive L2 BEFORE showing the wallet popup
     let ethBalance = BigInt(0);
     try {
       ethBalance = await deriveRpcClient.getBalance({ address });
-      console.log(`[derive] ETH balance on Derive L2: ${ethBalance} wei`);
+      console.log(`[derive] ETH balance on Derive L2: ${ethBalance} wei (${Number(ethBalance) / 1e18} ETH)`);
     } catch (balErr) {
       console.warn("[derive] Could not check Derive L2 balance:", (balErr as Error).message);
     }
 
-    // If user has zero ETH, try sending with explicit gasPrice: 0 first
-    // Some L2s accept zero-gas transactions for Paymaster-enabled contracts
-    const useZeroGas = ethBalance === BigInt(0);
-    if (useZeroGas) {
-      console.log("[derive] No ETH on Derive L2 — trying zero-gas transaction...");
+    // If user has no ETH, throw a clear error with bridge instructions — don't show confusing popup
+    if (ethBalance === BigInt(0)) {
+      throw new Error(
+        "Your wallet (Rabby/MetaMask) blocks gasless transaction signing for security. " +
+        "To complete one-time session key setup, you need ~0.001 ETH on Derive L2 (chain 957). " +
+        "Bridge it via derive.xyz → Transfer → Deposit, then retry Connect. " +
+        `Your Derive L2 address: ${address}`
+      );
     }
 
     // Add Derive L2 chain to wallet if needed
@@ -874,7 +877,6 @@ export async function ensureDeriveSessionKey(
         value: BigInt(0),
         chain: deriveChain,
         ...(txGas ? { gas: BigInt(txGas) } : {}),
-        ...(useZeroGas ? { gasPrice: BigInt(0) } : {}),
       });
 
       console.log(`[derive] sendTransaction succeeded, tx hash: ${txHash}`);
