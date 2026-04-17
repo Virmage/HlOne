@@ -685,7 +685,8 @@ export async function ensureDeriveSessionKey(
         wallet: deriveWallet,
         public_session_key: sessionAccount.address,
         expiry_sec: expiry,
-        label: "hlone",
+        nonce: null,  // server auto-fills from eth.getTransactionCount()
+        gas: null,    // server auto-fills from estimateGas * 150%
       },
       id: buildId,
     }));
