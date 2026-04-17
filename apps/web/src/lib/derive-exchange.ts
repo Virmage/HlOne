@@ -746,30 +746,43 @@ export async function ensureDeriveSessionKey(
       : {}),
   } as TransactionSerializable;
 
-  // ── Path A: eth_signTransaction (works on MetaMask 12.2+, WalletConnect, etc.) ──
+  // ── Path A: eth_signTransaction via raw RPC (bypasses viem chain assertion) ──
+  // Rabby, MetaMask 12.2+, WalletConnect all support this.
   // Produces a signed raw tx without broadcasting. No gas needed.
+  // We call the RPC directly to avoid viem refusing to sign on a non-current chain.
   let signedRawTx: string | null = null;
 
   try {
-    console.log("[derive] Path A: Trying eth_signTransaction...");
-    const txRequest: Record<string, unknown> = {
-      account: address,
-      to: txTo as `0x${string}`,
-      data: txCalldata as `0x${string}`,
-      chain: deriveChain,
-      value: BigInt(0),
+    console.log("[derive] Path A: Trying eth_signTransaction (direct RPC)...");
+    const rpcTxParams: Record<string, string> = {
+      from: address,
+      to: txTo,
+      data: txCalldata,
+      value: "0x0",
+      chainId: toHex(txChainId),
     };
-    if (txNonce !== undefined) txRequest.nonce = txNonce;
-    if (txGas) txRequest.gas = BigInt(txGas);
-    if (txData.maxFeePerGas) txRequest.maxFeePerGas = BigInt(txData.maxFeePerGas as string);
-    if (txData.maxPriorityFeePerGas) txRequest.maxPriorityFeePerGas = BigInt(txData.maxPriorityFeePerGas as string);
-    if (txData.gasPrice) txRequest.gasPrice = BigInt(txData.gasPrice as string);
+    if (txNonce !== undefined) rpcTxParams.nonce = toHex(txNonce);
+    if (txGas) rpcTxParams.gas = toHex(BigInt(txGas));
+    if (txData.maxFeePerGas) {
+      rpcTxParams.maxFeePerGas = toHex(BigInt(txData.maxFeePerGas as string));
+      rpcTxParams.maxPriorityFeePerGas = toHex(BigInt((txData.maxPriorityFeePerGas as string) ?? txData.maxFeePerGas as string));
+    } else if (txData.gasPrice) {
+      rpcTxParams.gasPrice = toHex(BigInt(txData.gasPrice as string));
+    }
 
-    signedRawTx = await walletClient.signTransaction(txRequest as Parameters<typeof walletClient.signTransaction>[0]);
+    console.log("[derive] Path A params:", rpcTxParams);
+
+    const signed = await (walletClient.request as (args: { method: string; params: unknown[] }) => Promise<string | { raw: string }>)({
+      method: "eth_signTransaction",
+      params: [rpcTxParams],
+    });
+
+    // Some wallets return {raw: "0x..."}, others return the hex string directly
+    signedRawTx = typeof signed === "string" ? signed : (signed as { raw: string }).raw;
     console.log(`[derive] Path A succeeded: ${signedRawTx.slice(0, 40)}...`);
   } catch (signTxErr) {
     const msg = (signTxErr as Error).message || "";
-    console.warn("[derive] Path A (eth_signTransaction) failed:", msg.slice(0, 200));
+    console.warn("[derive] Path A (eth_signTransaction) failed:", msg.slice(0, 300));
     // If user rejected, propagate immediately (don't try other paths)
     if (msg.includes("rejected") || msg.includes("denied") || msg.includes("User rejected")) {
       throw signTxErr;
