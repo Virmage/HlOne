@@ -17,7 +17,9 @@ import {
   keccak256,
   concat,
   toHex,
+  serializeTransaction,
   type Hex,
+  type TransactionSerializable,
 } from "viem";
 
 const DERIVE_API = "https://api.lyra.finance";
@@ -694,8 +696,9 @@ export async function ensureDeriveSessionKey(
 
   // ── Step 2: Sign and submit the registration transaction ──
   // The build response contains tx params. We need a fully signed raw tx.
-  // Path A: signTransaction (offline, no gas needed — modern wallets)
-  // Path B: sendTransaction on Derive L2 (needs tiny gas, but Derive may sponsor)
+  // Path A: eth_signTransaction (offline, no gas — MetaMask 12.2+, WalletConnect)
+  // Path B: eth_sign (raw hash signing, no gas — many wallets including older MetaMask)
+  // Path C: sendTransaction on Derive L2 (last resort — needs gas)
   const buildResult = (buildResponse.result ?? buildResponse) as Record<string, unknown>;
   console.log("[derive] Build result keys:", Object.keys(buildResult));
   console.log("[derive] Build result:", JSON.stringify(buildResult).slice(0, 800));
@@ -725,12 +728,30 @@ export async function ensureDeriveSessionKey(
     rpcUrls: { default: { http: [DERIVE_CHAIN_RPC] } },
   };
 
-  // ── Path A: signTransaction (works on MetaMask 12.2+, WalletConnect, etc.) ──
-  // This produces a signed raw tx without broadcasting. No gas needed.
+  // Build the TransactionSerializable object (EIP-1559 if fee fields present, else legacy)
+  const txSerializable: TransactionSerializable = {
+    chainId: txChainId,
+    to: txTo as `0x${string}`,
+    data: txCalldata as `0x${string}`,
+    value: BigInt(0),
+    ...(txNonce !== undefined ? { nonce: txNonce } : {}),
+    ...(txGas ? { gas: BigInt(txGas) } : {}),
+    ...(txData.maxFeePerGas
+      ? {
+          maxFeePerGas: BigInt(txData.maxFeePerGas as string),
+          maxPriorityFeePerGas: BigInt((txData.maxPriorityFeePerGas as string) ?? txData.maxFeePerGas as string),
+        }
+      : txData.gasPrice
+      ? { gasPrice: BigInt(txData.gasPrice as string) }
+      : {}),
+  } as TransactionSerializable;
+
+  // ── Path A: eth_signTransaction (works on MetaMask 12.2+, WalletConnect, etc.) ──
+  // Produces a signed raw tx without broadcasting. No gas needed.
   let signedRawTx: string | null = null;
 
   try {
-    console.log("[derive] Trying signTransaction (offline, no gas)...");
+    console.log("[derive] Path A: Trying eth_signTransaction...");
     const txRequest: Record<string, unknown> = {
       account: address,
       to: txTo as `0x${string}`,
@@ -745,20 +766,63 @@ export async function ensureDeriveSessionKey(
     if (txData.gasPrice) txRequest.gasPrice = BigInt(txData.gasPrice as string);
 
     signedRawTx = await walletClient.signTransaction(txRequest as Parameters<typeof walletClient.signTransaction>[0]);
-    console.log(`[derive] signTransaction succeeded: ${signedRawTx.slice(0, 40)}...`);
+    console.log(`[derive] Path A succeeded: ${signedRawTx.slice(0, 40)}...`);
   } catch (signTxErr) {
     const msg = (signTxErr as Error).message || "";
-    console.warn("[derive] signTransaction failed:", msg.slice(0, 200));
-    // Only fall back if wallet genuinely doesn't support the method
-    // If user rejected, propagate the error
+    console.warn("[derive] Path A (eth_signTransaction) failed:", msg.slice(0, 200));
+    // If user rejected, propagate immediately (don't try other paths)
     if (msg.includes("rejected") || msg.includes("denied") || msg.includes("User rejected")) {
       throw signTxErr;
     }
   }
 
-  // ── Path B: sendTransaction on Derive L2 (fallback) ──
+  // ── Path B: eth_sign (raw hash signing) — no gas, works on many wallets ──
+  // Serialize the tx, compute its hash, sign the hash directly, reassemble.
   if (!signedRawTx) {
-    console.log("[derive] Falling back to sendTransaction on Derive L2...");
+    try {
+      console.log("[derive] Path B: Trying eth_sign (raw hash signing)...");
+      const serialized = serializeTransaction(txSerializable);
+      const txHash = keccak256(serialized);
+      console.log(`[derive] Unsigned tx hash: ${txHash}`);
+
+      // Call eth_sign directly — produces a raw ECDSA signature with no prefix
+      // Note: MetaMask shows a big scary warning for this. User must click through.
+      const rawSig = await (walletClient.request as (args: { method: string; params: unknown[] }) => Promise<string>)({
+        method: "eth_sign",
+        params: [address, txHash],
+      });
+      console.log(`[derive] eth_sign signature: ${rawSig.slice(0, 40)}...`);
+
+      // Parse signature into r, s, v
+      const sigBytes = rawSig.startsWith("0x") ? rawSig.slice(2) : rawSig;
+      if (sigBytes.length !== 130) {
+        throw new Error(`Invalid signature length: ${sigBytes.length / 2} bytes (expected 65)`);
+      }
+      const r = `0x${sigBytes.slice(0, 64)}` as Hex;
+      const s = `0x${sigBytes.slice(64, 128)}` as Hex;
+      let v = parseInt(sigBytes.slice(128, 130), 16);
+      if (v < 27) v += 27; // Normalize
+
+      // Reassemble the signed transaction with the signature
+      signedRawTx = serializeTransaction(txSerializable, {
+        r,
+        s,
+        v: BigInt(v),
+        yParity: v % 2 === 0 ? 1 : 0,
+      });
+      console.log(`[derive] Path B succeeded: ${signedRawTx.slice(0, 40)}...`);
+    } catch (ethSignErr) {
+      const msg = (ethSignErr as Error).message || "";
+      console.warn("[derive] Path B (eth_sign) failed:", msg.slice(0, 200));
+      if (msg.includes("rejected") || msg.includes("denied") || msg.includes("User rejected")) {
+        throw ethSignErr;
+      }
+    }
+  }
+
+  // ── Path C: sendTransaction on Derive L2 (last resort — needs gas) ──
+  if (!signedRawTx) {
+    console.log("[derive] Path C: Falling back to sendTransaction on Derive L2...");
 
     // Check ETH balance on Derive L2 before showing MetaMask popup
     let ethBalance = BigInt(0);
