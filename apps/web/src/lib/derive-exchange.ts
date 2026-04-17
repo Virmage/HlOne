@@ -692,36 +692,160 @@ export async function ensureDeriveSessionKey(
     }));
   });
 
-  // ── Step 2: Sign the transaction with MetaMask (one popup, no chain switch) ──
-  // The API returns tx data — we sign its hash so Derive can submit via Paymaster.
+  // ── Step 2: Sign and submit the registration transaction ──
+  // The build response contains tx params. We need a fully signed raw tx.
+  // Path A: signTransaction (offline, no gas needed — modern wallets)
+  // Path B: sendTransaction on Derive L2 (needs tiny gas, but Derive may sponsor)
   const buildResult = (buildResponse.result ?? buildResponse) as Record<string, unknown>;
-  const txParams = buildResult.tx_params as Record<string, unknown> | undefined;
-  const rawTx = (buildResult.raw_tx ?? buildResult.tx_hash ?? txParams?.data) as string | undefined;
+  console.log("[derive] Build result keys:", Object.keys(buildResult));
+  console.log("[derive] Build result:", JSON.stringify(buildResult).slice(0, 800));
 
-  if (!rawTx && !txParams) {
-    throw new Error(`Unexpected build response — no tx data found: ${JSON.stringify(buildResult).slice(0, 200)}`);
+  // Extract tx params from the build response
+  const txData = (buildResult.tx_params ?? buildResult) as Record<string, unknown>;
+  const txTo = txData.to as string | undefined;
+  const txCalldata = txData.data as string | undefined;
+  const txNonce = txData.nonce as number | undefined;
+  const txGas = txData.gas as number | string | undefined;
+  const txChainId = (txData.chainId ?? txData.chain_id ?? 957) as number;
+
+  if (!txTo || !txCalldata) {
+    throw new Error(`Build response missing tx params (to/data): ${JSON.stringify(buildResult).slice(0, 300)}`);
   }
 
-  // Sign the transaction hash with the EOA (MetaMask popup)
-  // Derive accepts the personal_sign signature and wraps it in a UserOperation
-  const hashToSign = rawTx
-    ? (rawTx.startsWith("0x") ? rawTx as Hex : `0x${rawTx}` as Hex)
-    : keccak256(JSON.stringify(txParams) as Hex);
+  console.log(`[derive] Tx to: ${txTo}, data: ${(txCalldata as string).slice(0, 30)}..., nonce: ${txNonce}, gas: ${txGas}, chainId: ${txChainId}`);
 
-  console.log(`[derive] Signing session key registration (hash: ${(hashToSign as string).slice(0, 20)}...)`);
+  // Remember the user's current chain so we can switch back
+  const originalChainId = await walletClient.getChainId();
 
-  const signature = await walletClient.signMessage({
-    account: address,
-    message: { raw: hashToSign },
-  });
+  // Define the Derive L2 chain object (reused in both paths)
+  const deriveChain = {
+    id: txChainId,
+    name: "Derive",
+    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    rpcUrls: { default: { http: [DERIVE_CHAIN_RPC] } },
+  };
 
-  // ── Step 3: Submit the signed tx to register the session key (gasless) ──
+  // ── Path A: signTransaction (works on MetaMask 12.2+, WalletConnect, etc.) ──
+  // This produces a signed raw tx without broadcasting. No gas needed.
+  let signedRawTx: string | null = null;
+
+  try {
+    console.log("[derive] Trying signTransaction (offline, no gas)...");
+    const txRequest: Record<string, unknown> = {
+      account: address,
+      to: txTo as `0x${string}`,
+      data: txCalldata as `0x${string}`,
+      chain: deriveChain,
+      value: BigInt(0),
+    };
+    if (txNonce !== undefined) txRequest.nonce = txNonce;
+    if (txGas) txRequest.gas = BigInt(txGas);
+    if (txData.maxFeePerGas) txRequest.maxFeePerGas = BigInt(txData.maxFeePerGas as string);
+    if (txData.maxPriorityFeePerGas) txRequest.maxPriorityFeePerGas = BigInt(txData.maxPriorityFeePerGas as string);
+    if (txData.gasPrice) txRequest.gasPrice = BigInt(txData.gasPrice as string);
+
+    signedRawTx = await walletClient.signTransaction(txRequest as Parameters<typeof walletClient.signTransaction>[0]);
+    console.log(`[derive] signTransaction succeeded: ${signedRawTx.slice(0, 40)}...`);
+  } catch (signTxErr) {
+    const msg = (signTxErr as Error).message || "";
+    console.warn("[derive] signTransaction failed:", msg.slice(0, 200));
+    // Only fall back if wallet genuinely doesn't support the method
+    // If user rejected, propagate the error
+    if (msg.includes("rejected") || msg.includes("denied") || msg.includes("User rejected")) {
+      throw signTxErr;
+    }
+  }
+
+  // ── Path B: sendTransaction on Derive L2 (fallback) ──
+  if (!signedRawTx) {
+    console.log("[derive] Falling back to sendTransaction on Derive L2...");
+
+    // Check ETH balance on Derive L2 before showing MetaMask popup
+    let ethBalance = BigInt(0);
+    try {
+      ethBalance = await deriveRpcClient.getBalance({ address });
+      console.log(`[derive] ETH balance on Derive L2: ${ethBalance} wei`);
+    } catch (balErr) {
+      console.warn("[derive] Could not check Derive L2 balance:", (balErr as Error).message);
+    }
+
+    // If user has zero ETH, try sending with explicit gasPrice: 0 first
+    // Some L2s accept zero-gas transactions for Paymaster-enabled contracts
+    const useZeroGas = ethBalance === BigInt(0);
+    if (useZeroGas) {
+      console.log("[derive] No ETH on Derive L2 — trying zero-gas transaction...");
+    }
+
+    // Add Derive L2 chain to wallet if needed
+    try {
+      await walletClient.addChain({ chain: deriveChain });
+    } catch {
+      // Chain may already exist
+    }
+
+    try {
+      await walletClient.switchChain({ id: txChainId });
+    } catch (switchErr) {
+      console.warn("[derive] Chain switch failed:", (switchErr as Error).message);
+    }
+
+    try {
+      const txHash = await walletClient.sendTransaction({
+        account: address,
+        to: txTo as `0x${string}`,
+        data: txCalldata as `0x${string}`,
+        value: BigInt(0),
+        chain: deriveChain,
+        ...(txGas ? { gas: BigInt(txGas) } : {}),
+        ...(useZeroGas ? { gasPrice: BigInt(0) } : {}),
+      });
+
+      console.log(`[derive] sendTransaction succeeded, tx hash: ${txHash}`);
+
+      // Wait for the on-chain tx to be mined
+      const receipt = await deriveRpcClient.waitForTransactionReceipt({
+        hash: txHash,
+        timeout: 60_000,
+      });
+
+      if (receipt.status === "reverted") {
+        throw new Error("Session key registration tx reverted on Derive L2");
+      }
+
+      console.log(`[derive] Session key registered on-chain (block ${receipt.blockNumber})`);
+    } catch (sendErr) {
+      const msg = (sendErr as Error).message || "";
+      // Switch back to original chain before throwing
+      try { await walletClient.switchChain({ id: originalChainId }); } catch {}
+
+      if (msg.includes("rejected") || msg.includes("denied") || msg.includes("User rejected")) {
+        throw new Error("Transaction rejected — approve the MetaMask popup to register your session key");
+      }
+      if (msg.includes("insufficient") || msg.includes("gas") || msg.includes("No gas")) {
+        throw new Error(
+          "Your wallet doesn't support offline transaction signing and has no ETH on Derive L2. " +
+          "Please send ~0.001 ETH to your address on Derive chain (957) via derive.xyz bridge, " +
+          "then try again. This is a one-time setup."
+        );
+      }
+      throw sendErr;
+    }
+
+    // Switch back to original chain (best effort)
+    try { await walletClient.switchChain({ id: originalChainId }); } catch {}
+
+    storeSessionKey(address, sessionPrivateKey);
+    console.log(`[derive] Session key stored (on-chain path): ${sessionAccount.address}`);
+    return { sessionKey: sessionPrivateKey, sessionAddress: sessionAccount.address };
+  }
+
+  // If signTransaction worked, submit the signed tx via API
   const regId = wsRequestId++;
   const regResult = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
     const timer = setTimeout(() => {
       wsPending.delete(regId);
       resolve({ ok: false, error: "Registration timeout" });
-    }, 30_000); // longer timeout — Derive submits on-chain
+    }, 30_000);
 
     wsPending.set(regId, {
       resolve: (data) => {
@@ -744,7 +868,7 @@ export async function ensureDeriveSessionKey(
         public_session_key: sessionAccount.address,
         label: "hlone",
         expiry_sec: expiry,
-        signed_raw_tx: signature,
+        signed_raw_tx: signedRawTx,
       },
       id: regId,
     }));
@@ -1109,7 +1233,7 @@ export async function depositToSubaccount(
     const nonce = generateNonce();
     const expiryTimestamp = Math.floor(Date.now() / 1000) + 600;
 
-    const signature = await signDepositAction(walletClient, address, {
+    const { signature, signerAddress } = await signDepositAction(walletClient, address, {
       subaccountId: params.subaccountId,
       amount: params.amount,
       nonce,
@@ -1126,7 +1250,7 @@ export async function depositToSubaccount(
         nonce,
         signature,
         signature_expiry_sec: expiryTimestamp,
-        signer: address,
+        signer: signerAddress,
       },
       address,
     );
