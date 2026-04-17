@@ -692,6 +692,9 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
   const [deriveBalance, setDeriveBalance] = useState<number | null>(null);
   const [deriveConnected, setDeriveConnected] = useState(false);
   const [setupStep, setSetupStep] = useState<"idle" | "creating" | "depositing" | "connecting">("idle");
+  const [showImportKeyModal, setShowImportKeyModal] = useState(false);
+  const [importKeyInput, setImportKeyInput] = useState("");
+  const [importKeyError, setImportKeyError] = useState("");
   const [depositAmount, setDepositAmount] = useState("100");
   const [postOnly, setPostOnly] = useState(false);
   const [timeInForce, setTimeInForce] = useState<"gtc" | "ioc">("gtc");
@@ -798,14 +801,10 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
 
       console.log("[derive] Connecting with EOA:", address, "Derive wallet:", wallet);
 
-      // getDeriveAuth handles the full session key flow:
-      // 1. Checks for stored session key in localStorage
-      // 2. If none → generates keypair, registers via Derive API (one MetaMask signature, gasless)
-      // 3. Signs timestamp with session key locally (no popup) for WebSocket login
-      //
-      // First time: one MetaMask popup to sign session key registration
-      // Subsequent: zero popups (session key reused from localStorage)
-      setOrderResult({ ok: true, msg: "Setting up session key (approve in wallet)..." });
+      // getDeriveAuth looks up the stored session key, signs a timestamp with it,
+      // and logs in via WebSocket. If no session key is stored, it throws
+      // DeriveSessionKeyMissingError which opens the import modal.
+      setOrderResult({ ok: true, msg: "Logging into Derive..." });
       await derive.getDeriveAuth(walletClient, address as `0x${string}`, wallet);
       setDeriveConnected(true);
       setOrderResult({ ok: true, msg: "Logged in, fetching account..." });
@@ -839,22 +838,39 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       }
     } catch (err) {
       console.error("[derive] connectDerive error:", err);
+      // If no session key stored, open the import modal instead of showing an error
+      if ((err as Error).name === "DeriveSessionKeyMissingError") {
+        setShowImportKeyModal(true);
+        setSetupStep("idle");
+        return;
+      }
       const errMsg = (err as Error).message || "Unknown error";
       // Give clear guidance based on the error type
-      if (errMsg.includes("blocks gasless") || errMsg.includes("bridge")) {
-        // Full bridge instructions — show up to 500 chars
-        setOrderResult({ ok: false, msg: errMsg.slice(0, 500) });
-      } else if (errMsg.includes("Build tx failed") || errMsg.includes("registration failed")) {
-        setOrderResult({ ok: false, msg: `Session key error: ${errMsg.slice(0, 300)}` });
-      } else if (errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("User rejected")) {
-        setOrderResult({ ok: false, msg: "Signature rejected. Approve the sign request to register your session key." });
+      if (errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("User rejected")) {
+        setOrderResult({ ok: false, msg: "Signature rejected." });
       } else if (errMsg.includes("14000")) {
         setOrderResult({ ok: false, msg: "No Derive account found. Visit derive.xyz to create an account first, then return here." });
       } else {
-        setOrderResult({ ok: false, msg: errMsg.slice(0, 200) });
+        setOrderResult({ ok: false, msg: errMsg.slice(0, 300) });
       }
     } finally {
       setSetupStep("idle");
+    }
+  };
+
+  // Import a session key that the user created on derive.xyz
+  const importSessionKey = async () => {
+    if (!address) return;
+    setImportKeyError("");
+    try {
+      const derive = await import("@/lib/derive-exchange");
+      await derive.importDeriveSessionKey(address as `0x${string}`, importKeyInput);
+      setShowImportKeyModal(false);
+      setImportKeyInput("");
+      // Now retry the connect flow — it should find the stored key and log in
+      await connectDerive();
+    } catch (err) {
+      setImportKeyError((err as Error).message || "Failed to import session key");
     }
   };
 
@@ -1020,7 +1036,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
               >
                 {setupStep === "connecting" ? "Connecting..." : "Connect to Derive"}
               </button>
-              <p className="text-[9px] text-[var(--hl-muted)] text-center">One-time signature to set up your session key (no gas needed)</p>
+              <p className="text-[9px] text-[var(--hl-muted)] text-center">One-time setup: import a session key from derive.xyz</p>
             </div>
           ) : deriveSubaccount === null ? (
             /* ─── Connected but no Derive account: link to onboard ─── */
@@ -1335,6 +1351,76 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
             </div>
           )}
         </div>
+      )}
+
+      {/* ── Import Derive Session Key Modal ── */}
+      {showImportKeyModal && (
+        <>
+          <div className="fixed inset-0 z-[9998] bg-black/70" onClick={() => { setShowImportKeyModal(false); setImportKeyInput(""); setImportKeyError(""); }} />
+          <div className="fixed z-[9999] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[460px] max-w-[92vw] bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl p-5">
+            <button
+              onClick={() => { setShowImportKeyModal(false); setImportKeyInput(""); setImportKeyError(""); }}
+              className="absolute top-3 right-3 text-[var(--hl-muted)] hover:text-[var(--foreground)] transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M4 4L12 12M12 4L4 12" />
+              </svg>
+            </button>
+
+            <h3 className="text-[15px] font-semibold text-[var(--foreground)]">Import Derive Session Key</h3>
+            <p className="text-[11px] text-[var(--hl-muted)] mt-1">
+              Derive requires a session key to trade. Create one on derive.xyz and paste the private key below. Stored locally in your browser only.
+            </p>
+
+            <div className="mt-4 rounded bg-[var(--hl-surface)] border border-[var(--hl-border)] p-3">
+              <div className="text-[11px] font-medium text-[var(--foreground)] mb-2">How to get your session key:</div>
+              <ol className="text-[10.5px] text-[var(--hl-muted)] space-y-1 list-decimal list-inside">
+                <li>Go to <a href="https://derive.xyz" target="_blank" rel="noopener noreferrer" className="text-[var(--hl-accent)] underline">derive.xyz</a> and log in with this same wallet</li>
+                <li>Navigate to <span className="text-[var(--foreground)]">Settings → Developer → Session Keys</span></li>
+                <li>Click <span className="text-[var(--foreground)]">Create Session Key</span> → choose <span className="text-[var(--foreground)]">Admin</span> scope</li>
+                <li>Copy the private key shown (64 hex chars, starts with 0x)</li>
+                <li>Paste it below</li>
+              </ol>
+            </div>
+
+            <label className="block mt-4 text-[11px] text-[var(--hl-muted)]">Session Key Private Key</label>
+            <input
+              type="password"
+              value={importKeyInput}
+              onChange={e => { setImportKeyInput(e.target.value); setImportKeyError(""); }}
+              onKeyDown={e => e.key === "Enter" && importKeyInput && importSessionKey()}
+              placeholder="0x..."
+              className="mt-1 w-full px-3 py-2 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[12px] text-[var(--foreground)] font-mono outline-none focus:border-[var(--hl-accent)]"
+              autoFocus
+            />
+            {importKeyError && (
+              <p className="mt-2 text-[10.5px] text-[var(--hl-red)]">{importKeyError}</p>
+            )}
+
+            <div className="mt-3 flex items-start gap-2 rounded bg-[rgba(240,88,88,0.08)] border border-[rgba(240,88,88,0.2)] px-3 py-2">
+              <span className="text-[var(--hl-red)] text-[11px]">⚠</span>
+              <p className="text-[10px] text-[var(--hl-red)]">
+                Never paste your wallet's seed phrase or EOA private key. A session key is a separate, limited-permission key created only for Derive.
+              </p>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => { setShowImportKeyModal(false); setImportKeyInput(""); setImportKeyError(""); }}
+                className="flex-1 py-2 rounded text-[12px] text-[var(--foreground)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] border border-[var(--hl-border)] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={importSessionKey}
+                disabled={!importKeyInput}
+                className="flex-1 py-2 rounded text-[12px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                Import & Connect
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

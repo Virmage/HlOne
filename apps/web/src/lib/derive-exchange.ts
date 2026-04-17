@@ -17,9 +17,7 @@ import {
   keccak256,
   concat,
   toHex,
-  serializeTransaction,
   type Hex,
-  type TransactionSerializable,
 } from "viem";
 
 const DERIVE_API = "https://api.lyra.finance";
@@ -624,344 +622,81 @@ function storeSessionKey(eoa: string, privateKey: `0x${string}`): void {
 }
 
 /**
- * Ensure a Derive session key exists for this user.
- * If not, generates one and registers it via Derive's gasless API.
+ * Custom error thrown when no session key is stored — signals the UI to show
+ * the import modal. Derive's session key registration requires a UserOp flow
+ * with their private paymaster (SIWE-gated), so we can't register session keys
+ * from a third-party domain. Users register via derive.xyz and paste here.
+ */
+export class DeriveSessionKeyMissingError extends Error {
+  constructor() {
+    super("No Derive session key found — user must import one from derive.xyz");
+    this.name = "DeriveSessionKeyMissingError";
+  }
+}
+
+/**
+ * Get a Derive session key for this user, throwing if none is stored.
+ * Session keys are imported from derive.xyz, not generated locally.
  *
- * Derive uses ERC-4337 Account Abstraction with a Paymaster — the user never
- * needs ETH on Derive L2. The flow is:
- *   1. Call public/build_register_session_key_tx → get unsigned tx data
- *   2. User signs the tx hash with MetaMask (one popup, no chain switch)
- *   3. Call public/register_session_key with the signature → Derive submits on-chain
+ * Why? Derive's session key registration uses ERC-4337 UserOps with their
+ * own paymaster. The paymaster endpoint (pro.derive.xyz/api/paymaster) is
+ * SIWE-gated to derive.xyz's own frontend. We cannot register session keys
+ * from a third-party domain without deploying our own paymaster.
  *
- * Subsequent sessions reuse the stored key — zero MetaMask popups.
+ * Workaround: user creates a session key via derive.xyz (Settings → Developer
+ * → Create Session Key), copies the private key, pastes it into our app.
+ * This is the same flow used by Hummingbot, CCXT, 8ball030/derive_client, etc.
  */
 export async function ensureDeriveSessionKey(
-  walletClient: WalletClient,
+  _walletClient: WalletClient,
   address: `0x${string}`,
-  deriveWallet: string,
+  _deriveWallet: string,
 ): Promise<{ sessionKey: `0x${string}`; sessionAddress: string }> {
-  // Check for existing stored session key
   const existing = getStoredSessionKey(address);
-  if (existing) {
-    const account = (await import("viem/accounts")).privateKeyToAccount(existing);
-    console.log(`[derive] Using stored session key: ${account.address}`);
-    return { sessionKey: existing, sessionAddress: account.address };
+  if (!existing) {
+    throw new DeriveSessionKeyMissingError();
   }
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const account = privateKeyToAccount(existing);
+  console.log(`[derive] Using stored session key: ${account.address}`);
+  return { sessionKey: existing, sessionAddress: account.address };
+}
 
-  // Generate a new session key pair
-  const { generatePrivateKey, privateKeyToAccount } = await import("viem/accounts");
-  const sessionPrivateKey = generatePrivateKey();
-  const sessionAccount = privateKeyToAccount(sessionPrivateKey);
-  console.log(`[derive] Generated new session key: ${sessionAccount.address}`);
-
-  const expiry = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365; // 1 year
-
-  // ── Step 1: Ask Derive API to build the registration transaction ──
-  // Derive's Paymaster sponsors gas, so no ETH needed on L2.
-  const sock = await ensureWs();
-
-  const buildId = wsRequestId++;
-  const buildResponse = await new Promise<Record<string, unknown>>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      wsPending.delete(buildId);
-      reject(new Error("build_register_session_key_tx timeout"));
-    }, 15_000);
-
-    wsPending.set(buildId, {
-      resolve: (data) => {
-        console.log("[derive] build_register_session_key_tx response:", JSON.stringify(data).slice(0, 600));
-        if (data.error) {
-          const errObj = data.error as { code?: number; message?: string };
-          reject(new Error(`Build tx failed: [${errObj.code}] ${errObj.message}`));
-        } else {
-          resolve(data);
-        }
-      },
-      reject: (err) => reject(err),
-      timer,
-    });
-
-    sock.send(JSON.stringify({
-      method: "public/build_register_session_key_tx",
-      params: {
-        wallet: deriveWallet,
-        public_session_key: sessionAccount.address,
-        expiry_sec: expiry,
-        nonce: null,  // server auto-fills from eth.getTransactionCount()
-        gas: null,    // server auto-fills from estimateGas * 150%
-      },
-      id: buildId,
-    }));
-  });
-
-  // ── Step 2: Sign and submit the registration transaction ──
-  // The build response contains tx params. We need a fully signed raw tx.
-  // Path A: eth_signTransaction (offline, no gas — MetaMask 12.2+, WalletConnect)
-  // Path B: eth_sign (raw hash signing, no gas — many wallets including older MetaMask)
-  // Path C: sendTransaction on Derive L2 (last resort — needs gas)
-  const buildResult = (buildResponse.result ?? buildResponse) as Record<string, unknown>;
-  console.log("[derive] Build result keys:", Object.keys(buildResult));
-  console.log("[derive] Build result:", JSON.stringify(buildResult).slice(0, 800));
-
-  // Extract tx params from the build response
-  const txData = (buildResult.tx_params ?? buildResult) as Record<string, unknown>;
-  const txTo = txData.to as string | undefined;
-  const txCalldata = txData.data as string | undefined;
-  const txNonce = txData.nonce as number | undefined;
-  const txGas = txData.gas as number | string | undefined;
-  const txChainId = (txData.chainId ?? txData.chain_id ?? 957) as number;
-
-  if (!txTo || !txCalldata) {
-    throw new Error(`Build response missing tx params (to/data): ${JSON.stringify(buildResult).slice(0, 300)}`);
+/**
+ * Import a session key private key that the user created on derive.xyz.
+ * Validates the key, derives the public address, and stores it in localStorage.
+ * Returns the session address so the UI can display it.
+ */
+export async function importDeriveSessionKey(
+  eoa: `0x${string}`,
+  privateKeyHex: string,
+): Promise<{ sessionAddress: string }> {
+  const trimmed = privateKeyHex.trim();
+  const key = trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
+  if (key.length !== 66 || !/^0x[0-9a-fA-F]{64}$/.test(key)) {
+    throw new Error("Invalid session key — must be a 64-character hex string (optionally 0x-prefixed)");
   }
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const account = privateKeyToAccount(key as `0x${string}`);
+  storeSessionKey(eoa, key as `0x${string}`);
+  console.log(`[derive] Imported session key: ${account.address}`);
+  return { sessionAddress: account.address };
+}
 
-  console.log(`[derive] Tx to: ${txTo}, data: ${(txCalldata as string).slice(0, 30)}..., nonce: ${txNonce}, gas: ${txGas}, chainId: ${txChainId}`);
-
-  // Remember the user's current chain so we can switch back
-  const originalChainId = await walletClient.getChainId();
-
-  // Define the Derive L2 chain object (reused in both paths)
-  const deriveChain = {
-    id: txChainId,
-    name: "Derive",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: { default: { http: [DERIVE_CHAIN_RPC] } },
-  };
-
-  // Build the TransactionSerializable object (EIP-1559 if fee fields present, else legacy)
-  const txSerializable: TransactionSerializable = {
-    chainId: txChainId,
-    to: txTo as `0x${string}`,
-    data: txCalldata as `0x${string}`,
-    value: BigInt(0),
-    ...(txNonce !== undefined ? { nonce: txNonce } : {}),
-    ...(txGas ? { gas: BigInt(txGas) } : {}),
-    ...(txData.maxFeePerGas
-      ? {
-          maxFeePerGas: BigInt(txData.maxFeePerGas as string),
-          maxPriorityFeePerGas: BigInt((txData.maxPriorityFeePerGas as string) ?? txData.maxFeePerGas as string),
-        }
-      : txData.gasPrice
-      ? { gasPrice: BigInt(txData.gasPrice as string) }
-      : {}),
-  } as TransactionSerializable;
-
-  // ── Path A: eth_signTransaction via raw RPC (bypasses viem chain assertion) ──
-  // Rabby, MetaMask 12.2+, WalletConnect all support this.
-  // Produces a signed raw tx without broadcasting. No gas needed.
-  // We call the RPC directly to avoid viem refusing to sign on a non-current chain.
-  let signedRawTx: string | null = null;
-
+/**
+ * Remove a stored session key (e.g. when the user wants to re-import).
+ */
+export function clearDeriveSessionKey(eoa: string): void {
   try {
-    console.log("[derive] Path A: Trying eth_signTransaction (direct RPC)...");
-    const rpcTxParams: Record<string, string> = {
-      from: address,
-      to: txTo,
-      data: txCalldata,
-      value: "0x0",
-      chainId: toHex(txChainId),
-    };
-    if (txNonce !== undefined) rpcTxParams.nonce = toHex(txNonce);
-    if (txGas) rpcTxParams.gas = toHex(BigInt(txGas));
-    if (txData.maxFeePerGas) {
-      rpcTxParams.maxFeePerGas = toHex(BigInt(txData.maxFeePerGas as string));
-      rpcTxParams.maxPriorityFeePerGas = toHex(BigInt((txData.maxPriorityFeePerGas as string) ?? txData.maxFeePerGas as string));
-    } else if (txData.gasPrice) {
-      rpcTxParams.gasPrice = toHex(BigInt(txData.gasPrice as string));
-    }
+    localStorage.removeItem(`${DERIVE_SESSION_KEY_PREFIX}${eoa.toLowerCase()}`);
+  } catch {}
+}
 
-    console.log("[derive] Path A params:", rpcTxParams);
-
-    const signed = await (walletClient.request as (args: { method: string; params: unknown[] }) => Promise<string | { raw: string }>)({
-      method: "eth_signTransaction",
-      params: [rpcTxParams],
-    });
-
-    // Some wallets return {raw: "0x..."}, others return the hex string directly
-    signedRawTx = typeof signed === "string" ? signed : (signed as { raw: string }).raw;
-    console.log(`[derive] Path A succeeded: ${signedRawTx.slice(0, 40)}...`);
-  } catch (signTxErr) {
-    const msg = (signTxErr as Error).message || "";
-    console.warn("[derive] Path A (eth_signTransaction) failed:", msg.slice(0, 300));
-    // If user rejected, propagate immediately (don't try other paths)
-    if (msg.includes("rejected") || msg.includes("denied") || msg.includes("User rejected")) {
-      throw signTxErr;
-    }
-  }
-
-  // ── Path B: eth_sign (raw hash signing) — no gas, works on many wallets ──
-  // Serialize the tx, compute its hash, sign the hash directly, reassemble.
-  if (!signedRawTx) {
-    try {
-      console.log("[derive] Path B: Trying eth_sign (raw hash signing)...");
-      const serialized = serializeTransaction(txSerializable);
-      const txHash = keccak256(serialized);
-      console.log(`[derive] Unsigned tx hash: ${txHash}`);
-
-      // Call eth_sign directly — produces a raw ECDSA signature with no prefix
-      // Note: MetaMask shows a big scary warning for this. User must click through.
-      const rawSig = await (walletClient.request as (args: { method: string; params: unknown[] }) => Promise<string>)({
-        method: "eth_sign",
-        params: [address, txHash],
-      });
-      console.log(`[derive] eth_sign signature: ${rawSig.slice(0, 40)}...`);
-
-      // Parse signature into r, s, v
-      const sigBytes = rawSig.startsWith("0x") ? rawSig.slice(2) : rawSig;
-      if (sigBytes.length !== 130) {
-        throw new Error(`Invalid signature length: ${sigBytes.length / 2} bytes (expected 65)`);
-      }
-      const r = `0x${sigBytes.slice(0, 64)}` as Hex;
-      const s = `0x${sigBytes.slice(64, 128)}` as Hex;
-      let v = parseInt(sigBytes.slice(128, 130), 16);
-      if (v < 27) v += 27; // Normalize
-
-      // Reassemble the signed transaction with the signature
-      signedRawTx = serializeTransaction(txSerializable, {
-        r,
-        s,
-        v: BigInt(v),
-        yParity: v % 2 === 0 ? 1 : 0,
-      });
-      console.log(`[derive] Path B succeeded: ${signedRawTx.slice(0, 40)}...`);
-    } catch (ethSignErr) {
-      const msg = (ethSignErr as Error).message || "";
-      console.warn("[derive] Path B (eth_sign) failed:", msg.slice(0, 200));
-      if (msg.includes("rejected") || msg.includes("denied") || msg.includes("User rejected")) {
-        throw ethSignErr;
-      }
-    }
-  }
-
-  // ── Path C: sendTransaction on Derive L2 (last resort — needs gas) ──
-  if (!signedRawTx) {
-    console.log("[derive] Path C: Falling back to sendTransaction on Derive L2...");
-
-    // Check ETH balance on Derive L2 BEFORE showing the wallet popup
-    let ethBalance = BigInt(0);
-    try {
-      ethBalance = await deriveRpcClient.getBalance({ address });
-      console.log(`[derive] ETH balance on Derive L2: ${ethBalance} wei (${Number(ethBalance) / 1e18} ETH)`);
-    } catch (balErr) {
-      console.warn("[derive] Could not check Derive L2 balance:", (balErr as Error).message);
-    }
-
-    // If user has no ETH, throw a clear error with bridge instructions — don't show confusing popup
-    if (ethBalance === BigInt(0)) {
-      throw new Error(
-        "Your wallet (Rabby/MetaMask) blocks gasless transaction signing for security. " +
-        "To complete one-time session key setup, you need ~0.001 ETH on Derive L2 (chain 957). " +
-        "Bridge it via derive.xyz → Transfer → Deposit, then retry Connect. " +
-        `Your Derive L2 address: ${address}`
-      );
-    }
-
-    // Add Derive L2 chain to wallet if needed
-    try {
-      await walletClient.addChain({ chain: deriveChain });
-    } catch {
-      // Chain may already exist
-    }
-
-    try {
-      await walletClient.switchChain({ id: txChainId });
-    } catch (switchErr) {
-      console.warn("[derive] Chain switch failed:", (switchErr as Error).message);
-    }
-
-    try {
-      const txHash = await walletClient.sendTransaction({
-        account: address,
-        to: txTo as `0x${string}`,
-        data: txCalldata as `0x${string}`,
-        value: BigInt(0),
-        chain: deriveChain,
-        ...(txGas ? { gas: BigInt(txGas) } : {}),
-      });
-
-      console.log(`[derive] sendTransaction succeeded, tx hash: ${txHash}`);
-
-      // Wait for the on-chain tx to be mined
-      const receipt = await deriveRpcClient.waitForTransactionReceipt({
-        hash: txHash,
-        timeout: 60_000,
-      });
-
-      if (receipt.status === "reverted") {
-        throw new Error("Session key registration tx reverted on Derive L2");
-      }
-
-      console.log(`[derive] Session key registered on-chain (block ${receipt.blockNumber})`);
-    } catch (sendErr) {
-      const msg = (sendErr as Error).message || "";
-      // Switch back to original chain before throwing
-      try { await walletClient.switchChain({ id: originalChainId }); } catch {}
-
-      if (msg.includes("rejected") || msg.includes("denied") || msg.includes("User rejected")) {
-        throw new Error("Transaction rejected — approve the MetaMask popup to register your session key");
-      }
-      if (msg.includes("insufficient") || msg.includes("gas") || msg.includes("No gas")) {
-        throw new Error(
-          "Your wallet doesn't support offline transaction signing and has no ETH on Derive L2. " +
-          "Please send ~0.001 ETH to your address on Derive chain (957) via derive.xyz bridge, " +
-          "then try again. This is a one-time setup."
-        );
-      }
-      throw sendErr;
-    }
-
-    // Switch back to original chain (best effort)
-    try { await walletClient.switchChain({ id: originalChainId }); } catch {}
-
-    storeSessionKey(address, sessionPrivateKey);
-    console.log(`[derive] Session key stored (on-chain path): ${sessionAccount.address}`);
-    return { sessionKey: sessionPrivateKey, sessionAddress: sessionAccount.address };
-  }
-
-  // If signTransaction worked, submit the signed tx via API
-  const regId = wsRequestId++;
-  const regResult = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
-    const timer = setTimeout(() => {
-      wsPending.delete(regId);
-      resolve({ ok: false, error: "Registration timeout" });
-    }, 30_000);
-
-    wsPending.set(regId, {
-      resolve: (data) => {
-        console.log("[derive] register_session_key response:", JSON.stringify(data).slice(0, 400));
-        if (data.error) {
-          const errObj = data.error as { code?: number; message?: string };
-          resolve({ ok: false, error: `[${errObj.code}] ${errObj.message}` });
-        } else {
-          resolve({ ok: true });
-        }
-      },
-      reject: (err) => resolve({ ok: false, error: err.message }),
-      timer,
-    });
-
-    sock.send(JSON.stringify({
-      method: "public/register_session_key",
-      params: {
-        wallet: deriveWallet,
-        public_session_key: sessionAccount.address,
-        label: "hlone",
-        expiry_sec: expiry,
-        signed_raw_tx: signedRawTx,
-      },
-      id: regId,
-    }));
-  });
-
-  if (!regResult.ok) {
-    throw new Error(`Session key registration failed: ${regResult.error}`);
-  }
-
-  // Store the session key for future use
-  storeSessionKey(address, sessionPrivateKey);
-  console.log(`[derive] Session key registered and stored: ${sessionAccount.address}`);
-
-  return { sessionKey: sessionPrivateKey, sessionAddress: sessionAccount.address };
+/**
+ * Check if a session key is stored for this EOA without revealing it.
+ */
+export function hasStoredSessionKey(eoa: string): boolean {
+  return getStoredSessionKey(eoa) !== null;
 }
 
 // ─── Derive auth session ────────────────────────────────────────────────────
