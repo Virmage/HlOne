@@ -841,8 +841,8 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       console.error("[derive] connectDerive error:", err);
       const errMsg = (err as Error).message || "Unknown error";
       // Give clear guidance based on the error type
-      if (errMsg.includes("Build tx failed")) {
-        setOrderResult({ ok: false, msg: "Could not build session key registration — you may not have a Derive account. Visit derive.xyz first." });
+      if (errMsg.includes("Build tx failed") || errMsg.includes("registration failed")) {
+        setOrderResult({ ok: false, msg: `Session key error: ${errMsg.slice(0, 300)}` });
       } else if (errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("User rejected")) {
         setOrderResult({ ok: false, msg: "Signature rejected. Approve the sign request to register your session key." });
       } else if (errMsg.includes("14000")) {
