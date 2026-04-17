@@ -800,10 +800,10 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
 
       // getDeriveAuth handles the full session key flow:
       // 1. Checks for stored session key in localStorage
-      // 2. If none → generates keypair, switches to Derive L2, sends registration tx (MetaMask popups)
+      // 2. If none → generates keypair, registers via Derive API (one MetaMask signature, gasless)
       // 3. Signs timestamp with session key locally (no popup) for WebSocket login
       //
-      // First time: user sees chain-switch + send-tx MetaMask popups
+      // First time: one MetaMask popup to sign session key registration
       // Subsequent: zero popups (session key reused from localStorage)
       setOrderResult({ ok: true, msg: "Setting up session key (approve in wallet)..." });
       await derive.getDeriveAuth(walletClient, address as `0x${string}`, wallet);
@@ -841,10 +841,10 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       console.error("[derive] connectDerive error:", err);
       const errMsg = (err as Error).message || "Unknown error";
       // Give clear guidance based on the error type
-      if (errMsg.includes("reverted")) {
-        setOrderResult({ ok: false, msg: "Session key tx reverted — you may not have a Derive account or enough ETH on Derive L2. Visit derive.xyz first." });
+      if (errMsg.includes("Build tx failed")) {
+        setOrderResult({ ok: false, msg: "Could not build session key registration — you may not have a Derive account. Visit derive.xyz first." });
       } else if (errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("User rejected")) {
-        setOrderResult({ ok: false, msg: "Transaction rejected. Approve the chain switch + transaction to register your session key." });
+        setOrderResult({ ok: false, msg: "Signature rejected. Approve the sign request to register your session key." });
       } else if (errMsg.includes("14000")) {
         setOrderResult({ ok: false, msg: "No Derive account found. Visit derive.xyz to create an account first, then return here." });
       } else {
@@ -1017,7 +1017,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
               >
                 {setupStep === "connecting" ? "Connecting..." : "Connect to Derive"}
               </button>
-              <p className="text-[9px] text-[var(--hl-muted)] text-center">First time requires a chain switch + tx to register session key</p>
+              <p className="text-[9px] text-[var(--hl-muted)] text-center">One-time signature to set up your session key (no gas needed)</p>
             </div>
           ) : deriveSubaccount === null ? (
             /* ─── Connected but no Derive account: link to onboard ─── */

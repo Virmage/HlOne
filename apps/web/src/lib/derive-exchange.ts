@@ -17,9 +17,7 @@ import {
   keccak256,
   concat,
   toHex,
-  encodeFunctionData,
   type Hex,
-  defineChain,
 } from "viem";
 
 const DERIVE_API = "https://api.lyra.finance";
@@ -60,24 +58,10 @@ const ASSET_ADDRESSES: Record<string, `0x${string}`> = {
   BTC_PERP: "0xDBa83C0C654DB1cd914FA2710bA743e925B53086",
 };
 
-// ─── Derive L2 chain config ─────────────────────────────────────────────────
-// Derive runs on its own L2 (chain 957). Session key registration requires
-// sending an on-chain transaction to the Session Key Manager contract.
-const DERIVE_CHAIN_RPC = "https://rpc.lyra.finance";
-const DERIVE_L2_CHAIN_ID = 957;
-const SESSION_KEY_MANAGER = "0xeB8d770ec18DB98Db922E9D83260A585b9F0DeAD" as `0x${string}`;
-
-const deriveL2Chain = defineChain({
-  id: DERIVE_L2_CHAIN_ID,
-  name: "Derive",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: [DERIVE_CHAIN_RPC] } },
-  blockExplorers: { default: { name: "Derive Explorer", url: "https://explorer.lyra.finance" } },
-});
-
 // ─── Derive wallet lookup (EOA → smart contract wallet) ────────────────────
 // Derive uses Alchemy's LightAccountFactory on their L2 (chain 957).
 // The smart contract wallet address is deterministic: factory.getAddress(owner, 0).
+const DERIVE_CHAIN_RPC = "https://rpc.lyra.finance";
 const LIGHT_ACCOUNT_FACTORY = "0x000000893A26168158fbeaDD9335Be5bC96592E2" as `0x${string}`;
 
 const deriveRpcClient = createPublicClient({
@@ -639,11 +623,15 @@ function storeSessionKey(eoa: string, privateKey: `0x${string}`): void {
 
 /**
  * Ensure a Derive session key exists for this user.
- * If not, generates one and registers it on-chain on Derive L2 (chain 957).
+ * If not, generates one and registers it via Derive's gasless API.
  *
- * Registration requires an on-chain transaction to the Session Key Manager contract.
- * This will trigger MetaMask popups for chain switching + transaction signing (one-time).
- * Subsequent sessions reuse the stored key — zero popups.
+ * Derive uses ERC-4337 Account Abstraction with a Paymaster — the user never
+ * needs ETH on Derive L2. The flow is:
+ *   1. Call public/build_register_session_key_tx → get unsigned tx data
+ *   2. User signs the tx hash with MetaMask (one popup, no chain switch)
+ *   3. Call public/register_session_key with the signature → Derive submits on-chain
+ *
+ * Subsequent sessions reuse the stored key — zero MetaMask popups.
  */
 export async function ensureDeriveSessionKey(
   walletClient: WalletClient,
@@ -666,72 +654,108 @@ export async function ensureDeriveSessionKey(
 
   const expiry = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365; // 1 year
 
-  // ── Register session key on Derive L2 via on-chain transaction ──
-  // The Session Key Manager contract at 0xeB8d...DeAD accepts registerSessionKey(address, uint256).
-  // We encode the calldata, switch MetaMask to Derive L2, and send the tx.
+  // ── Step 1: Ask Derive API to build the registration transaction ──
+  // Derive's Paymaster sponsors gas, so no ETH needed on L2.
+  const sock = await ensureWs();
 
-  const registerAbi = [
-    {
-      name: "registerSessionKey",
-      type: "function" as const,
-      stateMutability: "nonpayable" as const,
-      inputs: [
-        { name: "_sessionKey", type: "address" as const },
-        { name: "_expiry", type: "uint256" as const },
-      ],
-      outputs: [],
-    },
-  ] as const;
+  const buildId = wsRequestId++;
+  const buildResponse = await new Promise<Record<string, unknown>>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      wsPending.delete(buildId);
+      reject(new Error("build_register_session_key_tx timeout"));
+    }, 15_000);
 
-  const calldata = encodeFunctionData({
-    abi: registerAbi,
-    functionName: "registerSessionKey",
-    args: [sessionAccount.address as `0x${string}`, BigInt(expiry)],
+    wsPending.set(buildId, {
+      resolve: (data) => {
+        console.log("[derive] build_register_session_key_tx response:", JSON.stringify(data).slice(0, 600));
+        if (data.error) {
+          const errObj = data.error as { code?: number; message?: string };
+          reject(new Error(`Build tx failed: [${errObj.code}] ${errObj.message}`));
+        } else {
+          resolve(data);
+        }
+      },
+      reject: (err) => reject(err),
+      timer,
+    });
+
+    sock.send(JSON.stringify({
+      method: "public/build_register_session_key_tx",
+      params: {
+        wallet: deriveWallet,
+        public_session_key: sessionAccount.address,
+        expiry_sec: expiry,
+        label: "hlone",
+      },
+      id: buildId,
+    }));
   });
 
-  // Ensure MetaMask has the Derive L2 chain and switch to it
-  try {
-    await walletClient.addChain({ chain: deriveL2Chain });
-  } catch {
-    // Chain may already exist — ignore "already added" errors
+  // ── Step 2: Sign the transaction with MetaMask (one popup, no chain switch) ──
+  // The API returns tx data — we sign its hash so Derive can submit via Paymaster.
+  const buildResult = (buildResponse.result ?? buildResponse) as Record<string, unknown>;
+  const txParams = buildResult.tx_params as Record<string, unknown> | undefined;
+  const rawTx = (buildResult.raw_tx ?? buildResult.tx_hash ?? txParams?.data) as string | undefined;
+
+  if (!rawTx && !txParams) {
+    throw new Error(`Unexpected build response — no tx data found: ${JSON.stringify(buildResult).slice(0, 200)}`);
   }
-  await walletClient.switchChain({ id: DERIVE_L2_CHAIN_ID });
 
-  console.log("[derive] Sending session key registration tx on Derive L2...");
+  // Sign the transaction hash with the EOA (MetaMask popup)
+  // Derive accepts the personal_sign signature and wraps it in a UserOperation
+  const hashToSign = rawTx
+    ? (rawTx.startsWith("0x") ? rawTx as Hex : `0x${rawTx}` as Hex)
+    : keccak256(JSON.stringify(txParams) as Hex);
 
-  // Send the transaction (MetaMask popup — one-time)
-  const txHash = await walletClient.sendTransaction({
+  console.log(`[derive] Signing session key registration (hash: ${(hashToSign as string).slice(0, 20)}...)`);
+
+  const signature = await walletClient.signMessage({
     account: address,
-    to: SESSION_KEY_MANAGER,
-    data: calldata,
-    chain: deriveL2Chain,
+    message: { raw: hashToSign },
   });
 
-  console.log(`[derive] Session key tx sent: ${txHash}`);
+  // ── Step 3: Submit the signed tx to register the session key (gasless) ──
+  const regId = wsRequestId++;
+  const regResult = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+    const timer = setTimeout(() => {
+      wsPending.delete(regId);
+      resolve({ ok: false, error: "Registration timeout" });
+    }, 30_000); // longer timeout — Derive submits on-chain
 
-  // Wait for the transaction to be mined on Derive L2
-  const receipt = await deriveRpcClient.waitForTransactionReceipt({
-    hash: txHash,
-    timeout: 60_000, // 60s timeout
+    wsPending.set(regId, {
+      resolve: (data) => {
+        console.log("[derive] register_session_key response:", JSON.stringify(data).slice(0, 400));
+        if (data.error) {
+          const errObj = data.error as { code?: number; message?: string };
+          resolve({ ok: false, error: `[${errObj.code}] ${errObj.message}` });
+        } else {
+          resolve({ ok: true });
+        }
+      },
+      reject: (err) => resolve({ ok: false, error: err.message }),
+      timer,
+    });
+
+    sock.send(JSON.stringify({
+      method: "public/register_session_key",
+      params: {
+        wallet: deriveWallet,
+        public_session_key: sessionAccount.address,
+        label: "hlone",
+        expiry_sec: expiry,
+        signed_raw_tx: signature,
+      },
+      id: regId,
+    }));
   });
 
-  if (receipt.status === "reverted") {
-    throw new Error("Session key registration transaction reverted on Derive L2");
+  if (!regResult.ok) {
+    throw new Error(`Session key registration failed: ${regResult.error}`);
   }
-
-  console.log(`[derive] Session key registered on-chain (block ${receipt.blockNumber})`);
 
   // Store the session key for future use
   storeSessionKey(address, sessionPrivateKey);
-  console.log(`[derive] Session key stored: ${sessionAccount.address}`);
-
-  // Switch back to the original chain (best effort — don't fail if this errors)
-  try {
-    // Switch back to Arbitrum One (common chain for HL users)
-    await walletClient.switchChain({ id: 42161 });
-  } catch {
-    // Not critical — user can switch manually
-  }
+  console.log(`[derive] Session key registered and stored: ${sessionAccount.address}`);
 
   return { sessionKey: sessionPrivateKey, sessionAddress: sessionAccount.address };
 }
