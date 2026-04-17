@@ -99,7 +99,7 @@ export async function lookupDeriveWallet(eoa: `0x${string}`): Promise<`0x${strin
  */
 export function saveDeriveWallet(signer: string, deriveWallet: string): void {
   const cacheKey = `derive-wallet-${signer.toLowerCase()}`;
-  localStorage.setItem(cacheKey, deriveWallet.toLowerCase());
+  localStorage.setItem(cacheKey, deriveWallet); // keep checksummed
 }
 
 // ─── Scaling helpers (Derive uses 18-decimal fixed point) ───────────────────
@@ -463,15 +463,22 @@ async function wsLoginInner(): Promise<void> {
 
   const sock = await ensureWs();
 
-  // Try multiple wallet addresses for login:
-  // 1. Derive smart contract wallet (from factory lookup)
-  // 2. EOA directly (some accounts use the EOA as identifier)
+  // Try multiple wallet address formats for login:
+  // Derive may be case-sensitive — try checksummed first, then lowercase
   const walletsToTry = [
-    ...(auth.deriveWallet ? [auth.deriveWallet.toLowerCase()] : []),
-    cachedAuth!.signer.toLowerCase(),
+    ...(auth.deriveWallet ? [auth.deriveWallet] : []),                    // checksummed from factory
+    ...(auth.deriveWallet ? [auth.deriveWallet.toLowerCase()] : []),      // lowercased
+    cachedAuth!.signer,                                                    // EOA checksummed
+    cachedAuth!.signer.toLowerCase(),                                      // EOA lowercased
   ];
-  // Deduplicate
-  const uniqueWallets = [...new Set(walletsToTry)];
+  // Deduplicate (case-insensitive dedup, but keep first occurrence's casing)
+  const seen = new Set<string>();
+  const uniqueWallets = walletsToTry.filter(w => {
+    const lower = w.toLowerCase();
+    if (seen.has(lower)) return false;
+    seen.add(lower);
+    return true;
+  });
 
   let lastError = "";
   for (const wallet of uniqueWallets) {
@@ -562,10 +569,8 @@ async function derivePost(
   // Convert endpoint path to method name: "/private/get_subaccounts" → "private/get_subaccounts"
   const method = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
 
-  // Lowercase wallet fields
-  const fixedBody = body.wallet && typeof body.wallet === "string"
-    ? { ...body, wallet: (body.wallet as string).toLowerCase() }
-    : body;
+  // Pass wallet fields as-is (Derive API may be case-sensitive on checksummed addresses)
+  const fixedBody = body;
 
   const data = await wsSend(method, fixedBody);
 
@@ -617,7 +622,7 @@ export async function getDeriveAuth(
 
   cachedAuth = {
     signer: address,
-    deriveWallet: resolvedDeriveWallet.toLowerCase(),
+    deriveWallet: resolvedDeriveWallet, // keep checksummed — Derive API may be case-sensitive
     timestamp,
     signature,
     expiresAt: Date.now() + 4 * 60_000, // 4 min (renew before 5 min limit)

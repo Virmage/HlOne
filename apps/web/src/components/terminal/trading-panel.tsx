@@ -727,9 +727,8 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
         const derive = await import("@/lib/derive-exchange");
         const wallet = await derive.lookupDeriveWallet(address as `0x${string}`);
         if (!cancelled && wallet) {
-          const walletLower = wallet.toLowerCase();
-          setDeriveWallet(walletLower);
-          localStorage.setItem(`derive-wallet-${address.toLowerCase()}`, walletLower);
+          setDeriveWallet(wallet); // keep checksummed
+          localStorage.setItem(`derive-wallet-${address.toLowerCase()}`, wallet);
         }
       } catch (err) {
         console.error("[derive] Failed to lookup wallet:", err);
@@ -792,9 +791,9 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       if (!walletClient) { setSetupStep("idle"); return; }
 
       // Always do a fresh factory lookup (don't trust stale cache)
+      // Keep checksummed address — Derive API may be case-sensitive
       const cacheKey = `derive-wallet-${address.toLowerCase()}`;
-      const looked = await derive.lookupDeriveWallet(address as `0x${string}`);
-      const wallet = looked.toLowerCase();
+      const wallet = await derive.lookupDeriveWallet(address as `0x${string}`);
       setDeriveWallet(wallet);
       localStorage.setItem(cacheKey, wallet);
 
