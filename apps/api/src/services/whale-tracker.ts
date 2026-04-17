@@ -27,7 +27,7 @@ export interface WhaleEvent {
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
-const MAX_EVENTS = 200;
+const MAX_EVENTS = 1000;
 const events: WhaleEvent[] = [];
 let previousPositions = new Map<string, Map<string, { size: number; side: string }>>();
 let eventCounter = 0;

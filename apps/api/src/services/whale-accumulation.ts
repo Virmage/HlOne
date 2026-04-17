@@ -54,7 +54,7 @@ export function getWhaleAccumulation(): WhaleAccumulation[] {
   if (cache && Date.now() - cache.at < CACHE_TTL) return cache.data;
 
   const now = Date.now();
-  const allEvents = getWhaleAlerts(200); // get all in-memory events
+  const allEvents = getWhaleAlerts(1000); // get all in-memory events
 
   // Bucket events by coin and time window
   const coinData = new Map<string, {
