@@ -776,7 +776,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
     return () => { cancelled = true; clearInterval(interval); };
   }, [isConnected, address, deriveWallet, deriveConnected]);
 
-  // Connect to Derive — signs auth with EOA, auto-resolves Derive wallet via factory
+  // Connect to Derive — registers session key (one-time MetaMask sign), then logs in
   const connectDerive = async () => {
     if (!address || setupStep !== "idle") return;
     setSetupStep("connecting");
@@ -791,7 +791,6 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       if (!walletClient) { setSetupStep("idle"); return; }
 
       // Always do a fresh factory lookup (don't trust stale cache)
-      // Keep checksummed address — Derive API may be case-sensitive
       const cacheKey = `derive-wallet-${address.toLowerCase()}`;
       const wallet = await derive.lookupDeriveWallet(address as `0x${string}`);
       setDeriveWallet(wallet);
@@ -799,9 +798,17 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
 
       console.log("[derive] Connecting with EOA:", address, "Derive wallet:", wallet);
 
-      // Sign auth — EOA signs timestamp, Derive wallet identifies the account
+      // getDeriveAuth handles the full session key flow:
+      // 1. Checks for stored session key in localStorage
+      // 2. If none → generates keypair, switches to Derive L2, sends registration tx (MetaMask popups)
+      // 3. Signs timestamp with session key locally (no popup) for WebSocket login
+      //
+      // First time: user sees chain-switch + send-tx MetaMask popups
+      // Subsequent: zero popups (session key reused from localStorage)
+      setOrderResult({ ok: true, msg: "Setting up session key (approve in wallet)..." });
       await derive.getDeriveAuth(walletClient, address as `0x${string}`, wallet);
       setDeriveConnected(true);
+      setOrderResult({ ok: true, msg: "Logged in, fetching account..." });
 
       // Get subaccounts
       const rawResult = await derive.derivePostRaw("/private/get_subaccounts", { wallet }, wallet);
@@ -819,7 +826,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
         setDeriveBalance(bal);
         setPositions(pos);
         setOpenOrders(orders);
-        setOrderResult({ ok: true, msg: `Connected to Derive ✓ — $${bal.toFixed(2)} USDC` });
+        setOrderResult({ ok: true, msg: `Connected to Derive — $${bal.toFixed(2)} USDC` });
       } else {
         // Show which addresses we tried so user can verify
         const rawStr = JSON.stringify(rawResult).slice(0, 150);
@@ -833,7 +840,16 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
     } catch (err) {
       console.error("[derive] connectDerive error:", err);
       const errMsg = (err as Error).message || "Unknown error";
-      setOrderResult({ ok: false, msg: errMsg.slice(0, 200) });
+      // Give clear guidance based on the error type
+      if (errMsg.includes("reverted")) {
+        setOrderResult({ ok: false, msg: "Session key tx reverted — you may not have a Derive account or enough ETH on Derive L2. Visit derive.xyz first." });
+      } else if (errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("User rejected")) {
+        setOrderResult({ ok: false, msg: "Transaction rejected. Approve the chain switch + transaction to register your session key." });
+      } else if (errMsg.includes("14000")) {
+        setOrderResult({ ok: false, msg: "No Derive account found. Visit derive.xyz to create an account first, then return here." });
+      } else {
+        setOrderResult({ ok: false, msg: errMsg.slice(0, 200) });
+      }
     } finally {
       setSetupStep("idle");
     }
@@ -1001,7 +1017,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
               >
                 {setupStep === "connecting" ? "Connecting..." : "Connect to Derive"}
               </button>
-              <p className="text-[9px] text-[var(--hl-muted)] text-center">Sign to check your Derive options account</p>
+              <p className="text-[9px] text-[var(--hl-muted)] text-center">First time requires a chain switch + tx to register session key</p>
             </div>
           ) : deriveSubaccount === null ? (
             /* ─── Connected but no Derive account: link to onboard ─── */

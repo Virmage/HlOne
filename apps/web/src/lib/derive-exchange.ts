@@ -17,7 +17,9 @@ import {
   keccak256,
   concat,
   toHex,
+  encodeFunctionData,
   type Hex,
+  defineChain,
 } from "viem";
 
 const DERIVE_API = "https://api.lyra.finance";
@@ -58,10 +60,24 @@ const ASSET_ADDRESSES: Record<string, `0x${string}`> = {
   BTC_PERP: "0xDBa83C0C654DB1cd914FA2710bA743e925B53086",
 };
 
+// ─── Derive L2 chain config ─────────────────────────────────────────────────
+// Derive runs on its own L2 (chain 957). Session key registration requires
+// sending an on-chain transaction to the Session Key Manager contract.
+const DERIVE_CHAIN_RPC = "https://rpc.lyra.finance";
+const DERIVE_L2_CHAIN_ID = 957;
+const SESSION_KEY_MANAGER = "0xeB8d770ec18DB98Db922E9D83260A585b9F0DeAD" as `0x${string}`;
+
+const deriveL2Chain = defineChain({
+  id: DERIVE_L2_CHAIN_ID,
+  name: "Derive",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: [DERIVE_CHAIN_RPC] } },
+  blockExplorers: { default: { name: "Derive Explorer", url: "https://explorer.lyra.finance" } },
+});
+
 // ─── Derive wallet lookup (EOA → smart contract wallet) ────────────────────
 // Derive uses Alchemy's LightAccountFactory on their L2 (chain 957).
 // The smart contract wallet address is deterministic: factory.getAddress(owner, 0).
-const DERIVE_CHAIN_RPC = "https://rpc.lyra.finance";
 const LIGHT_ACCOUNT_FACTORY = "0x000000893A26168158fbeaDD9335Be5bC96592E2" as `0x${string}`;
 
 const deriveRpcClient = createPublicClient({
@@ -153,12 +169,6 @@ export interface DeriveOrderResult {
 export interface DeriveSubaccountResult {
   success: boolean;
   subaccountId?: number;
-  error?: string;
-}
-
-export interface DeriveSessionKeyResult {
-  success: boolean;
-  sessionKey?: string;
   error?: string;
 }
 
@@ -307,8 +317,8 @@ function getAssetAddress(instrument: {
 // ─── Sign order ─────────────────────────────────────────────────────────────
 
 /**
- * Sign a Derive order using the user's wallet via EIP-712.
- * Returns the signature hex string.
+ * Sign a Derive order using the session key (no MetaMask popup) or EOA as fallback.
+ * Returns the signature hex string and the signer address used.
  */
 async function signOrder(
   walletClient: WalletClient,
@@ -322,9 +332,8 @@ async function signOrder(
     maxFee: string;
     isBid: boolean;
     expiryTimestamp: number;
-    signerAddress: `0x${string}`;
   },
-): Promise<Hex> {
+): Promise<{ signature: Hex; signerAddress: `0x${string}` }> {
   const instrument = parseInstrumentName(params.instrumentName);
   const assetAddress = getAssetAddress(instrument);
 
@@ -332,6 +341,23 @@ async function signOrder(
   const limitPriceWei = toWei(params.limitPrice);
   const amountWei = toWei(params.amount);
   const maxFeeWei = toWei(params.maxFee);
+
+  // Determine signer: use session key if available (no popup), otherwise EOA (MetaMask popup)
+  const storedSessionKey = getStoredSessionKey(address);
+  let signerAddress: `0x${string}`;
+  let signFn: (hash: Hex) => Promise<Hex>;
+
+  if (storedSessionKey) {
+    const { privateKeyToAccount } = await import("viem/accounts");
+    const sessionAccount = privateKeyToAccount(storedSessionKey);
+    signerAddress = sessionAccount.address as `0x${string}`;
+    signFn = async (hash: Hex) => sessionAccount.signMessage({ message: { raw: hash } });
+    console.log(`[derive] Signing order with session key: ${signerAddress}`);
+  } else {
+    signerAddress = address;
+    signFn = async (hash: Hex) => walletClient.signMessage({ account: address, message: { raw: hash } });
+    console.log(`[derive] Signing order with EOA (no session key): ${signerAddress}`);
+  }
 
   // Encode trade module data and hash it
   const encodedModuleData = encodeTradeModuleData({
@@ -345,7 +371,7 @@ async function signOrder(
   });
   const encodedDataHash = keccak256(encodedModuleData);
 
-  // Compute the action hash
+  // Compute the action hash (owner = Derive wallet or EOA, signer = session key or EOA)
   const actionHash = computeActionHash({
     subaccountId: BigInt(params.subaccountId),
     nonce: BigInt(params.nonce),
@@ -353,20 +379,14 @@ async function signOrder(
     encodedDataHash,
     expiry: BigInt(params.expiryTimestamp),
     owner: address,
-    signer: params.signerAddress,
+    signer: signerAddress,
   });
 
-  // Compute the final EIP-712 hash
+  // Compute the final EIP-712 hash and sign it
   const eip712Hash = computeEip712Hash(actionHash);
+  const signature = await signFn(eip712Hash);
 
-  // Sign the raw hash with the user's wallet
-  // Derive expects a signature of the pre-hashed EIP-712 message
-  const signature = await walletClient.signMessage({
-    account: address,
-    message: { raw: eip712Hash },
-  });
-
-  return signature;
+  return { signature, signerAddress };
 }
 
 // ─── API helpers ────────────────────────────────────────────────────────────
@@ -461,17 +481,21 @@ async function wsLoginInner(): Promise<void> {
   const auth = getCachedDeriveAuth();
   if (!auth) throw new Error("No Derive auth cached — sign first");
 
+  // Session key auth requires the Derive wallet address (the session key is registered against it)
+  if (!auth.deriveWallet) {
+    throw new Error("No Derive wallet address in cached auth — cannot login");
+  }
+
   const sock = await ensureWs();
 
-  // Try multiple wallet address formats for login:
-  // Derive may be case-sensitive — try checksummed first, then lowercase
+  // Only try the Derive smart contract wallet address.
+  // The signature is from the session key, which is registered against this wallet.
+  // Trying the EOA would fail because session keys aren't registered for it.
   const walletsToTry = [
-    ...(auth.deriveWallet ? [auth.deriveWallet] : []),                    // checksummed from factory
-    ...(auth.deriveWallet ? [auth.deriveWallet.toLowerCase()] : []),      // lowercased
-    cachedAuth!.signer,                                                    // EOA checksummed
-    cachedAuth!.signer.toLowerCase(),                                      // EOA lowercased
+    auth.deriveWallet,                    // checksummed from factory
+    auth.deriveWallet.toLowerCase(),      // lowercased fallback
   ];
-  // Deduplicate (case-insensitive dedup, but keep first occurrence's casing)
+  // Deduplicate (case-insensitive dedup, keep first occurrence's casing)
   const seen = new Set<string>();
   const uniqueWallets = walletsToTry.filter(w => {
     const lower = w.toLowerCase();
@@ -489,7 +513,7 @@ async function wsLoginInner(): Promise<void> {
       signature: auth.signature,
     };
 
-    console.log(`[derive-ws] Trying login with wallet: ${wallet} (signer: ${cachedAuth!.signer})`);
+    console.log(`[derive-ws] Trying login with wallet: ${wallet} (session key auth)`);
 
     const result = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
       const timer = setTimeout(() => {
@@ -524,18 +548,25 @@ async function wsLoginInner(): Promise<void> {
     console.warn(`[derive-ws] Login failed with wallet ${wallet}: ${lastError}`);
   }
 
-  // If 14000 "Account not found", clear cached Derive wallet so next attempt does a fresh lookup
-  if (lastError.includes("14000")) {
-    const signer = cachedAuth?.signer;
-    if (signer) {
-      const cacheKey = `derive-wallet-${signer.toLowerCase()}`;
-      try { localStorage.removeItem(cacheKey); } catch {}
-      console.warn(`[derive-ws] Cleared stale cached Derive wallet for ${signer}`);
+  // If session key was rejected or account not found, clear stored session key
+  // so next attempt re-generates and re-registers one
+  if (lastError.includes("14000") || lastError.includes("session") || lastError.includes("signer")) {
+    const eoa = cachedAuth?.signer;
+    if (eoa) {
+      try {
+        localStorage.removeItem(`${DERIVE_SESSION_KEY_PREFIX}${eoa.toLowerCase()}`);
+      } catch {}
+      // Also clear the wallet cache
+      try {
+        localStorage.removeItem(`derive-wallet-${eoa.toLowerCase()}`);
+      } catch {}
+      console.warn(`[derive-ws] Cleared stale session key + wallet cache for ${eoa}`);
     }
+    // Clear cached auth so getDeriveAuth() re-runs the full session key flow
+    cachedAuth = null;
   }
 
-  const triedAddrs = uniqueWallets.map(w => w.slice(0, 10) + "…").join(", ");
-  throw new Error(`Login failed (tried ${triedAddrs}): ${lastError}`);
+  throw new Error(`Login failed (tried ${uniqueWallets.length} wallets): ${lastError}`);
 }
 
 async function wsSend(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -585,22 +616,143 @@ async function derivePost(
   return data;
 }
 
+// ─── Session key management ─────────────────────────────────────────────────
+// Derive requires a registered session key to sign timestamps for login.
+// The EOA (MetaMask) cannot sign login requests directly — only session keys work.
+// Flow: generate keypair → user approves registration via MetaMask → store locally.
+
+const DERIVE_SESSION_KEY_PREFIX = "hlone-derive-sk-";
+
+function getStoredSessionKey(eoa: string): `0x${string}` | null {
+  try {
+    const key = localStorage.getItem(`${DERIVE_SESSION_KEY_PREFIX}${eoa.toLowerCase()}`);
+    if (key && key.startsWith("0x") && key.length === 66) return key as `0x${string}`;
+  } catch {}
+  return null;
+}
+
+function storeSessionKey(eoa: string, privateKey: `0x${string}`): void {
+  try {
+    localStorage.setItem(`${DERIVE_SESSION_KEY_PREFIX}${eoa.toLowerCase()}`, privateKey);
+  } catch {}
+}
+
+/**
+ * Ensure a Derive session key exists for this user.
+ * If not, generates one and registers it on-chain on Derive L2 (chain 957).
+ *
+ * Registration requires an on-chain transaction to the Session Key Manager contract.
+ * This will trigger MetaMask popups for chain switching + transaction signing (one-time).
+ * Subsequent sessions reuse the stored key — zero popups.
+ */
+export async function ensureDeriveSessionKey(
+  walletClient: WalletClient,
+  address: `0x${string}`,
+  deriveWallet: string,
+): Promise<{ sessionKey: `0x${string}`; sessionAddress: string }> {
+  // Check for existing stored session key
+  const existing = getStoredSessionKey(address);
+  if (existing) {
+    const account = (await import("viem/accounts")).privateKeyToAccount(existing);
+    console.log(`[derive] Using stored session key: ${account.address}`);
+    return { sessionKey: existing, sessionAddress: account.address };
+  }
+
+  // Generate a new session key pair
+  const { generatePrivateKey, privateKeyToAccount } = await import("viem/accounts");
+  const sessionPrivateKey = generatePrivateKey();
+  const sessionAccount = privateKeyToAccount(sessionPrivateKey);
+  console.log(`[derive] Generated new session key: ${sessionAccount.address}`);
+
+  const expiry = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365; // 1 year
+
+  // ── Register session key on Derive L2 via on-chain transaction ──
+  // The Session Key Manager contract at 0xeB8d...DeAD accepts registerSessionKey(address, uint256).
+  // We encode the calldata, switch MetaMask to Derive L2, and send the tx.
+
+  const registerAbi = [
+    {
+      name: "registerSessionKey",
+      type: "function" as const,
+      stateMutability: "nonpayable" as const,
+      inputs: [
+        { name: "_sessionKey", type: "address" as const },
+        { name: "_expiry", type: "uint256" as const },
+      ],
+      outputs: [],
+    },
+  ] as const;
+
+  const calldata = encodeFunctionData({
+    abi: registerAbi,
+    functionName: "registerSessionKey",
+    args: [sessionAccount.address as `0x${string}`, BigInt(expiry)],
+  });
+
+  // Ensure MetaMask has the Derive L2 chain and switch to it
+  try {
+    await walletClient.addChain({ chain: deriveL2Chain });
+  } catch {
+    // Chain may already exist — ignore "already added" errors
+  }
+  await walletClient.switchChain({ id: DERIVE_L2_CHAIN_ID });
+
+  console.log("[derive] Sending session key registration tx on Derive L2...");
+
+  // Send the transaction (MetaMask popup — one-time)
+  const txHash = await walletClient.sendTransaction({
+    account: address,
+    to: SESSION_KEY_MANAGER,
+    data: calldata,
+    chain: deriveL2Chain,
+  });
+
+  console.log(`[derive] Session key tx sent: ${txHash}`);
+
+  // Wait for the transaction to be mined on Derive L2
+  const receipt = await deriveRpcClient.waitForTransactionReceipt({
+    hash: txHash,
+    timeout: 60_000, // 60s timeout
+  });
+
+  if (receipt.status === "reverted") {
+    throw new Error("Session key registration transaction reverted on Derive L2");
+  }
+
+  console.log(`[derive] Session key registered on-chain (block ${receipt.blockNumber})`);
+
+  // Store the session key for future use
+  storeSessionKey(address, sessionPrivateKey);
+  console.log(`[derive] Session key stored: ${sessionAccount.address}`);
+
+  // Switch back to the original chain (best effort — don't fail if this errors)
+  try {
+    // Switch back to Arbitrum One (common chain for HL users)
+    await walletClient.switchChain({ id: 42161 });
+  } catch {
+    // Not critical — user can switch manually
+  }
+
+  return { sessionKey: sessionPrivateKey, sessionAddress: sessionAccount.address };
+}
+
 // ─── Derive auth session ────────────────────────────────────────────────────
-// Sign a timestamp once, cache it for up to 5 minutes so we can poll
-// private endpoints without prompting the user for every request.
+// Uses session key to sign timestamps for WebSocket login.
+// Session key signs locally (no MetaMask popup on each login).
 
 let cachedAuth: {
-  signer: string;        // EOA that signed the timestamp
-  deriveWallet: string;  // Derive smart contract wallet (used as X-LyraWallet)
+  signer: string;        // EOA that owns the account
+  deriveWallet: string;  // Derive smart contract wallet
+  sessionAddress: string; // Session key public address (the signer for login)
   timestamp: string;
   signature: string;
   expiresAt: number;
 } | null = null;
 
 /**
- * Get or create cached auth headers for Derive private endpoints.
- * Signs once with the EOA wallet, reuses for ~5 minutes.
- * @param deriveWallet The Derive smart contract wallet address (used as X-LyraWallet)
+ * Get or create cached auth for Derive private endpoints.
+ * Uses the session key (not EOA) to sign timestamps for login.
+ * First-time setup requires one MetaMask popup to register the session key.
  */
 export async function getDeriveAuth(
   walletClient: WalletClient,
@@ -611,18 +763,22 @@ export async function getDeriveAuth(
     return { timestamp: cachedAuth.timestamp, signature: cachedAuth.signature };
   }
 
-  const timestamp = Date.now().toString();
-  const signature = await walletClient.signMessage({
-    account: address,
-    message: timestamp,
-  });
-
   // Look up the Derive wallet automatically if not provided
   const resolvedDeriveWallet = deriveWallet || (await lookupDeriveWallet(address));
 
+  // Ensure we have a session key (registers one if needed — one-time MetaMask popup)
+  const { sessionKey, sessionAddress } = await ensureDeriveSessionKey(walletClient, address, resolvedDeriveWallet);
+
+  // Sign the timestamp with the SESSION KEY (not EOA) — no MetaMask popup
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const sessionAccount = privateKeyToAccount(sessionKey);
+  const timestamp = Date.now().toString();
+  const signature = await sessionAccount.signMessage({ message: timestamp });
+
   cachedAuth = {
     signer: address,
-    deriveWallet: resolvedDeriveWallet, // keep checksummed — Derive API may be case-sensitive
+    deriveWallet: resolvedDeriveWallet,
+    sessionAddress,
     timestamp,
     signature,
     expiresAt: Date.now() + 4 * 60_000, // 4 min (renew before 5 min limit)
@@ -669,10 +825,8 @@ export async function derivePostRaw(
 ): Promise<Record<string, unknown>> {
   try {
     const method = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
-    const fixedBody = body.wallet && typeof body.wallet === "string"
-      ? { ...body, wallet: (body.wallet as string).toLowerCase() }
-      : body;
-    const data = await wsSend(method, fixedBody);
+    // Pass wallet fields as-is (Derive API may be case-sensitive on checksummed addresses)
+    const data = await wsSend(method, body);
     return { _transport: "ws", ...data };
   } catch (err) {
     return { _transport: "ws", _error: (err as Error).message };
@@ -698,7 +852,7 @@ export async function placeOrder(
 
     const isBid = params.direction === "buy";
 
-    const signature = await signOrder(walletClient, address, {
+    const { signature, signerAddress } = await signOrder(walletClient, address, {
       subaccountId: params.subaccountId,
       nonce,
       instrumentName: params.instrumentName,
@@ -707,7 +861,6 @@ export async function placeOrder(
       maxFee: params.maxFee,
       isBid,
       expiryTimestamp,
-      signerAddress: address,
     });
 
     const body: Record<string, unknown> = {
@@ -720,7 +873,7 @@ export async function placeOrder(
       nonce,
       signature,
       signature_expiry_sec: expiryTimestamp,
-      signer: address,
+      signer: signerAddress,
       order_type: params.orderType ?? "limit",
       time_in_force: params.timeInForce ?? "gtc",
       reduce_only: params.reduceOnly ?? false,
@@ -797,7 +950,7 @@ export async function placeOptionOrder(
 
 /**
  * Sign a deposit action (used for both createSubaccount and deposit).
- * Uses proper EIP-712 hashing with the Deposit Module.
+ * Uses session key if available (no MetaMask popup), otherwise falls back to EOA.
  */
 async function signDepositAction(
   walletClient: WalletClient,
@@ -809,8 +962,23 @@ async function signDepositAction(
     expiryTimestamp: number;
     isNewAccount: boolean;
   },
-): Promise<Hex> {
+): Promise<{ signature: Hex; signerAddress: `0x${string}` }> {
   const amountWei = toWei6(params.amount);
+
+  // Determine signer: session key (no popup) or EOA (MetaMask popup)
+  const storedSessionKey = getStoredSessionKey(address);
+  let signerAddress: `0x${string}`;
+  let signFn: (hash: Hex) => Promise<Hex>;
+
+  if (storedSessionKey) {
+    const { privateKeyToAccount } = await import("viem/accounts");
+    const sessionAccount = privateKeyToAccount(storedSessionKey);
+    signerAddress = sessionAccount.address as `0x${string}`;
+    signFn = async (hash: Hex) => sessionAccount.signMessage({ message: { raw: hash } });
+  } else {
+    signerAddress = address;
+    signFn = async (hash: Hex) => walletClient.signMessage({ account: address, message: { raw: hash } });
+  }
 
   const encodedModuleData = encodeDepositModuleData({
     amount: amountWei,
@@ -828,15 +996,13 @@ async function signDepositAction(
     encodedDataHash,
     expiry: BigInt(params.expiryTimestamp),
     owner: address,
-    signer: address,
+    signer: signerAddress,
   });
 
   const eip712Hash = computeEip712Hash(actionHash);
+  const signature = await signFn(eip712Hash);
 
-  return walletClient.signMessage({
-    account: address,
-    message: { raw: eip712Hash },
-  });
+  return { signature, signerAddress };
 }
 
 // ─── Create subaccount ──────────────────────────────────────────────────────
@@ -859,7 +1025,7 @@ export async function createSubaccount(
     const nonce = generateNonce();
     const expiryTimestamp = Math.floor(Date.now() / 1000) + 600;
 
-    const signature = await signDepositAction(walletClient, address, {
+    const { signature, signerAddress } = await signDepositAction(walletClient, address, {
       subaccountId: 0, // new account
       amount: params.amount,
       nonce,
@@ -874,7 +1040,7 @@ export async function createSubaccount(
       nonce,
       signature,
       signature_expiry_sec: expiryTimestamp,
-      signer: address,
+      signer: signerAddress,
       wallet: address,
     };
 
@@ -1191,130 +1357,6 @@ export async function getOpenOrders(
   } catch (err) {
     console.error("[derive] getOpenOrders failed:", (err as Error).message);
     return [];
-  }
-}
-
-// ─── Session key management ─────────────────────────────────────────────────
-
-/**
- * Register a session key for the user's account.
- *
- * Session keys allow programmatic trading without requiring the user's
- * main wallet to sign every order. The session key is simply another
- * Ethereum wallet that gets temporary admin access.
- *
- * Derive requires a signed raw transaction (RLP-encoded) to register
- * an admin-level session key. The user signs a special transaction
- * that grants the session key access.
- */
-export async function registerSessionKey(
-  walletClient: WalletClient,
-  address: `0x${string}`,
-  params: {
-    sessionPublicKey: `0x${string}`;  // the session key's address
-    label?: string;
-    expiryTimestamp?: number;          // when the session key expires
-  },
-): Promise<DeriveSessionKeyResult> {
-  try {
-    const expiry =
-      params.expiryTimestamp ??
-      Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30; // 30 days default
-
-    // Derive registers admin session keys via a signed raw transaction.
-    // The transaction encodes the session key registration parameters.
-    // We construct and sign a typed transaction to register the key.
-    const registrationData = encodeAbiParameters(
-      parseAbiParameters("address, uint256"),
-      [params.sessionPublicKey, BigInt(expiry)],
-    );
-
-    // Sign the registration with the user's wallet
-    const signature = await walletClient.signMessage({
-      account: address,
-      message: { raw: keccak256(registrationData) },
-    });
-
-    // The API expects a signed raw transaction hex
-    const body: Record<string, unknown> = {
-      wallet: address,
-      public_session_key: params.sessionPublicKey,
-      label: params.label ?? "derive-exchange-sdk",
-      expiry_sec: expiry,
-      signed_raw_tx: signature,
-    };
-
-    const result = await derivePost("/public/register_session_key", body);
-
-    return {
-      success: true,
-      sessionKey: params.sessionPublicKey,
-    };
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Unknown error",
-    };
-  }
-}
-
-/**
- * Register a scoped (non-admin) session key.
- * Useful for read-only or account-level access without full trading permissions.
- */
-export async function registerScopedSessionKey(
-  walletClient: WalletClient,
-  address: `0x${string}`,
-  params: {
-    sessionPublicKey: `0x${string}`;
-    scope: "read_only" | "account";
-    label?: string;
-    expiryTimestamp?: number;
-  },
-): Promise<DeriveSessionKeyResult> {
-  try {
-    const expiry =
-      params.expiryTimestamp ??
-      Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
-    const nonce = generateNonce();
-    const signatureExpiry = Math.floor(Date.now() / 1000) + 600;
-
-    const signature = await walletClient.signMessage({
-      account: address,
-      message: {
-        raw: toHex(
-          `Register session key: ${params.sessionPublicKey} scope: ${params.scope}`,
-        ),
-      },
-    });
-
-    const body: Record<string, unknown> = {
-      wallet: address,
-      public_session_key: params.sessionPublicKey,
-      label: params.label ?? "derive-exchange-sdk",
-      expiry_sec: expiry,
-      nonce,
-      signature,
-      signature_expiry_sec: signatureExpiry,
-      signer: address,
-      scope: params.scope,
-    };
-
-    const result = await derivePost(
-      "/private/register_scoped_session_key",
-      body,
-      address,
-    );
-
-    return {
-      success: true,
-      sessionKey: params.sessionPublicKey,
-    };
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Unknown error",
-    };
   }
 }
 
