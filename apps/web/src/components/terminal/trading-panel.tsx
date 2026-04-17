@@ -695,6 +695,8 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
   const [showImportKeyModal, setShowImportKeyModal] = useState(false);
   const [importKeyInput, setImportKeyInput] = useState("");
   const [importKeyError, setImportKeyError] = useState("");
+  const [availableSubaccounts, setAvailableSubaccounts] = useState<Array<{ id: number; balance: number; marginType: string; label: string }>>([]);
+  const [showSubaccountPicker, setShowSubaccountPicker] = useState(false);
   const [depositAmount, setDepositAmount] = useState("100");
   const [postOnly, setPostOnly] = useState(false);
   const [timeInForce, setTimeInForce] = useState<"gtc" | "ioc">("gtc");
@@ -815,17 +817,37 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
 
       const subs = await derive.getSubaccounts(wallet);
       if (subs.length > 0) {
-        const subId = subs[0].subaccountId;
+        // Fetch balance for every subaccount in parallel so the user can pick
+        const balances = await Promise.all(
+          subs.map(s => derive.getUsdcBalance(wallet, s.subaccountId).catch(() => 0))
+        );
+        const enriched = subs.map((s, i) => ({
+          id: s.subaccountId,
+          balance: balances[i],
+          marginType: s.marginType,
+          label: s.label,
+        }));
+        setAvailableSubaccounts(enriched);
+
+        // Pick: stored preference → highest balance → first
+        const storedPref = localStorage.getItem(`derive-sub-${address.toLowerCase()}`);
+        const storedId = storedPref ? parseInt(storedPref, 10) : null;
+        const storedMatch = enriched.find(s => s.id === storedId);
+        const highestBal = [...enriched].sort((a, b) => b.balance - a.balance)[0];
+        const chosen = storedMatch ?? highestBal;
+        const subId = chosen.id;
+
         setDeriveSubaccount(subId);
-        const [bal, pos, orders] = await Promise.all([
-          derive.getUsdcBalance(wallet, subId),
+        localStorage.setItem(`derive-sub-${address.toLowerCase()}`, String(subId));
+        const [pos, orders] = await Promise.all([
           derive.getPositions(wallet, subId),
           derive.getOpenOrders(wallet, subId),
         ]);
-        setDeriveBalance(bal);
+        setDeriveBalance(chosen.balance);
         setPositions(pos);
         setOpenOrders(orders);
-        setOrderResult({ ok: true, msg: `Connected to Derive — $${bal.toFixed(2)} USDC` });
+        const extra = enriched.length > 1 ? ` (${enriched.length} subaccounts — click to switch)` : "";
+        setOrderResult({ ok: true, msg: `Connected — $${chosen.balance.toFixed(2)} USDC${extra}` });
       } else {
         // Show which addresses we tried so user can verify
         const rawStr = JSON.stringify(rawResult).slice(0, 150);
@@ -871,6 +893,32 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       await connectDerive();
     } catch (err) {
       setImportKeyError((err as Error).message || "Failed to import session key");
+    }
+  };
+
+  // Switch to a different subaccount (refreshes balance, positions, orders)
+  const switchSubaccount = async (subId: number) => {
+    if (!address || !deriveWallet) return;
+    setShowSubaccountPicker(false);
+    const existing = availableSubaccounts.find(s => s.id === subId);
+    if (!existing) return;
+    setDeriveSubaccount(subId);
+    setDeriveBalance(existing.balance);
+    localStorage.setItem(`derive-sub-${address.toLowerCase()}`, String(subId));
+    try {
+      const derive = await import("@/lib/derive-exchange");
+      const [bal, pos, orders] = await Promise.all([
+        derive.getUsdcBalance(deriveWallet, subId),
+        derive.getPositions(deriveWallet, subId),
+        derive.getOpenOrders(deriveWallet, subId),
+      ]);
+      setDeriveBalance(bal);
+      setPositions(pos);
+      setOpenOrders(orders);
+      setAvailableSubaccounts(prev => prev.map(s => s.id === subId ? { ...s, balance: bal } : s));
+      setOrderResult({ ok: true, msg: `Switched to subaccount #${subId} — $${bal.toFixed(2)} USDC` });
+    } catch (err) {
+      setOrderResult({ ok: false, msg: `Switch failed: ${(err as Error).message}` });
     }
   };
 
@@ -1064,11 +1112,45 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
           ) : (
             /* ─── Has account: show balance + trade or deposit ─── */
             <div className="space-y-2">
-              {/* Balance display */}
+              {/* Balance display — clickable when multiple subaccounts available */}
               {deriveBalance !== null && (
-                <div className="flex items-center justify-between text-[10px] mb-1">
-                  <span className="text-[var(--hl-muted)]">Derive Balance</span>
-                  <span className="tabular-nums text-[var(--foreground)] font-medium">${deriveBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                <div className="relative">
+                  <button
+                    onClick={() => availableSubaccounts.length > 1 && setShowSubaccountPicker(!showSubaccountPicker)}
+                    disabled={availableSubaccounts.length <= 1}
+                    className={`flex items-center justify-between w-full text-[10px] mb-1 ${availableSubaccounts.length > 1 ? "hover:text-[var(--foreground)] cursor-pointer" : "cursor-default"}`}
+                  >
+                    <span className="text-[var(--hl-muted)]">
+                      Derive Balance
+                      {deriveSubaccount !== null && <span className="ml-1 opacity-60">#{deriveSubaccount}</span>}
+                      {availableSubaccounts.length > 1 && <span className="ml-1 text-[var(--hl-accent)]">▾</span>}
+                    </span>
+                    <span className="tabular-nums text-[var(--foreground)] font-medium">${deriveBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                  </button>
+                  {showSubaccountPicker && availableSubaccounts.length > 1 && (
+                    <>
+                      <div className="fixed inset-0 z-[9997]" onClick={() => setShowSubaccountPicker(false)} />
+                      <div className="absolute z-[9998] top-full left-0 right-0 mt-1 bg-[var(--background)] border border-[var(--hl-border)] rounded shadow-xl overflow-hidden">
+                        <div className="px-3 py-1.5 text-[9px] text-[var(--hl-muted)] uppercase tracking-wide border-b border-[var(--hl-border)]">
+                          Switch Subaccount
+                        </div>
+                        {availableSubaccounts.map(s => (
+                          <button
+                            key={s.id}
+                            onClick={() => switchSubaccount(s.id)}
+                            className={`w-full flex items-center justify-between px-3 py-2 text-[11px] hover:bg-[var(--hl-surface-hover)] transition-colors ${s.id === deriveSubaccount ? "bg-[var(--hl-surface)]" : ""}`}
+                          >
+                            <span className="text-[var(--foreground)]">
+                              #{s.id}
+                              <span className="ml-1.5 text-[9px] text-[var(--hl-muted)]">{s.marginType}{s.label ? ` · ${s.label}` : ""}</span>
+                              {s.id === deriveSubaccount && <span className="ml-1.5 text-[9px] text-[var(--hl-accent)]">✓ active</span>}
+                            </span>
+                            <span className="tabular-nums text-[var(--foreground)] font-medium">${s.balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
               {/* Deposit more (collapsible) */}
