@@ -14,6 +14,7 @@ import type { SelectedOption } from "@/components/terminal/inline-options-chain"
 import { useSafeAccount } from "@/hooks/use-safe-account";
 import { useAccountInfo } from "@/hooks/use-account-info";
 import { useTheme } from "@/hooks/use-theme";
+import { useStudioConfig } from "@/hooks/use-studio-config";
 
 /* ── PanelSkeleton: placeholder while lazy panels load ────────────────────── */
 function PanelSkeleton() {
@@ -203,19 +204,20 @@ function LoadingScreen() {
 
 type DataTab = "signals" | "whales" | "options" | "hypeeco" | "newssocial" | "copytrade";
 
-const DATA_TABS: { key: DataTab; label: string }[] = [
-  { key: "signals", label: "Signals" },
-  { key: "whales", label: "Whales" },
-  { key: "options", label: "Options Flow" },
-  { key: "hypeeco", label: "Hype Eco" },
-  { key: "newssocial", label: "News & Social" },
-  { key: "copytrade", label: "Copy Trade" },
+const ALL_DATA_TABS: { key: DataTab; label: string; requires: import("@/lib/studio-config").WidgetKey[] }[] = [
+  { key: "signals",    label: "Signals",        requires: ["sharpFlowTable", "positionConcentration"] },
+  { key: "whales",     label: "Whales",         requires: ["whaleFeed", "largeTradeTape", "whaleAccumulation"] },
+  { key: "options",    label: "Options Flow",   requires: ["deriveOptions", "deribitFlow"] },
+  { key: "hypeeco",    label: "Hype Eco",       requires: ["ecosystemPanel", "lendingRates"] },
+  { key: "newssocial", label: "News & Social",  requires: ["newsFeed", "socialPanel"] },
+  { key: "copytrade",  label: "Copy Trade",     requires: ["copyTradePanel"] },
 ];
 
 export default function HomePage() {
   const { data, loading, error } = useTerminal();
   const { address: walletAddress } = useSafeAccount();
-  const [chartCoin, setChartCoin] = useState("BTC");
+  const { config, isEnabled } = useStudioConfig();
+  const [chartCoin, setChartCoin] = useState(() => config.defaultToken || "BTC");
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
   const [selectedTrader, setSelectedTrader] = useState<string | null>(null);
   const [copyTrader, setCopyTrader] = useState<string | null>(null);
@@ -286,8 +288,8 @@ export default function HomePage() {
     <div className="-mx-2 sm:-mx-6 lg:-mx-8 -mt-2 sm:-mt-6 md:pb-0 pb-14">
       {/* ═══ DESKTOP: full layout (unchanged) ═══════════════════════════════ */}
       <div className="hidden md:block">
-        <TickerBar tokens={data?.tokens || []} options={data?.options} macro={data?.macro || []} onSelectToken={handleSelectToken} />
-        <MarketPulse regime={data?.regime || null} options={data?.options || {}} onSelectToken={handleSelectToken} onOpenOptions={handleOpenOptions} avgCorrelation={data?.correlationMatrix?.avgCorrelation ?? null} />
+        {isEnabled("tickerBar") && <TickerBar tokens={data?.tokens || []} options={data?.options} macro={data?.macro || []} onSelectToken={handleSelectToken} />}
+        {isEnabled("marketPulse") && <MarketPulse regime={data?.regime || null} options={data?.options || {}} onSelectToken={handleSelectToken} onOpenOptions={handleOpenOptions} avgCorrelation={data?.correlationMatrix?.avgCorrelation ?? null} />}
       </div>
 
       {/* Chart + Positions + Trading (desktop always, mobile only on perps tab) */}
@@ -305,20 +307,22 @@ export default function HomePage() {
             )}
           </div>
           <div className="px-2">
-            <PositionsPanel onSelectToken={handleSelectToken} />
+            {isEnabled("positionsPanel") && <PositionsPanel onSelectToken={handleSelectToken} />}
           </div>
         </div>
 
         {/* Desktop right column */}
         <div className="hidden md:flex flex-shrink-0 border-l border-[var(--hl-border)]">
-          {tradingMode !== "options" && (
+          {tradingMode !== "options" && isEnabled("orderBook") && (
             <div className="hidden lg:block w-[180px] flex-shrink-0 overflow-y-auto border-r border-[var(--hl-border)]">
               <OrderBook coin={chartCoin} />
             </div>
           )}
-          <div className="w-[260px] flex-shrink-0 overflow-y-auto">
-            <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} />
-          </div>
+          {isEnabled("tradingPanel") && (
+            <div className="w-[260px] flex-shrink-0 overflow-y-auto">
+              <TradingPanel coin={chartCoin} overview={chartOverview} score={chartOverview?.score ?? null} onOpenOptionsChain={handleOpenOptions} tradingMode={tradingMode} onTradingModeChange={setTradingMode} selectedOption={selectedOption} onClearOption={() => setSelectedOption(null)} />
+            </div>
+          )}
         </div>
 
         {/* Mobile trading panel — only on perps tab */}
@@ -376,16 +380,21 @@ export default function HomePage() {
       )}
 
       {/* ═══ DESKTOP: Below-fold tabbed data ═════════════════════════════ */}
-      {showBelow && (
+      {showBelow && (() => {
+        // Filter tabs to only those whose widgets are enabled in this build
+        const visibleTabs = ALL_DATA_TABS.filter(t => t.requires.some(w => isEnabled(w)));
+        if (visibleTabs.length === 0) return null;
+        const activeTab = visibleTabs.find(t => t.key === dataTab) ? dataTab : visibleTabs[0].key;
+        return (
         <div className="hidden md:block">
           {/* Tab bar */}
           <div className="flex border-b border-[var(--hl-border)] bg-[var(--background)]">
-            {DATA_TABS.map(t => (
+            {visibleTabs.map(t => (
               <button
                 key={t.key}
                 onClick={() => setDataTab(t.key)}
                 className={`px-4 py-2 text-[11px] font-medium transition-colors border-b-2 ${
-                  dataTab === t.key
+                  activeTab === t.key
                     ? "text-[var(--hl-accent)] border-[var(--hl-accent)]"
                     : "text-[var(--hl-muted)] border-transparent hover:text-[var(--foreground)]"
                 }`}
@@ -397,65 +406,86 @@ export default function HomePage() {
 
           {/* Tab content — fixed height, no scroll — click panels to expand */}
           <div className="h-[480px]">
-            {dataTab === "signals" && (
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-px bg-[var(--hl-border)] h-full">
-                <div className="bg-[var(--background)] p-3 overflow-hidden">
-                  <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
-                </div>
-                <div className="bg-[var(--background)] p-3 overflow-hidden">
-                  <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
-                </div>
+            {activeTab === "signals" && (
+              <div className={`grid grid-cols-1 ${isEnabled("sharpFlowTable") && isEnabled("positionConcentration") ? "lg:grid-cols-[1fr_340px]" : ""} gap-px bg-[var(--hl-border)] h-full`}>
+                {isEnabled("sharpFlowTable") && (
+                  <div className="bg-[var(--background)] p-3 overflow-hidden">
+                    <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
+                  </div>
+                )}
+                {isEnabled("positionConcentration") && (
+                  <div className="bg-[var(--background)] p-3 overflow-hidden">
+                    <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
+                  </div>
+                )}
               </div>
             )}
-            {dataTab === "whales" && (
+            {activeTab === "whales" && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-[var(--hl-border)] h-full">
-                <div className="bg-[var(--background)] p-3 overflow-hidden flex flex-col">
-                  <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
-                </div>
-                <div className="bg-[var(--background)] p-3 overflow-hidden flex flex-col">
-                  <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
-                </div>
-                <div className="bg-[var(--background)] p-3 overflow-hidden flex flex-col">
-                  <WhaleAccumulationPanel data={data?.whaleAccumulation || []} onSelectToken={handleSelectToken} />
-                </div>
+                {isEnabled("whaleFeed") && (
+                  <div className="bg-[var(--background)] p-3 overflow-hidden flex flex-col">
+                    <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
+                  </div>
+                )}
+                {isEnabled("largeTradeTape") && (
+                  <div className="bg-[var(--background)] p-3 overflow-hidden flex flex-col">
+                    <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
+                  </div>
+                )}
+                {isEnabled("whaleAccumulation") && (
+                  <div className="bg-[var(--background)] p-3 overflow-hidden flex flex-col">
+                    <WhaleAccumulationPanel data={data?.whaleAccumulation || []} onSelectToken={handleSelectToken} />
+                  </div>
+                )}
               </div>
             )}
-            {dataTab === "options" && (
+            {activeTab === "options" && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)] h-full">
-                <div className="bg-[var(--background)] p-3 overflow-y-auto">
-                  <DeriveOptionsPanel options={data?.options || {}} />
-                </div>
-                <div className="bg-[var(--background)] p-3 overflow-y-auto">
-                  <DeribitFlowPanel btc={data?.deribitFlow?.btc || null} eth={data?.deribitFlow?.eth || null} />
-                </div>
+                {isEnabled("deriveOptions") && (
+                  <div className="bg-[var(--background)] p-3 overflow-y-auto">
+                    <DeriveOptionsPanel options={data?.options || {}} />
+                  </div>
+                )}
+                {isEnabled("deribitFlow") && (
+                  <div className="bg-[var(--background)] p-3 overflow-y-auto">
+                    <DeribitFlowPanel btc={data?.deribitFlow?.btc || null} eth={data?.deribitFlow?.eth || null} />
+                  </div>
+                )}
               </div>
             )}
-            {dataTab === "hypeeco" && (
+            {activeTab === "hypeeco" && (
               <div className="h-full overflow-y-auto bg-[var(--background)] p-3">
-                <EcosystemPanel data={data?.ecosystem || null} />
-                <div className="mt-3 pt-3 border-t border-[var(--hl-border)]">
-                  <LendingRatesPanel />
-                </div>
+                {isEnabled("ecosystemPanel") && <EcosystemPanel data={data?.ecosystem || null} />}
+                {isEnabled("lendingRates") && (
+                  <div className="mt-3 pt-3 border-t border-[var(--hl-border)]">
+                    <LendingRatesPanel />
+                  </div>
+                )}
               </div>
             )}
-            {dataTab === "newssocial" && (
+            {activeTab === "newssocial" && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[var(--hl-border)] h-full">
-                <div className="bg-[var(--background)] p-3 overflow-y-auto">
-                  <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
-                </div>
-                <div className="bg-[var(--background)] p-3 overflow-y-auto">
-                  <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
-                </div>
+                {isEnabled("newsFeed") && (
+                  <div className="bg-[var(--background)] p-3 overflow-y-auto">
+                    <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
+                  </div>
+                )}
+                {isEnabled("socialPanel") && (
+                  <div className="bg-[var(--background)] p-3 overflow-y-auto">
+                    <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
+                  </div>
+                )}
               </div>
             )}
-            {dataTab === "copytrade" && (
+            {activeTab === "copytrade" && isEnabled("copyTradePanel") && (
               <div className="h-full overflow-y-auto">
                 <CopyTradePanel traders={data?.topTraders || []} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
               </div>
             )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ═══ MOBILE: Bottom Tab Bar ════════════════════════════════════════ */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[var(--hl-nav)] border-t border-[var(--hl-border)] flex items-center justify-around h-14">

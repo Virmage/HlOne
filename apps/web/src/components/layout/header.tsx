@@ -23,6 +23,7 @@ const WalletButton = dynamic(
 const navItems = [
   { href: "/", label: "Terminal" },
   { href: "/portfolio", label: "Portfolio" },
+  { href: "/studio", label: "Studio" },
 ];
 
 export function ThemeToggle() {
