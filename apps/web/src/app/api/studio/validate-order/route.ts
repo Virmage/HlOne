@@ -1,42 +1,43 @@
 /**
  * POST /api/studio/validate-order
  *
- * API-key + rate-limit gate for Studio deploys. We no longer enforce on-chain
- * fee splits — HL only allows ONE builder per order, and we trust it to pay
- * the builder directly via their own builder code (no middleman). HLOne's
- * revenue comes from the $50 one-time + optional API subscription, not from
- * taking a cut of trades.
+ * API-key + anti-tamper gate for Studio deploys. Ensures every order submitted
+ * from a Studio build includes HLOne's builder code — so HL's native fee split
+ * pays HLOne on every trade.
  *
- * This endpoint now just:
- *   1. Validates the API key is active (deploy is paid + not revoked)
- *   2. Checks the builder code in the order matches what's registered for this
- *      deploy (so a builder can't silently change their fee/recipient after deploy)
+ * Checks:
+ *   1. API key is valid and deploy is active
+ *   2. Order's `builder` field = HLONE_BUILDER_WALLET + HLONE_BUILDER_FEE_TENTH_BPS
  *   3. Records usage for rate-limit accounting
  *
+ * If a builder tries to strip our fee by modifying their deploy, this endpoint
+ * rejects their orders — and losing access to our data API (whale tracking,
+ * sharp flow) makes the deploy useless.
+ *
  * Env vars:
- *   DATABASE_URL          - Postgres for build records lookup
+ *   HLONE_BUILDER_WALLET               - our wallet that collects builder fees
+ *   HLONE_BUILDER_FEE_TENTH_BPS        - our fee (default 15 = 0.015%)
+ *   DATABASE_URL                       - (later) Postgres for build records
  */
 
 import { NextResponse } from "next/server";
 
+const DEFAULT_BUILDER_WALLET = "0xbB0f753321e2B5FD29Bd1d14b532f5B54959ae63".toLowerCase();
+const DEFAULT_BUILDER_FEE_TENTH_BPS = 15; // 0.015%
+
 interface OrderValidationRequest {
-  /** HLOne API key from Studio deploy */
   apiKey: string;
-  /** The order object that would be submitted to HL */
   order: {
     builder?: { b?: string; f?: number };
     [k: string]: unknown;
   };
-  /** Wallet placing the order (for rate-limit accounting) */
   userWallet?: string;
 }
 
 interface ValidationResult {
   ok: boolean;
   error?: string;
-  /** Expected builder address (the deploy's builder wallet) */
   expectedBuilder?: string;
-  /** Expected builder fee in tenths of a basis point (HL format) */
   expectedFeeTenthBps?: number;
 }
 
@@ -53,31 +54,30 @@ export async function POST(req: Request): Promise<NextResponse<ValidationResult>
       return NextResponse.json({ ok: false, error: "Unknown or revoked API key" }, { status: 401 });
     }
 
-    // Verify the builder field matches what's registered for this deploy — prevents
-    // silent post-deploy fee changes. We allow EITHER the builder's own wallet (with
-    // their markup) or no builder field (user opted out via setting markup=0).
+    // HLOne's builder fee — HARDCODED to match hl-exchange.ts BUILDER_ADDRESS + BUILDER_FEE.
+    // Every Studio deploy MUST route builder fees to our wallet or orders are rejected.
+    const expectedBuilder = (process.env.HLONE_BUILDER_WALLET ?? DEFAULT_BUILDER_WALLET).toLowerCase();
+    const expectedFee = parseInt(process.env.HLONE_BUILDER_FEE_TENTH_BPS ?? String(DEFAULT_BUILDER_FEE_TENTH_BPS), 10);
+
     const orderBuilder = (body.order.builder?.b ?? "").toLowerCase();
     const orderFee = body.order.builder?.f ?? 0;
-    const expectedBuilder = build.builderWallet.toLowerCase();
-    const expectedFee = build.markupBps * 10; // bps → HL's tenth-bps
 
-    if (build.markupBps > 0) {
-      if (orderBuilder !== expectedBuilder) {
-        return NextResponse.json({
-          ok: false,
-          error: `Builder field mismatch. Expected ${expectedBuilder}, got ${orderBuilder || "none"}`,
-          expectedBuilder,
-          expectedFeeTenthBps: expectedFee,
-        }, { status: 402 });
-      }
-      if (orderFee !== expectedFee) {
-        return NextResponse.json({
-          ok: false,
-          error: `Builder fee mismatch. Expected ${expectedFee} (${build.markupBps}bps), got ${orderFee}`,
-          expectedBuilder,
-          expectedFeeTenthBps: expectedFee,
-        }, { status: 402 });
-      }
+    if (orderBuilder !== expectedBuilder) {
+      return NextResponse.json({
+        ok: false,
+        error: `Builder field must be HLOne's wallet. Expected ${expectedBuilder}, got ${orderBuilder || "none"}. Your deploy may be out of sync with the template.`,
+        expectedBuilder,
+        expectedFeeTenthBps: expectedFee,
+      }, { status: 402 });
+    }
+
+    if (orderFee < expectedFee) {
+      return NextResponse.json({
+        ok: false,
+        error: `Builder fee must be >= ${expectedFee} (${expectedFee / 10} bps). Got ${orderFee}.`,
+        expectedBuilder,
+        expectedFeeTenthBps: expectedFee,
+      }, { status: 402 });
     }
 
     await recordApiUsage(body.apiKey, body.userWallet);
@@ -94,8 +94,6 @@ async function lookupBuildByApiKey(apiKey: string): Promise<{
   deployId: string;
   wallet: string;
   slug: string;
-  markupBps: number;
-  builderWallet: string;
   createdAt: string;
 } | null> {
   if (process.env.NODE_ENV !== "production") {
@@ -103,8 +101,6 @@ async function lookupBuildByApiKey(apiKey: string): Promise<{
       deployId: "dev_stub",
       wallet: "0x0000000000000000000000000000000000000000",
       slug: "dev",
-      markupBps: 10,
-      builderWallet: "0x0000000000000000000000000000000000000000",
       createdAt: new Date().toISOString(),
     };
   }

@@ -180,7 +180,6 @@ async function saveBuildRecord(record: {
     wallet: record.wallet,
     slug: record.config.slug,
     name: record.config.name,
-    markupBps: record.config.fees.markupBps,
     // Don't log full API key
     apiKeyPrefix: record.apiKey.slice(0, 16) + "...",
   });

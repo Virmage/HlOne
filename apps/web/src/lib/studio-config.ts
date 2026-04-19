@@ -126,11 +126,25 @@ export interface StudioConfig {
     siteUrl?: string;
   };
 
-  fees: {
-    /** Builder's wallet address — collects the builder markup. */
-    builderWallet: `0x${string}`;
-    /** Markup in basis points (100 = 1%, 10 = 0.1%, 1 = 0.01%). Capped at 40 bps = 0.4%. */
-    markupBps: number;
+  /**
+   * Fee config.
+   *
+   * DESIGN DECISION: Studio deploys route 100% of the builder fee to HLOne.
+   * Builders do NOT earn trade fees. They pay $50 once for the deploy.
+   *
+   * This is because HL only supports ONE builder per order — so we can't stack
+   * fees natively. Rather than build a sweeper to redistribute, we keep things
+   * simple: HL takes their cut, HLOne takes a small cut, that's it. Builders
+   * build for themselves (or for audiences who don't care about ref fees).
+   *
+   * If/when builder-earn-fees becomes a feature, we'll add `markupBps` here
+   * and build a sweeper cron job. Not today.
+   */
+  fees?: {
+    /** Reserved for future builder-earns-fee feature. Always 0 for now. */
+    markupBps?: number;
+    /** Reserved for future: builder's payout wallet. */
+    builderWallet?: `0x${string}`;
   };
 
   /** Theme */
@@ -157,15 +171,13 @@ export const DEFAULT_CONFIG: StudioConfig = {
   branding: {
     accentColor: "#98fce4", // HL teal
   },
-  fees: {
-    builderWallet: "0x0000000000000000000000000000000000000000",
-    markupBps: 0,
-  },
+  fees: {},
   theme: "dark",
 };
 
-export const MAX_MARKUP_BPS = 40; // 0.4% ceiling for builder markup
-export const HLONE_PLATFORM_FEE_BPS = 0.5; // 0.005% HLOne's always-on cut
+/** HLOne's platform fee — hardcoded in hl-exchange.ts, shown here for UI display only */
+export const HLONE_PLATFORM_FEE_BPS = 1.5; // 0.015% — matches BUILDER_FEE=15 in hl-exchange.ts
+export const MAX_MARKUP_BPS = 40; // reserved for future
 
 export function isWidgetEnabled(config: StudioConfig, key: WidgetKey): boolean {
   const v = config.widgets[key];
@@ -188,12 +200,6 @@ export function validateConfig(config: Partial<StudioConfig>): { ok: true; confi
   }
   if (!config.watchlist || config.watchlist.length === 0) {
     errors.push("Watchlist must contain at least one token");
-  }
-  if (!config.fees?.builderWallet || !/^0x[0-9a-fA-F]{40}$/.test(config.fees.builderWallet)) {
-    errors.push("Builder wallet must be a valid 0x-prefixed Ethereum address");
-  }
-  if (config.fees && (config.fees.markupBps < 0 || config.fees.markupBps > MAX_MARKUP_BPS)) {
-    errors.push(`Markup must be between 0 and ${MAX_MARKUP_BPS} bps (${MAX_MARKUP_BPS / 100}%)`);
   }
   if (config.branding?.accentColor && !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(config.branding.accentColor)) {
     errors.push("Accent color must be a valid hex (#fff or #ffffff)");

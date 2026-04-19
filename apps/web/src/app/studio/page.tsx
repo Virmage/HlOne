@@ -31,13 +31,6 @@ export default function StudioPage() {
   const [deployError, setDeployError] = useState<string>("");
   const [deployResult, setDeployResult] = useState<{ repoUrl?: string; deployUrl?: string; apiKey?: string } | null>(null);
 
-  // Auto-set builder wallet from connected address
-  useEffect(() => {
-    if (isConnected && address && config.fees.builderWallet === "0x0000000000000000000000000000000000000000") {
-      setConfig(prev => ({ ...prev, fees: { ...prev.fees, builderWallet: address as `0x${string}` } }));
-    }
-  }, [isConnected, address, config.fees.builderWallet]);
-
   const validation = useMemo(() => validateConfig(config), [config]);
 
   const toggleWidget = (key: WidgetKey) => {
@@ -53,10 +46,6 @@ export default function StudioPage() {
 
   const updateBranding = <K extends keyof StudioConfig["branding"]>(key: K, value: StudioConfig["branding"][K]) => {
     setConfig(prev => ({ ...prev, branding: { ...prev.branding, [key]: value } }));
-  };
-
-  const updateFees = <K extends keyof StudioConfig["fees"]>(key: K, value: StudioConfig["fees"][K]) => {
-    setConfig(prev => ({ ...prev, fees: { ...prev.fees, [key]: value } }));
   };
 
   const handleDeploy = useCallback(async () => {
@@ -199,7 +188,6 @@ export default function StudioPage() {
               toggleWidget={toggleWidget}
               update={update}
               updateBranding={updateBranding}
-              updateFees={updateFees}
               onNext={() => setStep("deploy")}
             />
           )}
@@ -285,14 +273,12 @@ function CustomizeStep({
   toggleWidget,
   update,
   updateBranding,
-  updateFees,
   onNext,
 }: {
   config: StudioConfig;
   toggleWidget: (k: WidgetKey) => void;
   update: <K extends keyof StudioConfig>(k: K, v: StudioConfig[K]) => void;
   updateBranding: <K extends keyof StudioConfig["branding"]>(k: K, v: StudioConfig["branding"][K]) => void;
-  updateFees: <K extends keyof StudioConfig["fees"]>(k: K, v: StudioConfig["fees"][K]) => void;
   onNext: () => void;
 }) {
   const categories = ["core", "flow", "market", "derivatives", "ecosystem"] as const;
@@ -442,27 +428,20 @@ function CustomizeStep({
         })}
       </section>
 
-      {/* Fees */}
+      {/* Fee info — view only */}
       <section>
-        <h3 className="text-[12px] font-semibold text-[var(--hl-accent)] uppercase tracking-wider mb-3">Builder Fee</h3>
-        <p className="text-[10.5px] text-[var(--hl-muted)] mb-3 leading-relaxed">
-          Your markup is added on top of HL's exchange fee + HLOne's 0.005% platform fee. Pays directly to your wallet on every trade. Max {MAX_MARKUP_BPS / 100}%.
-        </p>
-        <div className="flex items-center gap-3">
-          <input
-            type="range"
-            min={0}
-            max={MAX_MARKUP_BPS}
-            step={1}
-            value={config.fees.markupBps}
-            onChange={e => updateFees("markupBps", parseInt(e.target.value, 10))}
-            className="flex-1 accent-[var(--hl-accent)]"
-          />
-          <div className="text-[11px] tabular-nums font-mono w-24 text-right">
-            <span className="text-[var(--foreground)]">{config.fees.markupBps} bps</span>
-            <span className="text-[var(--hl-muted)] ml-1">({(config.fees.markupBps / 100).toFixed(3)}%)</span>
+        <h3 className="text-[12px] font-semibold text-[var(--hl-accent)] uppercase tracking-wider mb-3">Fees on your build</h3>
+        <div className="rounded bg-[var(--hl-surface)] border border-[var(--hl-border)] p-3 text-[11px] leading-relaxed space-y-1">
+          <div className="flex justify-between"><span className="text-[var(--hl-muted)]">HL exchange fee</span><span className="tabular-nums">~0.035%</span></div>
+          <div className="flex justify-between"><span className="text-[var(--hl-muted)]">HLOne builder fee</span><span className="tabular-nums">{(HLONE_PLATFORM_FEE_BPS / 100).toFixed(3)}%</span></div>
+          <div className="border-t border-[var(--hl-border)] mt-1 pt-1 flex justify-between font-medium">
+            <span>Total per trade</span>
+            <span className="tabular-nums">~{(3.5 + HLONE_PLATFORM_FEE_BPS).toFixed(1)} bps (~{((3.5 + HLONE_PLATFORM_FEE_BPS) / 100).toFixed(3)}%)</span>
           </div>
         </div>
+        <p className="text-[10px] text-[var(--hl-muted)] mt-2 leading-relaxed">
+          HL takes their exchange fee + HLOne takes {(HLONE_PLATFORM_FEE_BPS / 100).toFixed(3)}% on every trade. Builder-earns-fee is a future feature — for now, builds are for your own use or sharing without taking a cut.
+        </p>
       </section>
 
       <button
@@ -575,39 +554,15 @@ function DeployStep({
         <div className="space-y-3">
           <div className="rounded bg-[var(--hl-surface)] border border-[var(--hl-border)] p-3 text-[11px] leading-relaxed space-y-1">
             <div className="flex justify-between"><span className="text-[var(--hl-muted)]">HL exchange fee</span><span className="tabular-nums">~0.035%</span></div>
-            <div className="flex justify-between"><span className="text-[var(--hl-muted)]">HLOne platform fee</span><span className="tabular-nums">{HLONE_PLATFORM_FEE_BPS / 100}%</span></div>
-            <div className="flex justify-between"><span className="text-[var(--foreground)]">Your builder markup</span><span className="tabular-nums text-[var(--hl-accent)]">{(config.fees.markupBps / 100).toFixed(3)}%</span></div>
+            <div className="flex justify-between"><span className="text-[var(--hl-muted)]">HLOne builder fee</span><span className="tabular-nums">{(HLONE_PLATFORM_FEE_BPS / 100).toFixed(3)}%</span></div>
             <div className="border-t border-[var(--hl-border)] mt-1 pt-1 flex justify-between font-medium">
               <span>Total per trade</span>
-              <span className="tabular-nums">{(3.5 + HLONE_PLATFORM_FEE_BPS + config.fees.markupBps).toFixed(1)} bps ({((3.5 + HLONE_PLATFORM_FEE_BPS + config.fees.markupBps) / 100).toFixed(3)}%)</span>
+              <span className="tabular-nums">~{(3.5 + HLONE_PLATFORM_FEE_BPS).toFixed(1)} bps (~{((3.5 + HLONE_PLATFORM_FEE_BPS) / 100).toFixed(3)}%)</span>
             </div>
           </div>
-          <Field label={`Builder Markup (0 – ${MAX_MARKUP_BPS} bps = ${MAX_MARKUP_BPS / 100}%)`}>
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min={0}
-                max={MAX_MARKUP_BPS}
-                step={1}
-                value={config.fees.markupBps}
-                onChange={e => {/* NOTE: direct state mutation would cause re-render loop; see parent updateFees */}}
-                className="flex-1 accent-[var(--hl-accent)]"
-                disabled
-              />
-              <span className="text-[11px] tabular-nums font-mono w-12 text-right">{config.fees.markupBps} bps</span>
-            </div>
-            <p className="text-[9px] text-[var(--hl-muted)] mt-1">Edit in Customize → Fees section.</p>
-          </Field>
-          <Field label="Payout wallet">
-            <input
-              value={config.fees.builderWallet}
-              readOnly
-              className="w-full px-3 py-2 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[11px] text-[var(--foreground)] outline-none font-mono"
-            />
-            <p className="text-[9px] text-[var(--hl-muted)] mt-1">
-              {walletConnected ? "Auto-filled from your connected wallet. Your builder markup pays directly here on every trade." : "Connect wallet to auto-fill."}
-            </p>
-          </Field>
+          <p className="text-[10px] text-[var(--hl-muted)] leading-relaxed">
+            Every trade on your build routes the HLOne builder fee to our wallet automatically via HL's builder code system. Users approve HLOne as their builder once (one-time signature), then every subsequent trade is fee-correct. No custody, no delays.
+          </p>
         </div>
       </section>
 
@@ -644,7 +599,7 @@ function DeployStep({
             : "Deploy — Pay 50 USDC on Arbitrum"}
         </button>
         <p className="text-[9px] text-[var(--hl-muted)] mt-2 leading-relaxed">
-          Pay once with USDC on Arbitrum (same network you use to deposit to HL). Covers API key + rate limits for ~12 months. Then it's just the fee split: 0.005% to HLOne, {(config.fees.markupBps / 100).toFixed(3)}% to your wallet on every trade.
+          Pay once with USDC on Arbitrum (same network you use to deposit to HL). Covers API key + rate limits for ~12 months.
         </p>
       </section>
 
@@ -823,8 +778,7 @@ function LivePreview({ config }: { config: StudioConfig }) {
             <div className="text-[9px] text-[var(--hl-muted)] uppercase tracking-wide mb-1.5">Fee stack</div>
             <div className="space-y-0.5 text-[10px] font-mono">
               <FeeRow label="HL exchange fee" value="~0.035%" />
-              <FeeRow label="HLOne platform" value="0.005%" />
-              <FeeRow label="Your markup" value={`${(config.fees.markupBps / 100).toFixed(3)}%`} accent={accent} />
+              <FeeRow label="HLOne builder fee" value={`${(HLONE_PLATFORM_FEE_BPS / 100).toFixed(3)}%`} accent={accent} />
             </div>
           </div>
         </div>
