@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { TokenDetail, TokenOverview, WhaleAlert, LiquidationBand } from "@/lib/api";
 import { getTokenDetail, getOICandles as fetchOICandles, getCandles as fetchCandlesViaBackend } from "@/lib/api";
 import { useAccountInfo } from "@/hooks/use-account-info";
+import { useUserFills, type UserFill, type UserOpenPosition } from "@/hooks/use-user-fills";
 import { CoinIntelPanel } from "./coin-intel-panel";
 
 interface PriceChartProps {
@@ -257,6 +258,9 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
     if (detail?.whaleAlerts?.length) return detail.whaleAlerts;
     return whaleAlerts.filter(a => a.coin === coin);
   }, [detail, whaleAlerts, coin]);
+
+  // User's own fills + open position for this coin
+  const { fills: userFills, openPosition: userPosition } = useUserFills(coin);
 
   const fundingData = useMemo(() => {
     if (!detail?.funding?.length) return [];
@@ -822,6 +826,8 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             currentPrice={overview?.price}
             whaleAlerts={coinWhaleAlerts}
             topTraderFills={detail?.topTraderFills || []}
+            userFills={userFills}
+            userPosition={userPosition}
             liquidationBands={showHeatmap ? liquidationBands : undefined}
             drawings={drawings}
             pendingDrawing={pendingDrawing}
@@ -908,7 +914,7 @@ interface TopTraderFillData {
   accountValue?: number;
 }
 
-function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], liquidationBands, drawings = [], pendingDrawing, drawingTool = "none", magnetMode = false, enabledSMAs = new Set(), smaColors = {}, onDrawingClick, onDrawingHover, onRemoveDrawing }: {
+function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], userFills = [], userPosition = null, liquidationBands, drawings = [], pendingDrawing, drawingTool = "none", magnetMode = false, enabledSMAs = new Set(), smaColors = {}, onDrawingClick, onDrawingHover, onRemoveDrawing }: {
   candles: CandleData[];
   oiCandles: { time: number; open: number; high: number; low: number; close: number; bullish: boolean }[];
   formatTime: (t: number) => string;
@@ -917,6 +923,8 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   currentPrice?: number;
   whaleAlerts?: WhaleAlert[];
   topTraderFills?: TopTraderFillData[];
+  userFills?: UserFill[];
+  userPosition?: UserOpenPosition | null;
   liquidationBands?: LiquidationBand[];
   drawings?: DrawingLine[];
   pendingDrawing?: Partial<DrawingLine> | null;
@@ -1835,6 +1843,182 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
               );
             }
             return markers;
+          })()}
+
+          {/* User's own fill markers — distinct from whale markers (bright yellow arrow + "YOU" label) */}
+          {(() => {
+            if (data.length < 2 || userFills.length === 0) return null;
+            const visible = userFills.filter(f => f.time >= visibleStart && f.time < visibleEnd);
+            if (visible.length === 0) return null;
+
+            const elements: React.ReactNode[] = [];
+            const color = "#ffcc00"; // bright yellow — distinct from green/red whale markers
+
+            for (const fill of visible) {
+              let candleIdx = -1;
+              for (let i = 0; i < data.length; i++) {
+                if (fill.time >= data[i].time && fill.time < data[i].time + candleDuration) {
+                  candleIdx = i;
+                  break;
+                }
+              }
+              if (candleIdx === -1) continue;
+
+              const x = ML + candleIdx * candleW + candleW / 2;
+              const y = priceY(fill.price);
+              // direction: "Open Long" / "Close Long" / "Open Short" / "Close Short"
+              const isOpen = fill.direction.startsWith("Open");
+              const isLong = fill.direction.endsWith("Long");
+              // Arrow points: triangle up for opening long / closing short (bullish-looking)
+              //               triangle down for opening short / closing long (bearish-looking)
+              const pointsUp = (isOpen && isLong) || (!isOpen && !isLong);
+              const size = 6;
+              const arrowPoints = pointsUp
+                ? `${x},${y - size} ${x - size},${y + size} ${x + size},${y + size}`
+                : `${x},${y + size} ${x - size},${y - size} ${x + size},${y - size}`;
+              const label = isOpen ? (isLong ? "LONG" : "SHORT") : "CLOSE";
+
+              elements.push(
+                <g key={`user-fill-${fill.oid}`} style={{ pointerEvents: "none" }}>
+                  {/* Thin leader line from fill price to candle close */}
+                  <line
+                    x1={x} y1={y}
+                    x2={x} y2={priceY(data[candleIdx].close)}
+                    stroke={color} strokeWidth={1} strokeDasharray="2 2" opacity={0.4}
+                  />
+                  {/* Arrow marker */}
+                  <polygon
+                    points={arrowPoints}
+                    fill={color}
+                    stroke="#000"
+                    strokeWidth={0.5}
+                  />
+                  {/* "YOU" badge */}
+                  <g>
+                    <rect
+                      x={x + size + 2}
+                      y={y - 6}
+                      width={label.length * 5 + 6}
+                      height={12}
+                      rx={2}
+                      fill={color}
+                      stroke="#000"
+                      strokeWidth={0.3}
+                    />
+                    <text
+                      x={x + size + 5}
+                      y={y + 1.5}
+                      fill="#000"
+                      fontSize={8}
+                      fontFamily="monospace"
+                      fontWeight="bold"
+                      dominantBaseline="middle"
+                    >
+                      {label}
+                    </text>
+                  </g>
+                </g>
+              );
+            }
+            return elements;
+          })()}
+
+          {/* Open position entry price line (horizontal dashed, labeled with P&L) */}
+          {userPosition && (() => {
+            const y = priceY(userPosition.entryPrice);
+            if (y < 0 || y > H - MB) return null; // out of visible range
+            const isLong = userPosition.side === "long";
+            const color = isLong ? "var(--hl-green)" : "var(--hl-red)";
+            const pnl = userPosition.unrealizedPnl;
+            const pnlStr = `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`;
+            const label = `${isLong ? "LONG" : "SHORT"} ${userPosition.size} @ ${formatPrice(userPosition.entryPrice)}`;
+            return (
+              <g style={{ pointerEvents: "none" }}>
+                <line
+                  x1={ML} y1={y}
+                  x2={W - MR} y2={y}
+                  stroke={color}
+                  strokeWidth={1.2}
+                  strokeDasharray="6 4"
+                  opacity={0.8}
+                />
+                {/* Label at left — position info */}
+                <g>
+                  <rect
+                    x={ML + 4}
+                    y={y - 8}
+                    width={label.length * 5.5 + 8}
+                    height={16}
+                    rx={2}
+                    fill="var(--background)"
+                    stroke={color}
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={ML + 8}
+                    y={y + 1}
+                    fill={color}
+                    fontSize={9}
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    dominantBaseline="middle"
+                  >
+                    {label}
+                  </text>
+                </g>
+                {/* PnL badge at right */}
+                <g>
+                  <rect
+                    x={W - MR - (pnlStr.length * 6 + 10)}
+                    y={y - 8}
+                    width={pnlStr.length * 6 + 8}
+                    height={16}
+                    rx={2}
+                    fill={color}
+                  />
+                  <text
+                    x={W - MR - 4}
+                    y={y + 1}
+                    fill="#000"
+                    fontSize={9}
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    textAnchor="end"
+                    dominantBaseline="middle"
+                  >
+                    {pnlStr}
+                  </text>
+                </g>
+              </g>
+            );
+          })()}
+
+          {/* Liquidation price line (if open position has one) */}
+          {userPosition?.liquidationPrice && (() => {
+            const y = priceY(userPosition.liquidationPrice);
+            if (y < 0 || y > H - MB) return null;
+            return (
+              <g style={{ pointerEvents: "none" }}>
+                <line
+                  x1={ML} y1={y}
+                  x2={W - MR} y2={y}
+                  stroke="var(--hl-red)"
+                  strokeWidth={1}
+                  strokeDasharray="2 3"
+                  opacity={0.6}
+                />
+                <text
+                  x={ML + 4}
+                  y={y - 2}
+                  fill="var(--hl-red)"
+                  fontSize={8}
+                  fontFamily="monospace"
+                  opacity={0.8}
+                >
+                  LIQ {formatPrice(userPosition.liquidationPrice)}
+                </text>
+              </g>
+            );
           })()}
 
           {/* Whale/shark markers above candles */}
