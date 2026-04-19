@@ -1,0 +1,131 @@
+// HLOne Studio — database schema (Prisma + Postgres)
+//
+// Setup steps (after you provision a Postgres, e.g. on Railway or Supabase):
+//   1. `pnpm add -D prisma && pnpm add @prisma/client` in apps/web
+//   2. Set DATABASE_URL env var in Vercel (Sensitive)
+//   3. Run `npx prisma migrate dev --name init` locally to create tables
+//   4. Run `npx prisma generate` to build the client
+//   5. Deploy — migrations run on next deploy via `postinstall` script
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Studio Builds ────────────────────────────────────────────────────────
+// One row per deploy. API keys are hashed (SHA-256), never stored in plaintext.
+
+model StudioBuild {
+  id            String   @id @default(cuid())
+  deployId      String   @unique                 // public-facing ID: hlone_... prefix stripped
+  apiKeyHash    String   @unique                 // sha256(apiKey) — plaintext never stored
+
+  // Owner
+  ownerWallet   String                            // 0x... wallet that paid + owns the deploy
+  ownerEmail    String?                           // optional, via GitHub OAuth
+
+  // Config snapshot at time of deploy
+  slug          String                            // url slug (unique per owner)
+  name          String
+  configJson    Json                              // full StudioConfig at deploy time
+
+  // Fee structure — builder's own wallet, they keep 100%
+  builderWallet String                            // where builder fees are paid by HL directly
+  markupBps     Int                               // 0-40 (0.00% to 0.40%)
+
+  // Deploy references
+  repoUrl       String?                           // github.com/user/hlone-xxx
+  deployUrl     String?                           // https://xxx.vercel.app or custom domain
+  vercelProjectId String?                         // Vercel project ID (for updates)
+  githubRepoId  String?                           // GitHub repo ID
+
+  // Payment
+  paymentTxHash String                            // USDC payment on Arbitrum
+  paymentAmount Decimal  @db.Decimal(10, 2)       // amount paid in USDC (50.00 typically)
+  paidAt        DateTime
+
+  // Lifecycle
+  status        BuildStatus @default(ACTIVE)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  revokedAt     DateTime?
+  revokedReason String?
+
+  // Relations
+  apiUsageEvents ApiUsageEvent[]
+
+  @@unique([ownerWallet, slug])
+  @@index([ownerWallet])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum BuildStatus {
+  ACTIVE
+  REVOKED      // Owner or admin revoked
+  EXPIRED      // API key subscription lapsed
+  SUSPENDED    // Under review
+}
+
+// ─── Used Payment Tx Hashes ───────────────────────────────────────────────
+// Prevents replay attacks on /api/studio/checkout.
+
+model UsedPaymentTx {
+  txHash    String   @id                          // lowercase 0x... hash
+  wallet    String                                // payer wallet
+  amountUsdc Decimal @db.Decimal(10, 2)
+  buildId   String?                               // linked build (null if payment made, deploy failed)
+  usedAt    DateTime @default(now())
+
+  @@index([wallet])
+  @@index([usedAt])
+}
+
+// ─── API Usage Events ─────────────────────────────────────────────────────
+// Per-request tracking for rate limiting + analytics.
+// Consider using a time-series DB (TimescaleDB, ClickHouse) if volume grows.
+
+model ApiUsageEvent {
+  id          String   @id @default(cuid())
+  buildId     String
+  build       StudioBuild @relation(fields: [buildId], references: [id], onDelete: Cascade)
+
+  endpoint    String                              // e.g. "/api/studio/validate-order"
+  userWallet  String?                             // the end user trading through this build
+  statusCode  Int                                 // 200, 401, 402, etc
+  durationMs  Int?                                // request duration
+
+  createdAt   DateTime @default(now())
+
+  @@index([buildId, createdAt])
+  @@index([userWallet])
+  @@index([createdAt])
+}
+
+// ─── Discover listing ─────────────────────────────────────────────────────
+// Public-facing list of builds for /studio/discover.
+// Denormalized stats updated by a background job.
+
+model DiscoverListing {
+  buildId       String   @id
+  build         StudioBuild @relation(fields: [buildId], references: [id], onDelete: Cascade)
+
+  featured      Boolean  @default(false)          // curated by us
+  hidden        Boolean  @default(false)          // abuse / moderation
+
+  volume24hUsd  Decimal  @default(0) @db.Decimal(18, 2)
+  volume7dUsd   Decimal  @default(0) @db.Decimal(18, 2)
+  volumeAllUsd  Decimal  @default(0) @db.Decimal(18, 2)
+  trades24h     Int      @default(0)
+  uniqueUsers   Int      @default(0)
+
+  lastSyncedAt  DateTime @default(now())
+
+  @@index([featured, volumeAllUsd])
+  @@index([hidden])
+  @@index([volume24hUsd])
+}

@@ -1,19 +1,20 @@
 /**
  * POST /api/studio/validate-order
  *
- * Fee enforcement endpoint. Builder deploys call this before submitting orders
- * to HyperLiquid. We verify:
- *   1. The API key is valid and active
- *   2. The order includes the correct HLOne platform fee (0.005%)
- *   3. The builder markup in the order matches what's registered for this API key
+ * API-key + rate-limit gate for Studio deploys. We no longer enforce on-chain
+ * fee splits — HL only allows ONE builder per order, and we trust it to pay
+ * the builder directly via their own builder code (no middleman). HLOne's
+ * revenue comes from the $50 one-time + optional API subscription, not from
+ * taking a cut of trades.
  *
- * If all checks pass, we return a signed OK. Deploys use this as a gate —
- * if we return 402, the order isn't submitted. This is how we enforce that
- * builders can't strip our fee.
+ * This endpoint now just:
+ *   1. Validates the API key is active (deploy is paid + not revoked)
+ *   2. Checks the builder code in the order matches what's registered for this
+ *      deploy (so a builder can't silently change their fee/recipient after deploy)
+ *   3. Records usage for rate-limit accounting
  *
- * Env vars needed:
- *   DATABASE_URL              - Postgres for build records lookup
- *   HLONE_BUILDER_WALLET      - Our wallet address that must appear in order.builder
+ * Env vars:
+ *   DATABASE_URL          - Postgres for build records lookup
  */
 
 import { NextResponse } from "next/server";
@@ -33,10 +34,10 @@ interface OrderValidationRequest {
 interface ValidationResult {
   ok: boolean;
   error?: string;
-  /** Required builder address (HLOne's wallet) */
-  requiredBuilder?: string;
-  /** Minimum required builder fee in bps */
-  requiredMinBps?: number;
+  /** Expected builder address (the deploy's builder wallet) */
+  expectedBuilder?: string;
+  /** Expected builder fee in tenths of a basis point (HL format) */
+  expectedFeeTenthBps?: number;
 }
 
 export async function POST(req: Request): Promise<NextResponse<ValidationResult>> {
@@ -47,47 +48,39 @@ export async function POST(req: Request): Promise<NextResponse<ValidationResult>
       return NextResponse.json({ ok: false, error: "Missing or invalid API key" }, { status: 401 });
     }
 
-    // Look up the build record for this API key
     const build = await lookupBuildByApiKey(body.apiKey);
     if (!build) {
-      return NextResponse.json({ ok: false, error: "Unknown API key" }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "Unknown or revoked API key" }, { status: 401 });
     }
 
-    // Verify the order's builder field matches HLOne's wallet (our 0.005% cut)
-    const hloneBuilder = (process.env.HLONE_BUILDER_WALLET ?? "").toLowerCase();
-    if (!hloneBuilder) {
-      console.warn("[validate-order] HLONE_BUILDER_WALLET not set — skipping fee check");
-    }
-
+    // Verify the builder field matches what's registered for this deploy — prevents
+    // silent post-deploy fee changes. We allow EITHER the builder's own wallet (with
+    // their markup) or no builder field (user opted out via setting markup=0).
     const orderBuilder = (body.order.builder?.b ?? "").toLowerCase();
-    const orderBuilderFee = body.order.builder?.f ?? 0;
+    const orderFee = body.order.builder?.f ?? 0;
+    const expectedBuilder = build.builderWallet.toLowerCase();
+    const expectedFee = build.markupBps * 10; // bps → HL's tenth-bps
 
-    // HL's builder code pattern: order.builder = { b: address, f: tenthBps }
-    // HLOne base fee = 0.5 tenthBps (= 0.005%)
-    // Builder's markup is applied via a separate proxy/stacked code we manage
-    const HLONE_MIN_TENTH_BPS = 5; // 0.005% in HL's "tenths of a basis point" format
-
-    if (hloneBuilder && orderBuilder !== hloneBuilder) {
-      return NextResponse.json({
-        ok: false,
-        error: `Order's builder field must be HLOne's wallet (${hloneBuilder}). Found: ${orderBuilder || "missing"}`,
-        requiredBuilder: hloneBuilder,
-        requiredMinBps: HLONE_MIN_TENTH_BPS / 10,
-      }, { status: 402 });
+    if (build.markupBps > 0) {
+      if (orderBuilder !== expectedBuilder) {
+        return NextResponse.json({
+          ok: false,
+          error: `Builder field mismatch. Expected ${expectedBuilder}, got ${orderBuilder || "none"}`,
+          expectedBuilder,
+          expectedFeeTenthBps: expectedFee,
+        }, { status: 402 });
+      }
+      if (orderFee !== expectedFee) {
+        return NextResponse.json({
+          ok: false,
+          error: `Builder fee mismatch. Expected ${expectedFee} (${build.markupBps}bps), got ${orderFee}`,
+          expectedBuilder,
+          expectedFeeTenthBps: expectedFee,
+        }, { status: 402 });
+      }
     }
 
-    if (orderBuilderFee < HLONE_MIN_TENTH_BPS) {
-      return NextResponse.json({
-        ok: false,
-        error: `Order's builder fee must be >= ${HLONE_MIN_TENTH_BPS} (0.005%). Found: ${orderBuilderFee}`,
-        requiredBuilder: hloneBuilder,
-        requiredMinBps: HLONE_MIN_TENTH_BPS / 10,
-      }, { status: 402 });
-    }
-
-    // Track usage for analytics + rate limits (stubbed)
     await recordApiUsage(body.apiKey, body.userWallet);
-
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[validate-order] Error:", err);
@@ -95,33 +88,29 @@ export async function POST(req: Request): Promise<NextResponse<ValidationResult>
   }
 }
 
-// ─── Persistence (stubbed) ──────────────────────────────────────────────────
-// TODO: replace with real DB lookups
+// ─── Persistence (stubbed — replace with Prisma/Drizzle + Postgres) ────────
 
 async function lookupBuildByApiKey(apiKey: string): Promise<{
   deployId: string;
   wallet: string;
   slug: string;
   markupBps: number;
+  builderWallet: string;
   createdAt: string;
 } | null> {
-  // Dev mode: allow any properly-formatted key
   if (process.env.NODE_ENV !== "production") {
     return {
       deployId: "dev_stub",
       wallet: "0x0000000000000000000000000000000000000000",
       slug: "dev",
       markupBps: 10,
+      builderWallet: "0x0000000000000000000000000000000000000000",
       createdAt: new Date().toISOString(),
     };
   }
-  // Real impl:
-  // const keyHash = crypto.createHash("sha256").update(apiKey).digest("hex");
-  // return await db.queryOne("SELECT * FROM studio_builds WHERE api_key_hash = $1 AND revoked = false", [keyHash]);
   return null;
 }
 
 async function recordApiUsage(apiKey: string, userWallet?: string): Promise<void> {
-  // Stubbed — in prod, increment a Redis counter or insert to usage_events table
   console.log("[validate-order] usage:", apiKey.slice(0, 16) + "...", userWallet?.slice(0, 10));
 }

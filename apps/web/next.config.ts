@@ -32,15 +32,19 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // Proxy API requests in production to avoid CORS issues
+  // Proxy API requests in production to avoid CORS issues.
+  // IMPORTANT: explicitly list backend routes — do NOT use /api/:path* because that
+  // would also proxy /api/studio/* which lives in this Next.js app, not the backend.
   async rewrites() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
     if (!apiUrl) return [];
     return [
-      {
-        source: "/api/:path*",
-        destination: `${apiUrl}/api/:path*`,
-      },
+      { source: "/api/market/:path*",    destination: `${apiUrl}/api/market/:path*` },
+      { source: "/api/traders/:path*",   destination: `${apiUrl}/api/traders/:path*` },
+      { source: "/api/copy/:path*",      destination: `${apiUrl}/api/copy/:path*` },
+      { source: "/api/portfolio/:path*", destination: `${apiUrl}/api/portfolio/:path*` },
+      { source: "/api/users/:path*",     destination: `${apiUrl}/api/users/:path*` },
+      // NOTE: /api/studio/* is intentionally NOT here — handled locally by Next.js routes
     ];
   },
 };
