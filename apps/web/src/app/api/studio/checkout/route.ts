@@ -1,27 +1,46 @@
 /**
  * POST /api/studio/checkout
  *
- * Creates a Stripe Checkout session for the $50 one-time HLOne Studio deploy fee.
- * On successful payment, Stripe redirects back to /studio?deploy=<sessionId>
- * which triggers /api/studio/deploy to actually fork + deploy the repo.
+ * Verifies a crypto payment for the $50 one-time HLOne Studio deploy fee.
+ * Users pay in USDC on Arbitrum (same chain they already use for HL deposits).
  *
- * Env vars needed (set in Vercel):
- *   STRIPE_SECRET_KEY          - sk_live_... or sk_test_...
- *   STRIPE_STUDIO_PRICE_ID     - price_... (for the $50 one-time product)
- *   NEXT_PUBLIC_BASE_URL       - https://hlone.xyz (for redirects)
+ * Flow:
+ *   1. Frontend triggers USDC.transfer(HLONE_PAYMENTS_WALLET, 50 USDC) via wagmi
+ *   2. Frontend submits the txHash to this endpoint
+ *   3. We verify the tx on-chain: correct recipient, ≥ $50 USDC, from claimed wallet, confirmed
+ *   4. We mark the txHash as "used" so it can't be replayed
+ *   5. Return { ok: true, sessionId } — frontend then calls /api/studio/deploy
  *
- * In dev (no STRIPE_SECRET_KEY set), returns { skipPayment: true } so the
- * frontend can call /api/studio/deploy directly.
+ * Env vars needed (set in Vercel, mark SENSITIVE per the April 2026 breach):
+ *   NEXT_PUBLIC_HLONE_PAYMENTS_WALLET  - where $50 payments land (public, OK to prefix)
+ *   ARBITRUM_RPC_URL                    - (optional) RPC endpoint, else uses public
+ *   DATABASE_URL                        - for tracking used txHashes (MUST be sensitive)
  */
 
 import { NextResponse } from "next/server";
+import { createPublicClient, http, parseUnits, decodeEventLog, parseAbi } from "viem";
+import { arbitrum } from "viem/chains";
 import { validateConfig, type StudioConfig } from "@/lib/studio-config";
+import crypto from "crypto";
+
+// USDC on Arbitrum (native, not bridged)
+const USDC_ARBITRUM = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as const;
+const USDC_DECIMALS = 6;
+const DEPLOY_FEE_USDC = 50; // $50
+
+const TRANSFER_EVENT_ABI = parseAbi([
+  "event Transfer(address indexed from, address indexed to, uint256 value)",
+]);
+
+// In-memory used-tx cache (replace with DB in prod)
+const usedTxHashes = new Set<string>();
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const config = body.config as Partial<StudioConfig>;
     const wallet = body.wallet as string | undefined;
+    const txHash = body.txHash as string | undefined;
 
     const validation = validateConfig(config);
     if (!validation.ok) {
@@ -32,50 +51,112 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid wallet address" }, { status: 400 });
     }
 
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    const stripePriceId = process.env.STRIPE_STUDIO_PRICE_ID;
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
+    const paymentsWallet = process.env.NEXT_PUBLIC_HLONE_PAYMENTS_WALLET;
 
-    // Dev mode: no Stripe → skip payment, deploy immediately
-    if (!stripeKey || !stripePriceId) {
-      console.log("[studio/checkout] Dev mode — no STRIPE_SECRET_KEY, skipping payment");
+    // Dev mode: if no payments wallet configured, skip payment and deploy immediately
+    if (!paymentsWallet) {
+      console.log("[studio/checkout] Dev mode — no NEXT_PUBLIC_HLONE_PAYMENTS_WALLET set, skipping payment");
       return NextResponse.json({
         skipPayment: true,
         sessionId: `dev_${Date.now()}`,
+        note: "Set NEXT_PUBLIC_HLONE_PAYMENTS_WALLET env var to enable payment verification.",
       });
     }
 
-    // Prod: create Stripe checkout session
-    // (Dynamic-imported to avoid bundling the SDK into dev builds / when not installed.
-    //  Run `pnpm add stripe` in apps/web to enable real payment processing.)
-    // @ts-expect-error — stripe is an optional peer dep, install to enable
-    const StripeModule = await import("stripe").catch(() => null);
-    if (!StripeModule) {
+    // Real flow: require txHash from frontend
+    if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+      // No txHash yet — frontend is requesting payment instructions
       return NextResponse.json({
-        error: "Stripe SDK not installed. Run 'pnpm add stripe' in apps/web to enable payments, or unset STRIPE_SECRET_KEY for dev mode.",
-      }, { status: 500 });
+        paymentRequired: true,
+        amountUsdc: DEPLOY_FEE_USDC,
+        tokenAddress: USDC_ARBITRUM,
+        chainId: arbitrum.id,
+        chainName: "Arbitrum",
+        recipient: paymentsWallet,
+        note: "Send 50 USDC on Arbitrum to the recipient, then submit txHash to complete deploy.",
+      });
     }
-    const Stripe = StripeModule.default;
-    const stripe = new Stripe(stripeKey);
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      payment_method_types: ["card"],
-      line_items: [{ price: stripePriceId, quantity: 1 }],
-      success_url: `${baseUrl}/studio?deploy={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/studio?canceled=1`,
-      metadata: {
-        wallet,
-        slug: validation.config.slug,
-        name: validation.config.name,
-        // Stash the full config so the webhook can deploy it
-        config: JSON.stringify(validation.config).slice(0, 4900), // Stripe metadata limit is 500 chars per field; we'll store separately in prod
-      },
-    });
+    // Replay protection
+    if (usedTxHashes.has(txHash.toLowerCase())) {
+      return NextResponse.json({ error: "Transaction already used for a previous deploy" }, { status: 409 });
+    }
+
+    // Verify on-chain
+    const rpcUrl = process.env.ARBITRUM_RPC_URL ?? "https://arb1.arbitrum.io/rpc";
+    const client = createPublicClient({ chain: arbitrum, transport: http(rpcUrl) });
+
+    const receipt = await client.getTransactionReceipt({ hash: txHash as `0x${string}` }).catch(() => null);
+    if (!receipt) {
+      return NextResponse.json({ error: "Transaction not found or not yet mined. Wait ~30s and retry." }, { status: 404 });
+    }
+    if (receipt.status !== "success") {
+      return NextResponse.json({ error: "Transaction reverted on-chain" }, { status: 400 });
+    }
+    if (receipt.to?.toLowerCase() !== USDC_ARBITRUM.toLowerCase()) {
+      return NextResponse.json({ error: "Transaction is not a USDC transfer (wrong contract)" }, { status: 400 });
+    }
+
+    // Decode Transfer events from the receipt
+    let matchingTransfer: { from: string; to: string; value: bigint } | null = null;
+    for (const log of receipt.logs) {
+      if (log.address.toLowerCase() !== USDC_ARBITRUM.toLowerCase()) continue;
+      try {
+        const decoded = decodeEventLog({
+          abi: TRANSFER_EVENT_ABI,
+          data: log.data,
+          topics: log.topics,
+        });
+        if (decoded.eventName === "Transfer") {
+          matchingTransfer = {
+            from: decoded.args.from,
+            to: decoded.args.to,
+            value: decoded.args.value,
+          };
+          break;
+        }
+      } catch {}
+    }
+
+    if (!matchingTransfer) {
+      return NextResponse.json({ error: "No USDC Transfer event in transaction" }, { status: 400 });
+    }
+
+    if (matchingTransfer.from.toLowerCase() !== wallet.toLowerCase()) {
+      return NextResponse.json({
+        error: `Transfer from address (${matchingTransfer.from}) doesn't match connected wallet (${wallet})`,
+      }, { status: 400 });
+    }
+
+    if (matchingTransfer.to.toLowerCase() !== paymentsWallet.toLowerCase()) {
+      return NextResponse.json({
+        error: `Transfer recipient (${matchingTransfer.to}) doesn't match HLOne payments wallet (${paymentsWallet})`,
+      }, { status: 400 });
+    }
+
+    const requiredAmount = parseUnits(DEPLOY_FEE_USDC.toString(), USDC_DECIMALS);
+    if (matchingTransfer.value < requiredAmount) {
+      const paidUsdc = Number(matchingTransfer.value) / 10 ** USDC_DECIMALS;
+      return NextResponse.json({
+        error: `Payment below $${DEPLOY_FEE_USDC} (paid $${paidUsdc.toFixed(2)})`,
+      }, { status: 402 });
+    }
+
+    // Mark tx as used (in prod, persist to DB)
+    usedTxHashes.add(txHash.toLowerCase());
+
+    const sessionId = `pay_${crypto.randomBytes(12).toString("hex")}`;
+    console.log(`[studio/checkout] Payment verified: ${wallet} → ${txHash} → sessionId=${sessionId}`);
 
     return NextResponse.json({
-      url: session.url,
-      sessionId: session.id,
+      ok: true,
+      sessionId,
+      verified: {
+        txHash,
+        from: matchingTransfer.from,
+        to: matchingTransfer.to,
+        amountUsdc: Number(matchingTransfer.value) / 10 ** USDC_DECIMALS,
+      },
     });
   } catch (err) {
     console.error("[studio/checkout] Error:", err);

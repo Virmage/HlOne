@@ -60,44 +60,95 @@ export default function StudioPage() {
   };
 
   const handleDeploy = useCallback(async () => {
-    if (!validation.ok) return;
+    if (!validation.ok || !address) return;
     setDeployStatus("paying");
     setDeployError("");
 
     try {
-      // 1. Create Stripe checkout session for $50 deploy fee
-      const checkoutRes = await fetch("/api/studio/checkout", {
+      // Step 1: Get payment instructions (or dev-mode skip)
+      const instructRes = await fetch("/api/studio/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config: validation.config, wallet: address }),
       });
-      const checkoutData = await checkoutRes.json();
+      const instructData = await instructRes.json();
 
-      if (!checkoutRes.ok) {
-        throw new Error(checkoutData.error || "Checkout failed");
+      if (!instructRes.ok) {
+        throw new Error(instructData.error || "Payment init failed");
       }
 
-      // In dev mode without Stripe configured, skip payment and deploy directly
-      if (checkoutData.skipPayment) {
-        setDeployStatus("deploying");
-        const deployRes = await fetch("/api/studio/deploy", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ config: validation.config, wallet: address, checkoutId: checkoutData.sessionId }),
-        });
-        const deployData = await deployRes.json();
+      let sessionId: string = instructData.sessionId;
 
-        if (!deployRes.ok) {
-          throw new Error(deployData.error || "Deploy failed");
+      // Dev mode: no payments wallet configured, skip payment
+      if (instructData.skipPayment) {
+        // Fall through to deploy directly
+      } else if (instructData.paymentRequired) {
+        // Real payment flow: send USDC on Arbitrum
+        const { amountUsdc, tokenAddress, chainId, recipient } = instructData;
+
+        const [wagmiCore, wagmiConfig, viem] = await Promise.all([
+          import("@wagmi/core"),
+          import("@/config/wagmi"),
+          import("viem"),
+        ]);
+
+        // Switch to Arbitrum if needed
+        try {
+          await wagmiCore.switchChain(wagmiConfig.config, { chainId });
+        } catch (chainErr) {
+          console.warn("[studio] Chain switch failed:", (chainErr as Error).message);
         }
 
-        setDeployResult(deployData);
-        setDeployStatus("done");
-        return;
+        // Build USDC transfer calldata
+        const transferData = viem.encodeFunctionData({
+          abi: viem.parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]),
+          functionName: "transfer",
+          args: [recipient as `0x${string}`, viem.parseUnits(amountUsdc.toString(), 6)],
+        });
+
+        setDeployStatus("paying");
+        const txHash = await wagmiCore.sendTransaction(wagmiConfig.config, {
+          chainId,
+          to: tokenAddress as `0x${string}`,
+          data: transferData,
+          value: BigInt(0),
+        });
+
+        // Wait for on-chain confirmation
+        await wagmiCore.waitForTransactionReceipt(wagmiConfig.config, {
+          chainId,
+          hash: txHash,
+          timeout: 120_000,
+        });
+
+        // Submit txHash to backend for verification
+        const verifyRes = await fetch("/api/studio/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ config: validation.config, wallet: address, txHash }),
+        });
+        const verifyData = await verifyRes.json();
+        if (!verifyRes.ok || !verifyData.ok) {
+          throw new Error(verifyData.error || "Payment verification failed");
+        }
+        sessionId = verifyData.sessionId;
       }
 
-      // Redirect to Stripe checkout
-      window.location.href = checkoutData.url;
+      // Step 2: deploy
+      setDeployStatus("deploying");
+      const deployRes = await fetch("/api/studio/deploy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: validation.config, wallet: address, sessionId }),
+      });
+      const deployData = await deployRes.json();
+
+      if (!deployRes.ok) {
+        throw new Error(deployData.error || "Deploy failed");
+      }
+
+      setDeployResult(deployData);
+      setDeployStatus("done");
     } catch (err) {
       setDeployStatus("error");
       setDeployError((err as Error).message);
@@ -581,17 +632,19 @@ function DeployStep({
         <h3 className="text-[12px] font-semibold text-[var(--hl-accent)] uppercase tracking-wider mb-3">Deploy</h3>
         <button
           onClick={onDeploy}
-          disabled={!validation.ok || deployStatus === "paying" || deployStatus === "deploying"}
+          disabled={!validation.ok || deployStatus === "paying" || deployStatus === "deploying" || !walletConnected}
           className="w-full py-3 rounded text-[13px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
-          {deployStatus === "paying"
-            ? "Opening Stripe..."
+          {!walletConnected
+            ? "Connect wallet to deploy"
+            : deployStatus === "paying"
+            ? "Confirm payment in wallet..."
             : deployStatus === "deploying"
-            ? "Forking repo + deploying to Vercel..."
-            : "Deploy ($50 one-time)"}
+            ? "Forking + deploying..."
+            : "Deploy — Pay 50 USDC on Arbitrum"}
         </button>
         <p className="text-[9px] text-[var(--hl-muted)] mt-2 leading-relaxed">
-          $50 covers API key issuance + rate limits for ~12 months. Then it's just the fee split: 0.005% to HLOne, {(config.fees.markupBps / 100).toFixed(3)}% to your wallet on every trade.
+          Pay once with USDC on Arbitrum (same network you use to deposit to HL). Covers API key + rate limits for ~12 months. Then it's just the fee split: 0.005% to HLOne, {(config.fees.markupBps / 100).toFixed(3)}% to your wallet on every trade.
         </p>
       </section>
 

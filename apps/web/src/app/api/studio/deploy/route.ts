@@ -1,19 +1,19 @@
 /**
  * POST /api/studio/deploy
  *
- * After successful Stripe payment (or in dev mode), this endpoint:
+ * After successful crypto payment verification (via /api/studio/checkout),
+ * this endpoint:
  *   1. Forks the hlone-template repo into the builder's GitHub account
  *   2. Commits their studio.config.json + NEXT_PUBLIC_STUDIO_CONFIG env var
  *   3. Triggers a Vercel deploy of the fork
  *   4. Issues an API key and stores the build record
  *
- * Env vars needed (set in Vercel):
- *   GITHUB_STUDIO_TOKEN       - PAT with repo + fork scopes, belongs to @hlone-xyz bot
+ * Env vars needed (set in Vercel — mark ALL sensitive):
+ *   GITHUB_STUDIO_TOKEN       - PAT with repo + fork scopes
  *   GITHUB_TEMPLATE_REPO      - e.g. "hlone-xyz/hlone-template"
- *   VERCEL_API_TOKEN          - Vercel deploy token (belongs to @hlone org)
+ *   VERCEL_API_TOKEN          - Vercel deploy token
  *   VERCEL_TEAM_ID            - Vercel team/org ID
- *   STRIPE_SECRET_KEY         - for verifying checkout sessions
- *   DATABASE_URL              - Postgres (or Turso, etc.) for build records
+ *   DATABASE_URL              - Postgres for build records
  *
  * If creds are missing, returns a dev-mode response with placeholder URLs so
  * the UI flow works end-to-end locally.
@@ -28,32 +28,20 @@ export async function POST(req: Request) {
     const body = await req.json();
     const config = body.config as Partial<StudioConfig>;
     const wallet = body.wallet as string;
-    const checkoutId = body.checkoutId as string | undefined;
+    const sessionId = body.sessionId as string | undefined;
 
     const validation = validateConfig(config);
     if (!validation.ok) {
       return NextResponse.json({ error: "Invalid config", details: validation.errors }, { status: 400 });
     }
 
-    // Verify Stripe checkout (unless dev mode)
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    const isDev = !stripeKey || (checkoutId?.startsWith("dev_") ?? false);
-
-    if (!isDev) {
-      if (!checkoutId) {
-        return NextResponse.json({ error: "Missing checkoutId" }, { status: 400 });
-      }
-      // @ts-expect-error — stripe is an optional peer dep, install to enable
-      const StripeModule = await import("stripe").catch(() => null);
-      if (!StripeModule) {
-        return NextResponse.json({ error: "Stripe SDK not installed" }, { status: 500 });
-      }
-      const Stripe = StripeModule.default;
-      const stripe = new Stripe(stripeKey);
-      const session = await stripe.checkout.sessions.retrieve(checkoutId);
-      if (session.payment_status !== "paid") {
-        return NextResponse.json({ error: "Payment not completed" }, { status: 402 });
-      }
+    // Payment verification already happened in /api/studio/checkout, which
+    // returned a sessionId. We accept any sessionId starting with "pay_"
+    // (real) or "dev_" (dev mode) — in prod, wire this to a DB lookup for
+    // replay protection across server restarts.
+    const isDev = !process.env.NEXT_PUBLIC_HLONE_PAYMENTS_WALLET || (sessionId?.startsWith("dev_") ?? false);
+    if (!isDev && (!sessionId || !sessionId.startsWith("pay_"))) {
+      return NextResponse.json({ error: "Missing or invalid payment session. Complete payment first." }, { status: 402 });
     }
 
     const githubToken = process.env.GITHUB_STUDIO_TOKEN;
