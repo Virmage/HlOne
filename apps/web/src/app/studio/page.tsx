@@ -677,35 +677,249 @@ function DeployStep({
   );
 }
 
-// ─── Live Preview (iframe) ──────────────────────────────────────────────────
+// ─── Live Preview (mockup) ──────────────────────────────────────────────────
+// Renders a visual mockup of the terminal layout with branding applied.
+// We use a mockup instead of iframing the real terminal because:
+//   (a) X-Frame-Options blocks same-origin iframes site-wide
+//   (b) loading the full terminal is heavy + noisy for a preview
+//   (c) a clean mockup makes the layout/branding easier to evaluate
 
 function LivePreview({ config }: { config: StudioConfig }) {
-  // Post config to iframe on config change
-  useEffect(() => {
-    const iframe = document.getElementById("studio-preview-iframe") as HTMLIFrameElement | null;
-    if (!iframe || !iframe.contentWindow) return;
-    try {
-      iframe.contentWindow.postMessage({ type: "STUDIO_CONFIG_UPDATE", config }, "*");
-    } catch {}
-  }, [config]);
+  const enabledWidgets = WIDGET_CATALOG.filter(w => (config.widgets[w.key] ?? w.defaultOn));
+  const accent = config.branding.accentColor;
 
-  // Re-inject on iframe load
-  const handleLoad = () => {
-    const iframe = document.getElementById("studio-preview-iframe") as HTMLIFrameElement | null;
-    if (!iframe || !iframe.contentWindow) return;
-    try {
-      iframe.contentWindow.postMessage({ type: "STUDIO_CONFIG_UPDATE", config }, "*");
-    } catch {}
+  // Group widgets by category for structured display
+  const byCategory = {
+    core: enabledWidgets.filter(w => w.category === "core"),
+    flow: enabledWidgets.filter(w => w.category === "flow"),
+    market: enabledWidgets.filter(w => w.category === "market"),
+    derivatives: enabledWidgets.filter(w => w.category === "derivatives"),
+    ecosystem: enabledWidgets.filter(w => w.category === "ecosystem"),
   };
 
   return (
-    <iframe
-      id="studio-preview-iframe"
-      src="/"
-      onLoad={handleLoad}
-      title="HLOne Preview"
-      className="w-full h-full border-0"
-    />
+    <div
+      className="h-full overflow-y-auto"
+      style={{
+        // Set the accent color as a CSS variable for this preview
+        ["--preview-accent" as string]: accent,
+      }}
+    >
+      {/* Mock header */}
+      <div
+        className="px-4 py-2.5 border-b flex items-center justify-between"
+        style={{ borderColor: "var(--hl-border)", background: "var(--background)" }}
+      >
+        <div className="flex items-center gap-2">
+          {config.branding.logoUrl ? (
+            <img src={config.branding.logoUrl} alt="" className="h-5 w-5 rounded" />
+          ) : (
+            <div
+              className="h-5 w-5 rounded"
+              style={{ background: `linear-gradient(135deg, ${accent}, ${accent}80)` }}
+            />
+          )}
+          <div>
+            <div className="text-[13px] font-semibold text-[var(--foreground)] leading-none">{config.name || "Untitled"}</div>
+            {config.tagline && (
+              <div className="text-[9px] text-[var(--hl-muted)] mt-0.5 leading-none">{config.tagline}</div>
+            )}
+          </div>
+        </div>
+        <div className="text-[10px] text-[var(--hl-muted)] font-mono">
+          {config.defaultToken} · {config.watchlist.length} tokens
+        </div>
+      </div>
+
+      {/* Mock ticker bar (if enabled) */}
+      {(config.widgets.tickerBar ?? true) && (
+        <div
+          className="px-4 py-1.5 border-b overflow-hidden"
+          style={{ borderColor: "var(--hl-border)", background: "var(--hl-surface)" }}
+        >
+          <div className="flex items-center gap-4 text-[9px] font-mono whitespace-nowrap">
+            {config.watchlist.slice(0, 8).map(t => (
+              <div key={t} className="flex items-center gap-1">
+                <span className="text-[var(--foreground)] font-medium">{t}</span>
+                <span className="text-[var(--hl-muted)]">—</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Mock main area: Chart + right column */}
+      <div className="p-3 grid grid-cols-[1fr_180px] gap-2">
+        {/* Left: Chart */}
+        <div className="space-y-2">
+          {(config.widgets.priceChart ?? true) && (
+            <MockPanel label="Price Chart" accent={accent} height={180} showAxis />
+          )}
+          {(config.widgets.positionsPanel ?? true) && (
+            <MockPanel label="Positions & Orders" accent={accent} height={80} rows={3} />
+          )}
+        </div>
+        {/* Right column: Trade panel + OB */}
+        <div className="space-y-2">
+          {(config.widgets.tradingPanel ?? true) && (
+            <MockPanel label="Trade" accent={accent} height={130} compact />
+          )}
+          {(config.widgets.orderBook ?? true) && (
+            <MockPanel label="Order Book" accent={accent} height={100} rows={6} compact />
+          )}
+        </div>
+      </div>
+
+      {/* Mock tabs + below-fold widgets */}
+      {(byCategory.flow.length > 0 || byCategory.market.length > 0 || byCategory.derivatives.length > 0 || byCategory.ecosystem.length > 0) && (
+        <div className="px-3 pb-3">
+          <div className="border-t border-[var(--hl-border)] pt-3">
+            <div className="flex items-center gap-3 text-[10px] mb-2 overflow-x-auto">
+              {byCategory.flow.length > 0 && (
+                <Tab label="Signals / Whales" active accent={accent} />
+              )}
+              {byCategory.derivatives.length > 0 && <Tab label="Options Flow" accent={accent} />}
+              {byCategory.ecosystem.length > 0 && <Tab label="Ecosystem" accent={accent} />}
+              {byCategory.market.length > 0 && <Tab label="Market / News" accent={accent} />}
+            </div>
+
+            {/* Active tab: flow widgets */}
+            {byCategory.flow.length > 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                {byCategory.flow.map(w => (
+                  <MockPanel key={w.key} label={w.label} accent={accent} height={70} rows={3} compact />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* All enabled widgets summary */}
+          <div className="mt-4 pt-3 border-t border-[var(--hl-border)]">
+            <div className="text-[9px] text-[var(--hl-muted)] uppercase tracking-wide mb-2">
+              All enabled widgets · {enabledWidgets.length} of {WIDGET_CATALOG.length}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {enabledWidgets.map(w => (
+                <span
+                  key={w.key}
+                  className="text-[9px] px-2 py-0.5 rounded border"
+                  style={{
+                    color: accent,
+                    borderColor: `${accent}40`,
+                    background: `${accent}10`,
+                  }}
+                >
+                  {w.label}
+                </span>
+              ))}
+              {enabledWidgets.length === 0 && (
+                <span className="text-[10px] text-[var(--hl-muted)]">No widgets enabled. Pick at least one.</span>
+              )}
+            </div>
+          </div>
+
+          {/* Fee summary */}
+          <div className="mt-4 pt-3 border-t border-[var(--hl-border)]">
+            <div className="text-[9px] text-[var(--hl-muted)] uppercase tracking-wide mb-1.5">Fee stack</div>
+            <div className="space-y-0.5 text-[10px] font-mono">
+              <FeeRow label="HL exchange fee" value="~0.035%" />
+              <FeeRow label="HLOne platform" value="0.005%" />
+              <FeeRow label="Your markup" value={`${(config.fees.markupBps / 100).toFixed(3)}%`} accent={accent} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Preview primitives ────────────────────────────────────────────────────
+
+function MockPanel({
+  label,
+  accent,
+  height,
+  rows = 0,
+  compact = false,
+  showAxis = false,
+}: {
+  label: string;
+  accent: string;
+  height: number;
+  rows?: number;
+  compact?: boolean;
+  showAxis?: boolean;
+}) {
+  return (
+    <div
+      className="rounded border bg-[var(--background)] overflow-hidden"
+      style={{ borderColor: "var(--hl-border)", height: `${height}px` }}
+    >
+      <div
+        className={`${compact ? "px-2 py-1" : "px-2.5 py-1.5"} border-b flex items-center justify-between`}
+        style={{ borderColor: "var(--hl-border)" }}
+      >
+        <span className={`${compact ? "text-[9px]" : "text-[10px]"} font-medium text-[var(--foreground)] truncate`}>
+          {label}
+        </span>
+        <span className="w-1 h-1 rounded-full" style={{ background: accent }} />
+      </div>
+      <div className="p-2">
+        {showAxis && (
+          <div className="w-full h-full relative">
+            {/* Mock chart line */}
+            <svg viewBox="0 0 100 60" className="w-full h-full">
+              <polyline
+                fill="none"
+                stroke={accent}
+                strokeWidth="1"
+                points="0,40 10,35 20,38 30,28 40,25 50,20 60,22 70,15 80,18 90,12 100,10"
+              />
+              <polyline
+                fill={`${accent}20`}
+                stroke="none"
+                points="0,40 10,35 20,38 30,28 40,25 50,20 60,22 70,15 80,18 90,12 100,10 100,60 0,60"
+              />
+            </svg>
+          </div>
+        )}
+        {!showAxis && rows > 0 && (
+          <div className="space-y-1">
+            {Array.from({ length: rows }).map((_, i) => (
+              <div key={i} className="flex items-center justify-between">
+                <div className="h-1 w-1/3 rounded bg-[var(--hl-border)]" />
+                <div className="h-1 w-1/4 rounded bg-[var(--hl-border)]" />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Tab({ label, active = false, accent }: { label: string; active?: boolean; accent: string }) {
+  return (
+    <div
+      className="text-[9px] px-2 py-1 rounded whitespace-nowrap"
+      style={{
+        color: active ? accent : "var(--hl-muted)",
+        borderBottom: active ? `2px solid ${accent}` : "2px solid transparent",
+      }}
+    >
+      {label}
+    </div>
+  );
+}
+
+function FeeRow({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-[var(--hl-muted)]">{label}</span>
+      <span style={{ color: accent ?? "var(--foreground)" }} className="tabular-nums">
+        {value}
+      </span>
+    </div>
   );
 }
 
