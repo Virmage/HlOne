@@ -19,9 +19,13 @@ function FundingRow({ f, isPositive, onSelectToken }: { f: { coin: string; annua
   return (
     <div
       className="flex items-center justify-between px-2 py-1 text-[11px] border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
-      onClick={(e) => { e.stopPropagation(); onSelectToken(f.coin); }}
     >
-      <span className="font-medium text-[var(--foreground)] w-16">{f.coin.includes(":") ? f.coin.split(":")[1] : f.coin}</span>
+      <button
+        onClick={(e) => { e.stopPropagation(); onSelectToken(f.coin); }}
+        className="font-medium text-[var(--foreground)] w-16 text-left hover:text-[var(--hl-accent)] transition-colors"
+      >
+        {f.coin.includes(":") ? f.coin.split(":")[1] : f.coin}
+      </button>
       <span className={`tabular-nums font-medium ${isPositive ? "text-[var(--hl-red)]" : "text-[var(--hl-green)]"}`}>
         {isPositive ? "+" : ""}{f.annualized.toFixed(1)}%
       </span>

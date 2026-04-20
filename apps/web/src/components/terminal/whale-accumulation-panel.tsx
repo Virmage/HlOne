@@ -20,10 +20,16 @@ interface Props {
 function AccumulationRow({ row, onSelectToken }: { row: WhaleAccumulation; onSelectToken: (coin: string) => void }) {
   return (
     <tr
-      onClick={(e) => { e.stopPropagation(); onSelectToken(row.coin); }}
       className="border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
     >
-      <td className="py-1.5 px-2 font-medium text-[var(--foreground)]">{displayCoin(row.coin)}</td>
+      <td className="py-1.5 px-2">
+        <button
+          onClick={(e) => { e.stopPropagation(); onSelectToken(row.coin); }}
+          className="font-medium text-[var(--foreground)] hover:text-[var(--hl-accent)] transition-colors"
+        >
+          {displayCoin(row.coin)}
+        </button>
+      </td>
       <td className={`py-1.5 px-2 text-right tabular-nums ${row.net1h > 0 ? "text-[var(--hl-green)]" : row.net1h < 0 ? "text-[var(--hl-red)]" : "text-[var(--hl-muted)]"}`}>
         {row.net1h > 0 ? "+" : ""}{formatUsd(row.net1h)}
       </td>

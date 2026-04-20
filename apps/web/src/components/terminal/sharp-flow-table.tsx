@@ -54,10 +54,15 @@ export function SharpFlowTable({ flows, onSelectToken }: SharpFlowTableProps) {
             ? `Divergence: ${f.divergenceScore}/100 — Sharps ${f.sharpDirection.toUpperCase()} (${f.sharpStrength}%) vs Squares ${f.squareDirection.toUpperCase()} (${f.squareStrength}%).`
             : "";
           return (
-            <tr key={f.coin} className={`border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors ${f.divergence ? "bg-yellow-500/5" : ""}`} onClick={(e) => { e.stopPropagation(); onSelectToken(f.coin); }}>
+            <tr key={f.coin} className={`border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors ${f.divergence ? "bg-yellow-500/5" : ""}`}>
               <td className="py-1.5 px-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-medium text-[var(--foreground)]">{f.coin.includes(":") ? f.coin.split(":")[1] : f.coin}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onSelectToken(f.coin); }}
+                    className="font-medium text-[var(--foreground)] hover:text-[var(--hl-accent)] transition-colors"
+                  >
+                    {f.coin.includes(":") ? f.coin.split(":")[1] : f.coin}
+                  </button>
                   {f.divergence && <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-500/15 text-yellow-400 font-medium" title={divTooltip}>⚡{f.divergenceScore}</span>}
                 </div>
               </td>
