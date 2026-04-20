@@ -2,14 +2,17 @@
  * useStudioConfig — Loads the active StudioConfig for the current deploy.
  *
  * Resolution order:
- *   1. `window.__STUDIO_CONFIG__` — set by Studio preview iframe via postMessage
+ *   1. Preview mode (URL ?preview=1): config injected via postMessage from parent Studio iframe
  *   2. `NEXT_PUBLIC_STUDIO_CONFIG` env var — baked in at build time on forked deploys
- *   3. Imported `studio.config.json` at repo root — set by Studio deploy
- *   4. Default HLOne config (everything enabled) — what the flagship runs
+ *   3. Default HLOne config (everything enabled) — what the flagship runs
  *
- * Default behavior: when no config is found, returns DEFAULT_CONFIG with all
- * widgets enabled. This means the flagship HLOne deployment at hlone.xyz
- * behaves exactly as before — zero breaking change.
+ * IMPORTANT — config isolation:
+ *   - Preview mode is ONLY active when URL has `?preview=1`. This prevents
+ *     config bleed from the Studio preview iframe to the main terminal page
+ *     (e.g. when a user navigates from /studio back to /).
+ *   - postMessage listener is ONLY registered in preview mode.
+ *   - The flagship hlone.xyz deploy has NO env var set → always DEFAULT_CONFIG.
+ *   - Forked deploys set NEXT_PUBLIC_STUDIO_CONFIG during Studio deploy flow.
  */
 
 "use client";
@@ -30,20 +33,30 @@ declare global {
   }
 }
 
+/** True when we're the preview iframe inside /studio — detected via query param */
+function isPreviewMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return new URLSearchParams(window.location.search).has("preview");
+  } catch {
+    return false;
+  }
+}
+
 /** In-memory cache to avoid repeat parsing */
 let cachedConfig: StudioConfig | null = null;
 
 function loadConfigSync(): StudioConfig {
   if (cachedConfig) return cachedConfig;
 
-  // 1. Preview mode: config injected by Studio iframe
-  if (typeof window !== "undefined" && window.__STUDIO_CONFIG__) {
+  // 1. Preview mode ONLY: config injected by Studio iframe
+  if (isPreviewMode() && typeof window !== "undefined" && window.__STUDIO_CONFIG__) {
     const winConfig = window.__STUDIO_CONFIG__;
     cachedConfig = winConfig;
     return winConfig;
   }
 
-  // 2. Build-time env var (base64-encoded JSON)
+  // 2. Build-time env var (base64-encoded JSON) — only for forked deploys
   const envConfig = process.env.NEXT_PUBLIC_STUDIO_CONFIG;
   if (envConfig && typeof envConfig === "string") {
     try {
@@ -75,8 +88,13 @@ export function useStudioConfig(): {
   const [config, setConfig] = useState<StudioConfig>(() => loadConfigSync());
 
   useEffect(() => {
-    // Listen for preview-mode config updates via postMessage
+    // ONLY listen for postMessage config updates when we're the preview iframe.
+    // Prevents accidental config injection into the flagship or forked deploys.
+    if (!isPreviewMode()) return;
+
     const onMessage = (e: MessageEvent) => {
+      // Only accept messages from the parent (Studio page) on the same origin
+      if (e.origin !== window.location.origin) return;
       if (e.data?.type === "STUDIO_CONFIG_UPDATE" && e.data?.config) {
         window.__STUDIO_CONFIG__ = e.data.config;
         cachedConfig = e.data.config;
