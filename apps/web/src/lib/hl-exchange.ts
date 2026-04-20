@@ -27,27 +27,90 @@ export const BUILDER_FEE_DISPLAY = "0.015%";
 // Agent wallets are local keypairs authorized by the user's main wallet.
 // They sign L1 actions locally (no MetaMask popup, no chainId validation).
 
-const AGENT_STORAGE_PREFIX = "hlone-agent-";
+export const AGENT_STORAGE_PREFIX = "hlone-agent-";
 
 function getStoredAgent(userAddress: string): `0x${string}` | null {
   try {
-    const key = localStorage.getItem(`${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`);
-    if (key && key.startsWith("0x") && key.length === 66) return key as `0x${string}`;
+    const storageKey = `${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`;
+    // Check decrypted cache first
+    const cached = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache?.get(storageKey);
+    if (cached && cached.startsWith("0x") && cached.length === 66) {
+      return cached as `0x${string}`;
+    }
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return null;
+    // Encrypted blob → return null, caller must unlock
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.v === 1 && parsed?.alg === "aes-gcm") return null;
+    } catch {}
+    // Plaintext legacy
+    if (raw.startsWith("0x") && raw.length === 66) return raw as `0x${string}`;
   } catch {}
   return null;
 }
 
 function storeAgent(userAddress: string, privateKey: `0x${string}`): void {
   try {
-    localStorage.setItem(`${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`, privateKey);
+    const storageKey = `${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`;
+    // Check if security is enabled (session password is set)
+    import("./crypto-storage").then(crypto => {
+      const password = crypto.getSessionPassword();
+      if (password) {
+        // Populate decrypted cache for immediate reads
+        const cache = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache ??=
+          new Map<string, string>();
+        cache.set(storageKey, privateKey);
+        crypto.writeStoredValue(storageKey, privateKey, password).catch(err =>
+          console.error("[agent] Encrypted store failed:", err)
+        );
+      } else {
+        localStorage.setItem(storageKey, privateKey);
+      }
+    }).catch(() => {
+      localStorage.setItem(storageKey, privateKey);
+    });
   } catch {}
 }
 
 function clearStoredAgent(userAddress: string): void {
   try {
-    localStorage.removeItem(`${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`);
+    const storageKey = `${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`;
+    localStorage.removeItem(storageKey);
+    (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache?.delete(storageKey);
     console.log("[agent] Cleared stored agent for", userAddress.slice(0, 8) + "...");
   } catch {}
+}
+
+/**
+ * Unlock encrypted HL agent wallet using the session password.
+ */
+export async function unlockAgent(userAddress: string, password: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const storageKey = `${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`;
+    const crypto = await import("./crypto-storage");
+    const stored = crypto.readStoredValue(storageKey);
+    if (!stored) return { ok: false, error: "No agent stored for this wallet" };
+    if (!stored.encrypted) return { ok: true };
+    const plaintext = await crypto.decryptString(stored.blob, password);
+    const cache = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache ??=
+      new Map<string, string>();
+    cache.set(storageKey, plaintext);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+export function isAgentEncrypted(userAddress: string): boolean {
+  try {
+    const raw = localStorage.getItem(`${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return parsed?.v === 1 && parsed?.alg === "aes-gcm";
+  } catch {
+    return false;
+  }
 }
 
 /** Normalize v to 27/28 — some wallets return 0/1 */

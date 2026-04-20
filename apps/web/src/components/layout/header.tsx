@@ -24,6 +24,7 @@ const navItems = [
   { href: "/", label: "Terminal" },
   { href: "/portfolio", label: "Portfolio" },
   { href: "/studio", label: "Studio" },
+  { href: "/security", label: "Security" },
 ];
 
 export function ThemeToggle() {

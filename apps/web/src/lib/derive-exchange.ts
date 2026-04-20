@@ -605,19 +605,101 @@ async function derivePost(
 // The EOA (MetaMask) cannot sign login requests directly — only session keys work.
 // Flow: generate keypair → user approves registration via MetaMask → store locally.
 
-const DERIVE_SESSION_KEY_PREFIX = "hlone-derive-sk-";
+export const DERIVE_SESSION_KEY_PREFIX = "hlone-derive-sk-";
 
+/**
+ * Reads the stored session key. Supports both plaintext and encrypted storage.
+ * - If plaintext → returned directly (legacy / security disabled)
+ * - If encrypted + unlocked (session password in memory) → decrypted via cache
+ * - If encrypted + locked → returns null (UI prompts unlock)
+ */
 function getStoredSessionKey(eoa: string): `0x${string}` | null {
   try {
-    const key = localStorage.getItem(`${DERIVE_SESSION_KEY_PREFIX}${eoa.toLowerCase()}`);
-    if (key && key.startsWith("0x") && key.length === 66) return key as `0x${string}`;
+    const storageKey = `${DERIVE_SESSION_KEY_PREFIX}${eoa.toLowerCase()}`;
+    // Check decrypted cache first (fast path, no crypto)
+    // Dynamically imported to avoid circular deps
+    const cached = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache?.get(storageKey);
+    if (cached && cached.startsWith("0x") && cached.length === 66) {
+      return cached as `0x${string}`;
+    }
+
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return null;
+
+    // Try parse as encrypted blob
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.v === 1 && parsed?.alg === "aes-gcm") {
+        // Encrypted — can't decrypt synchronously here, caller must unlock first
+        return null;
+      }
+    } catch {
+      // Not JSON — treat as plaintext
+    }
+
+    // Plaintext legacy format
+    if (raw.startsWith("0x") && raw.length === 66) return raw as `0x${string}`;
   } catch {}
   return null;
 }
 
-function storeSessionKey(eoa: string, privateKey: `0x${string}`): void {
+/**
+ * Unlock encrypted session keys using the session password. Decrypted values
+ * go into an in-memory cache for fast sync access. Must be called once after
+ * page load before calling signing functions that depend on the session key.
+ */
+export async function unlockSessionKey(eoa: string, password: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    localStorage.setItem(`${DERIVE_SESSION_KEY_PREFIX}${eoa.toLowerCase()}`, privateKey);
+    const storageKey = `${DERIVE_SESSION_KEY_PREFIX}${eoa.toLowerCase()}`;
+    const crypto = await import("./crypto-storage");
+    const stored = crypto.readStoredValue(storageKey);
+    if (!stored) return { ok: false, error: "No session key stored for this wallet" };
+    if (!stored.encrypted) return { ok: true }; // already plaintext
+    const plaintext = await crypto.decryptString(stored.blob, password);
+    // Populate global cache so sync getters see it
+    const cache = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache ??=
+      new Map<string, string>();
+    cache.set(storageKey, plaintext);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Check if the stored session key is encrypted (needs unlocking).
+ */
+export function isSessionKeyEncrypted(eoa: string): boolean {
+  try {
+    const raw = localStorage.getItem(`${DERIVE_SESSION_KEY_PREFIX}${eoa.toLowerCase()}`);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return parsed?.v === 1 && parsed?.alg === "aes-gcm";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stores session key. If password is provided (security enabled), encrypts first.
+ * Also populates the decrypted cache so the same-session reads work.
+ */
+function storeSessionKey(eoa: string, privateKey: `0x${string}`, password?: string): void {
+  try {
+    const storageKey = `${DERIVE_SESSION_KEY_PREFIX}${eoa.toLowerCase()}`;
+    if (password) {
+      // Encrypt async — we handle that via dynamic import below (fire and forget).
+      // The decrypted cache is set synchronously so immediate reads work.
+      const cache = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache ??=
+        new Map<string, string>();
+      cache.set(storageKey, privateKey);
+
+      import("./crypto-storage").then(crypto =>
+        crypto.writeStoredValue(storageKey, privateKey, password)
+      ).catch(err => console.error("[derive] Encrypted store failed:", err));
+    } else {
+      localStorage.setItem(storageKey, privateKey);
+    }
   } catch {}
 }
 
@@ -678,8 +760,12 @@ export async function importDeriveSessionKey(
   }
   const { privateKeyToAccount } = await import("viem/accounts");
   const account = privateKeyToAccount(key as `0x${string}`);
-  storeSessionKey(eoa, key as `0x${string}`);
-  console.log(`[derive] Imported session key: ${account.address}`);
+
+  // If user has security enabled, encrypt with their session password
+  const crypto = await import("./crypto-storage");
+  const password = crypto.getSessionPassword();
+  storeSessionKey(eoa, key as `0x${string}`, password ?? undefined);
+  console.log(`[derive] Imported session key: ${account.address} (${password ? "encrypted" : "plaintext"})`);
   return { sessionAddress: account.address };
 }
 

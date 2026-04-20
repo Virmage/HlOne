@@ -1,0 +1,370 @@
+"use client";
+
+/**
+ * Security Settings page (/security)
+ *
+ * Lets the user:
+ *   - Enable/disable password protection for stored keys
+ *   - Clear all stored keys (Derive session keys + HL agent wallets)
+ *   - See which keys are currently stored / encrypted
+ *   - Understand the security model (links to SECURITY.md)
+ */
+
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
+import { useSafeAccount } from "@/hooks/use-safe-account";
+import {
+  isSecurityEnabled,
+  setSecurityPassword,
+  verifySecurityPassword,
+  disableSecurityPassword,
+  rekeyStoredValues,
+  clearDecryptedCache,
+  setSessionPassword,
+  getSessionPassword,
+} from "@/lib/crypto-storage";
+import { DERIVE_SESSION_KEY_PREFIX } from "@/lib/derive-exchange";
+import { AGENT_STORAGE_PREFIX } from "@/lib/hl-exchange";
+
+export default function SecurityPage() {
+  const { address, isConnected } = useSafeAccount();
+  const [enabled, setEnabled] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
+  const [storedKeysCount, setStoredKeysCount] = useState({ derive: 0, agent: 0 });
+
+  const refresh = useCallback(() => {
+    setEnabled(isSecurityEnabled());
+    setUnlocked(!!getSessionPassword());
+    if (typeof window !== "undefined") {
+      let d = 0, a = 0;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k) continue;
+        if (k.startsWith(DERIVE_SESSION_KEY_PREFIX)) d++;
+        if (k.startsWith(AGENT_STORAGE_PREFIX)) a++;
+      }
+      setStoredKeysCount({ derive: d, agent: a });
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const [showEnableModal, setShowEnableModal] = useState(false);
+  const [showDisableModal, setShowDisableModal] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-[var(--background)]">
+      <header className="border-b border-[var(--hl-border)] px-6 py-3 flex items-center justify-between sticky top-0 z-40 bg-[var(--background)]">
+        <div className="flex items-center gap-4">
+          <Link href="/" className="text-[15px] font-semibold text-[var(--foreground)]">HLOne</Link>
+          <span className="text-[11px] text-[var(--hl-muted)]">/ Security</span>
+        </div>
+        <Link href="/" className="text-[11px] text-[var(--hl-muted)] hover:text-[var(--foreground)]">← Back to terminal</Link>
+      </header>
+
+      <main className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+        {/* Summary card */}
+        <section>
+          <h2 className="text-[18px] font-semibold text-[var(--foreground)] mb-1">Keys & Encryption</h2>
+          <p className="text-[12px] text-[var(--hl-muted)] leading-relaxed">
+            HLOne stores two types of keys in your browser: <span className="text-[var(--foreground)]">Derive session keys</span> (for options trading on Derive.xyz) and <span className="text-[var(--foreground)]">HL agent wallets</span> (for HyperLiquid perps/spot). By default they're stored in plaintext in localStorage — fast but readable by XSS or malicious browser extensions. Password protection encrypts them with AES-GCM.
+          </p>
+        </section>
+
+        {/* Current state card */}
+        <section className="rounded-lg border border-[var(--hl-border)] bg-[var(--hl-surface)] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-[var(--hl-muted)]">Password protection</div>
+              <div className="flex items-center gap-2 mt-1">
+                <div className={`w-2 h-2 rounded-full ${enabled ? "bg-[var(--hl-green)]" : "bg-[var(--hl-muted)]"}`} />
+                <span className={`text-[14px] font-medium ${enabled ? "text-[var(--hl-green)]" : "text-[var(--hl-muted)]"}`}>
+                  {enabled ? "Enabled" : "Disabled"}
+                </span>
+                {enabled && !unlocked && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#f5a524]/20 text-[#f5a524]">Locked</span>
+                )}
+                {enabled && unlocked && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--hl-green)]/20 text-[var(--hl-green)]">Unlocked this session</span>
+                )}
+              </div>
+            </div>
+            {enabled ? (
+              <button
+                onClick={() => setShowDisableModal(true)}
+                className="text-[11px] px-3 py-1.5 rounded bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] border border-[var(--hl-border)] text-[var(--foreground)]"
+              >
+                Disable
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowEnableModal(true)}
+                className="text-[11px] px-3 py-1.5 rounded bg-[var(--hl-accent)] hover:brightness-110 text-[var(--background)] font-medium"
+              >
+                Enable Password Protection
+              </button>
+            )}
+          </div>
+
+          <div className="border-t border-[var(--hl-border)] pt-3 grid grid-cols-2 gap-3 text-[11px]">
+            <div>
+              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wide">Derive session keys</div>
+              <div className="text-[13px] text-[var(--foreground)] tabular-nums mt-1">{storedKeysCount.derive}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wide">HL agent wallets</div>
+              <div className="text-[13px] text-[var(--foreground)] tabular-nums mt-1">{storedKeysCount.agent}</div>
+            </div>
+          </div>
+        </section>
+
+        {/* Clear all keys */}
+        <section className="rounded-lg border border-[var(--hl-red)]/30 bg-[var(--hl-red)]/5 p-4">
+          <h3 className="text-[13px] font-semibold text-[var(--hl-red)] mb-1">Clear all stored keys</h3>
+          <p className="text-[11px] text-[var(--hl-muted)] leading-relaxed mb-3">
+            Removes ALL stored Derive session keys and HL agent wallets from this browser. Use this if your device is compromised, you're switching computers, or you want to start fresh.
+            <br /><br />
+            <span className="text-[var(--hl-red)]">This does NOT revoke the keys on-chain.</span> Do that separately on derive.xyz / HL. After clearing, you'll need to re-import your Derive session key from derive.xyz and re-approve your HL agent.
+          </p>
+          <button
+            onClick={() => setShowClearModal(true)}
+            disabled={storedKeysCount.derive === 0 && storedKeysCount.agent === 0}
+            className="text-[11px] px-3 py-1.5 rounded bg-[var(--hl-red)] hover:brightness-110 text-white font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            Clear {storedKeysCount.derive + storedKeysCount.agent} keys
+          </button>
+        </section>
+
+        {/* Security model */}
+        <section className="rounded-lg border border-[var(--hl-border)] bg-[var(--hl-surface)] p-4">
+          <h3 className="text-[13px] font-semibold text-[var(--foreground)] mb-2">Security model</h3>
+          <ul className="space-y-2 text-[11.5px] text-[var(--foreground)] leading-relaxed">
+            <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>HLOne never has custody of your funds. You sign every trade with your own wallet or locally-stored session keys.</span></li>
+            <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>Keys are stored only in your browser — never sent to our servers.</span></li>
+            <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>With password protection enabled, stored keys are AES-GCM encrypted with PBKDF2 (100k iterations).</span></li>
+            <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>Open source — <a href="https://github.com/Virmage/hl-copy-trading" target="_blank" rel="noopener noreferrer" className="text-[var(--hl-accent)] underline">inspect the code on GitHub</a>.</span></li>
+            <li className="flex gap-2"><span className="text-[#f5a524] shrink-0">!</span><span>Vibe coded, unaudited. See full disclosure on the <Link href="/" className="text-[var(--hl-accent)] underline">main disclaimer</Link>.</span></li>
+          </ul>
+        </section>
+      </main>
+
+      {showEnableModal && (
+        <EnablePasswordModal
+          onCancel={() => setShowEnableModal(false)}
+          onSuccess={() => { setShowEnableModal(false); refresh(); }}
+        />
+      )}
+      {showDisableModal && (
+        <DisablePasswordModal
+          onCancel={() => setShowDisableModal(false)}
+          onSuccess={() => { setShowDisableModal(false); refresh(); }}
+        />
+      )}
+      {showClearModal && (
+        <ClearKeysModal
+          onCancel={() => setShowClearModal(false)}
+          onSuccess={() => { setShowClearModal(false); refresh(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Enable Password Modal ──────────────────────────────────────────────────
+
+function EnablePasswordModal({ onCancel, onSuccess }: { onCancel: () => void; onSuccess: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const enable = async () => {
+    setError("");
+    if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
+    if (password !== confirm) { setError("Passwords don't match"); return; }
+    setLoading(true);
+    try {
+      // 1. Store the verify sentinel (so we can check password later)
+      await setSecurityPassword(password);
+      // 2. Re-encrypt all existing stored keys with this password
+      const derive = await rekeyStoredValues(DERIVE_SESSION_KEY_PREFIX, undefined, password);
+      const agent = await rekeyStoredValues(AGENT_STORAGE_PREFIX, undefined, password);
+      // 3. Remember password in memory for this session
+      setSessionPassword(password);
+      console.log(`[security] Enabled. Rekeyed: derive=${derive.rekeyed}, agent=${agent.rekeyed}`);
+      onSuccess();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <ModalShell onCancel={onCancel} title="Enable Password Protection">
+      <p className="text-[11px] text-[var(--hl-muted)] leading-relaxed mb-4">
+        Your stored keys will be encrypted with this password. You'll need to enter it once per browser session. <span className="text-[var(--hl-red)]">If you forget it, you'll need to clear your keys and re-import from derive.xyz + re-approve your HL agent.</span>
+      </p>
+      <Field label="Password (min 8 chars)">
+        <input
+          type="password"
+          value={password}
+          onChange={e => { setPassword(e.target.value); setError(""); }}
+          autoFocus
+          className="w-full px-3 py-2 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[12px] text-[var(--foreground)] outline-none focus:border-[var(--hl-accent)]"
+        />
+      </Field>
+      <Field label="Confirm password">
+        <input
+          type="password"
+          value={confirm}
+          onChange={e => { setConfirm(e.target.value); setError(""); }}
+          onKeyDown={e => e.key === "Enter" && enable()}
+          className="w-full px-3 py-2 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[12px] text-[var(--foreground)] outline-none focus:border-[var(--hl-accent)]"
+        />
+      </Field>
+      {error && <div className="text-[11px] text-[var(--hl-red)] mt-2">{error}</div>}
+      <div className="flex gap-2 mt-4">
+        <button onClick={onCancel} className="flex-1 py-2 rounded text-[12px] text-[var(--foreground)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] border border-[var(--hl-border)]">Cancel</button>
+        <button onClick={enable} disabled={loading} className="flex-1 py-2 rounded text-[12px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 disabled:opacity-40">
+          {loading ? "Encrypting..." : "Enable"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Disable Password Modal ─────────────────────────────────────────────────
+
+function DisablePasswordModal({ onCancel, onSuccess }: { onCancel: () => void; onSuccess: () => void }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const disable = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const ok = await verifySecurityPassword(password);
+      if (!ok) { setError("Wrong password"); setLoading(false); return; }
+      // Decrypt all keys back to plaintext
+      await rekeyStoredValues(DERIVE_SESSION_KEY_PREFIX, password, undefined);
+      await rekeyStoredValues(AGENT_STORAGE_PREFIX, password, undefined);
+      disableSecurityPassword();
+      setSessionPassword(null);
+      onSuccess();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <ModalShell onCancel={onCancel} title="Disable Password Protection">
+      <p className="text-[11px] text-[var(--hl-muted)] leading-relaxed mb-4">
+        Enter your current password to decrypt all keys back to plaintext storage. Your keys stay in your browser — only the encryption is removed.
+      </p>
+      <Field label="Current password">
+        <input
+          type="password"
+          value={password}
+          onChange={e => { setPassword(e.target.value); setError(""); }}
+          onKeyDown={e => e.key === "Enter" && disable()}
+          autoFocus
+          className="w-full px-3 py-2 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[12px] text-[var(--foreground)] outline-none focus:border-[var(--hl-accent)]"
+        />
+      </Field>
+      {error && <div className="text-[11px] text-[var(--hl-red)] mt-2">{error}</div>}
+      <div className="flex gap-2 mt-4">
+        <button onClick={onCancel} className="flex-1 py-2 rounded text-[12px] text-[var(--foreground)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] border border-[var(--hl-border)]">Cancel</button>
+        <button onClick={disable} disabled={loading || !password} className="flex-1 py-2 rounded text-[12px] font-semibold bg-[var(--hl-red)] text-white hover:brightness-110 disabled:opacity-40">
+          {loading ? "Decrypting..." : "Disable"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Clear All Keys Modal ───────────────────────────────────────────────────
+
+function ClearKeysModal({ onCancel, onSuccess }: { onCancel: () => void; onSuccess: () => void }) {
+  const [confirmText, setConfirmText] = useState("");
+
+  const clear = () => {
+    const removed: string[] = [];
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (k.startsWith(DERIVE_SESSION_KEY_PREFIX) || k.startsWith(AGENT_STORAGE_PREFIX)) {
+        localStorage.removeItem(k);
+        removed.push(k);
+      }
+    }
+    clearDecryptedCache();
+    console.log(`[security] Cleared ${removed.length} keys`);
+    onSuccess();
+  };
+
+  return (
+    <ModalShell onCancel={onCancel} title="Clear All Stored Keys">
+      <div className="rounded bg-[var(--hl-red)]/10 border border-[var(--hl-red)]/30 p-3 mb-4">
+        <p className="text-[11px] text-[var(--hl-red)] leading-relaxed">
+          <span className="font-semibold">Warning:</span> This removes your Derive session keys and HL agent wallets from this browser. You will need to:
+        </p>
+        <ul className="text-[11px] text-[var(--hl-red)] mt-2 space-y-1 list-disc list-inside">
+          <li>Re-import your Derive session key (visit derive.xyz)</li>
+          <li>Re-approve HL agent on HyperLiquid (one-time signature)</li>
+        </ul>
+      </div>
+      <p className="text-[11px] text-[var(--hl-muted)] mb-3">
+        Type <span className="text-[var(--foreground)] font-mono">clear</span> to confirm:
+      </p>
+      <input
+        type="text"
+        value={confirmText}
+        onChange={e => setConfirmText(e.target.value)}
+        autoFocus
+        className="w-full px-3 py-2 bg-[var(--hl-surface)] border border-[var(--hl-border)] rounded text-[12px] text-[var(--foreground)] outline-none focus:border-[var(--hl-red)] font-mono"
+      />
+      <div className="flex gap-2 mt-4">
+        <button onClick={onCancel} className="flex-1 py-2 rounded text-[12px] text-[var(--foreground)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] border border-[var(--hl-border)]">Cancel</button>
+        <button
+          onClick={clear}
+          disabled={confirmText !== "clear"}
+          className="flex-1 py-2 rounded text-[12px] font-semibold bg-[var(--hl-red)] text-white hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          Clear all keys
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Shared modal shell ────────────────────────────────────────────────────
+
+function ModalShell({ title, children, onCancel }: { title: string; children: React.ReactNode; onCancel: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}>
+      <div className="w-full max-w-[440px] bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-[15px] font-semibold text-[var(--foreground)]">{title}</h3>
+          <button onClick={onCancel} className="text-[var(--hl-muted)] hover:text-[var(--foreground)]">&times;</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-3">
+      <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wide mb-1">{label}</div>
+      {children}
+    </div>
+  );
+}

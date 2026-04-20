@@ -15,6 +15,7 @@ import { useSafeAccount } from "@/hooks/use-safe-account";
 import { useAccountInfo } from "@/hooks/use-account-info";
 import { useTheme } from "@/hooks/use-theme";
 import { useStudioConfig } from "@/hooks/use-studio-config";
+import { UnlockModal } from "@/components/security/unlock-modal";
 
 /* ── PanelSkeleton: placeholder while lazy panels load ────────────────────── */
 function PanelSkeleton() {
@@ -626,6 +627,9 @@ export default function HomePage() {
 
       {/* First-visit disclaimer — appears once, user must acknowledge */}
       <VibeCodedDisclaimer />
+
+      {/* Unlock encrypted keys modal — appears when security is enabled but locked */}
+      <UnlockModal />
     </div>
   );
 }
