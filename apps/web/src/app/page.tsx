@@ -16,6 +16,8 @@ import { useAccountInfo } from "@/hooks/use-account-info";
 import { useTheme } from "@/hooks/use-theme";
 import { useStudioConfig } from "@/hooks/use-studio-config";
 import { UnlockModal } from "@/components/security/unlock-modal";
+import { BUILDER_ADDRESS, BUILDER_FEE } from "@/lib/hl-exchange";
+import { verifyCriticalConstants, showConsoleWarning } from "@/lib/security-guards";
 
 /* ── PanelSkeleton: placeholder while lazy panels load ────────────────────── */
 function PanelSkeleton() {
@@ -340,6 +342,21 @@ export default function HomePage() {
     return () => clearTimeout(t);
   }, [data]);
 
+  // ── Security checks on app load ─────────────────────────────────────────
+  const [securityTamperError, setSecurityTamperError] = useState<string | null>(null);
+  useEffect(() => {
+    // 1. Phishing warning in console
+    showConsoleWarning();
+
+    // 2. Runtime verification of critical constants. If tampered, show a red
+    //    banner and refuse to let user trade.
+    const check = verifyCriticalConstants({ BUILDER_ADDRESS, BUILDER_FEE });
+    if (!check.ok) {
+      console.error("[security] Constants tampered:", check.error);
+      setSecurityTamperError(check.error ?? "Critical constants tampered — DO NOT TRADE");
+    }
+  }, []);
+
   // Stable callbacks — prevent child re-renders
   const handleSelectToken = useCallback((coin: string) => {
     setChartCoin(coin);
@@ -384,6 +401,29 @@ export default function HomePage() {
       <div className="flex h-[80vh] items-center justify-center">
         <div className="rounded-md border border-[var(--hl-border)] bg-[var(--hl-surface)] px-6 py-4 text-[13px] text-[var(--hl-muted)]">
           {error}
+        </div>
+      </div>
+    );
+  }
+
+  // If critical constants were tampered with, block the entire UI — do NOT let
+  // the user trade. This is a loud fail state designed to catch supply-chain /
+  // XSS attacks that try to redirect builder fees.
+  if (securityTamperError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="max-w-[480px] bg-[var(--hl-red)]/10 border-2 border-[var(--hl-red)] rounded-lg p-6">
+          <div className="text-[28px] mb-2">🛑</div>
+          <h1 className="text-[18px] font-bold text-[var(--hl-red)] mb-2">SECURITY ALERT — DO NOT TRADE</h1>
+          <p className="text-[12px] text-[var(--foreground)] leading-relaxed mb-3">
+            HLOne detected that critical addresses have been modified at runtime. This could indicate a compromised browser extension, dependency attack, or XSS injection.
+          </p>
+          <div className="rounded bg-black/40 border border-[var(--hl-red)]/40 p-3 text-[10.5px] font-mono text-[var(--hl-red)] break-words mb-3">
+            {securityTamperError}
+          </div>
+          <p className="text-[11px] text-[var(--hl-muted)]">
+            Steps to take: (1) disable browser extensions, (2) hard-refresh, (3) if this persists, visit hlone.xyz on a different device, (4) report to the team.
+          </p>
         </div>
       </div>
     );
