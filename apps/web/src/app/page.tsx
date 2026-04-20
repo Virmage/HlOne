@@ -16,7 +16,12 @@ import { useAccountInfo } from "@/hooks/use-account-info";
 import { useTheme } from "@/hooks/use-theme";
 import { useStudioConfig } from "@/hooks/use-studio-config";
 import { UnlockModal } from "@/components/security/unlock-modal";
-import { DisclaimerBullets } from "@/components/security/disclaimer-content";
+import {
+  DisclaimerBullets,
+  DISCLAIMER_ACK_KEY,
+  DISCLAIMER_CHECKBOX_RISK,
+  DISCLAIMER_CHECKBOX_DPRK,
+} from "@/components/security/disclaimer-content";
 import { BUILDER_ADDRESS, BUILDER_FEE } from "@/lib/hl-exchange";
 import { verifyCriticalConstants } from "@/lib/security-guards";
 
@@ -207,10 +212,10 @@ function LoadingScreen() {
 }
 
 // ─── Vibe Coded Disclaimer Modal ────────────────────────────────────────────
-// Shown once per browser (localStorage flag) after the terminal loads.
-// User must tick the checkbox and click Continue — no dismiss button.
-
-const DISCLAIMER_ACK_KEY = "hlone-disclaimer-ack-v1";
+// Shown after the terminal loads when the user hasn't acknowledged the CURRENT
+// version of the disclaimer. The ack key is derived from a hash of the
+// disclaimer content, so any change to the text (bullets or checkbox labels)
+// automatically invalidates all existing users' acks — they'll re-see it.
 
 function VibeCodedDisclaimer() {
   const [show, setShow] = useState(false);
@@ -232,6 +237,13 @@ function VibeCodedDisclaimer() {
     if (!bothAgreed) return;
     try {
       localStorage.setItem(DISCLAIMER_ACK_KEY, new Date().toISOString());
+      // Clean up older ack keys so localStorage doesn't accumulate them forever
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("hlone-disclaimer-ack-") && k !== DISCLAIMER_ACK_KEY) {
+          localStorage.removeItem(k);
+        }
+      }
     } catch {}
     setShow(false);
   };
@@ -267,7 +279,7 @@ function VibeCodedDisclaimer() {
               className="mt-0.5 accent-[var(--hl-accent)] cursor-pointer"
             />
             <span className="text-[11.5px] text-[var(--foreground)] leading-snug">
-              I understand HLOne is vibe coded, unaudited, and provided as-is. I accept all risk for any trades or actions I take through this platform.
+              {DISCLAIMER_CHECKBOX_RISK}
             </span>
           </label>
 
@@ -280,7 +292,7 @@ function VibeCodedDisclaimer() {
               className="mt-0.5 accent-[var(--hl-accent)] cursor-pointer"
             />
             <span className="text-[11.5px] text-[var(--foreground)] leading-snug">
-              Fuck Kim Jong Un. <span className="text-[var(--hl-muted)]">(For security reasons.)</span>
+              {DISCLAIMER_CHECKBOX_DPRK}
             </span>
           </label>
 

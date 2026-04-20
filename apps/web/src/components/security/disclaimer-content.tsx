@@ -3,23 +3,66 @@
 /**
  * Shared disclaimer body — rendered both in the first-visit acknowledgment
  * modal and in a view-only modal accessible from the Security page.
+ *
+ * Content lives in DISCLAIMER_CONTENT below. If you change ANY of the strings
+ * here (bullets, checkbox labels), the hash derived from them will change,
+ * invalidating existing users' ack flags in localStorage — they'll see the
+ * updated disclaimer on their next visit and have to re-accept.
  */
+
+/** Edit this array to update the disclaimer content. Hash auto-bumps on change. */
+export const DISCLAIMER_CONTENT = {
+  bullets: [
+    {
+      title: "This project is vibe coded",
+      body: "Built by one person with AI pair-programming assistance. Code has not been independently audited.",
+    },
+    {
+      title: "Safety is best-effort, not guaranteed",
+      body: "Reasonable precautions have been taken — no custody of your funds, signatures happen in your wallet, keys stored locally. But bugs, edge cases, and vulnerabilities may exist.",
+    },
+    {
+      title: "Use at your own risk",
+      body: "Trade with amounts you can afford to lose. HLOne is not responsible for any financial loss, technical failure, or unintended behavior resulting from use of this software.",
+    },
+  ],
+  checkboxes: [
+    "I understand HLOne is vibe coded, unaudited, and provided as-is. I accept all risk for any trades or actions I take through this platform.",
+    "Fuck Kim Jong Un. (For security reasons.)",
+  ],
+} as const;
+
+/**
+ * Stable, deterministic hash of the disclaimer content. Change any string above
+ * → hash changes → all users re-ack. djb2 is simple and adequate here — we're
+ * not defending against collisions, just detecting content drift.
+ */
+function djb2(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+  }
+  // Unsigned hex string, 8 chars
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+export const DISCLAIMER_VERSION_HASH = djb2(
+  JSON.stringify(DISCLAIMER_CONTENT)
+);
+
+/** localStorage key that auto-rotates when content changes */
+export const DISCLAIMER_ACK_KEY = `hlone-disclaimer-ack-${DISCLAIMER_VERSION_HASH}`;
+
+/** Checkbox labels — consumed by the disclaimer modal */
+export const DISCLAIMER_CHECKBOX_RISK = DISCLAIMER_CONTENT.checkboxes[0];
+export const DISCLAIMER_CHECKBOX_DPRK = DISCLAIMER_CONTENT.checkboxes[1];
 
 export function DisclaimerBullets() {
   return (
     <div className="space-y-3">
-      <Bullet
-        title="This project is vibe coded"
-        body="Built by one person with AI pair-programming assistance. Code has not been independently audited."
-      />
-      <Bullet
-        title="Safety is best-effort, not guaranteed"
-        body="Reasonable precautions have been taken — no custody of your funds, signatures happen in your wallet, keys stored locally. But bugs, edge cases, and vulnerabilities may exist."
-      />
-      <Bullet
-        title="Use at your own risk"
-        body="Trade with amounts you can afford to lose. HLOne is not responsible for any financial loss, technical failure, or unintended behavior resulting from use of this software."
-      />
+      {DISCLAIMER_CONTENT.bullets.map(b => (
+        <Bullet key={b.title} title={b.title} body={b.body} />
+      ))}
     </div>
   );
 }
