@@ -29,7 +29,10 @@ export default function StudioPage() {
   const [config, setConfig] = useState<StudioConfig>(DEFAULT_CONFIG);
   const [deployStatus, setDeployStatus] = useState<"idle" | "paying" | "deploying" | "done" | "error">("idle");
   const [deployError, setDeployError] = useState<string>("");
-  const [deployResult, setDeployResult] = useState<{ repoUrl?: string; deployUrl?: string; apiKey?: string } | null>(null);
+  const [deployResult, setDeployResult] = useState<{ repoUrl?: string; deployUrl?: string; apiKey?: string; devMode?: boolean; note?: string } | null>(null);
+
+  // Preview mode = env vars not set yet. We detect via the public payments wallet var.
+  const isPreviewMode = !process.env.NEXT_PUBLIC_HLONE_PAYMENTS_WALLET;
 
   const validation = useMemo(() => validateConfig(config), [config]);
 
@@ -185,6 +188,14 @@ export default function StudioPage() {
         </nav>
       </header>
 
+      {isPreviewMode && (
+        <div className="border-b border-[#f5a524]/40 bg-[#f5a524]/10 px-4 py-2 text-center">
+          <div className="text-[11px] text-[#f5a524]">
+            <span className="font-semibold">PREVIEW MODE</span> · Studio is live but real deploys are disabled. Explore the flow freely — no payment, no repo fork, no Vercel deploy will happen yet.
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col lg:flex-row h-[calc(100vh-49px)]">
         {/* LEFT: Form */}
         <div className="lg:w-[520px] flex-shrink-0 border-r border-[var(--hl-border)] overflow-y-auto">
@@ -215,6 +226,7 @@ export default function StudioPage() {
               onDeploy={handleDeploy}
               onBack={() => setStep("customize")}
               walletConnected={isConnected}
+              isPreviewMode={isPreviewMode}
             />
           )}
         </div>
@@ -544,15 +556,17 @@ function DeployStep({
   onDeploy,
   onBack,
   walletConnected,
+  isPreviewMode,
 }: {
   config: StudioConfig;
   validation: ReturnType<typeof validateConfig>;
   deployStatus: "idle" | "paying" | "deploying" | "done" | "error";
   deployError: string;
-  deployResult: { repoUrl?: string; deployUrl?: string; apiKey?: string } | null;
+  deployResult: { repoUrl?: string; deployUrl?: string; apiKey?: string; devMode?: boolean; note?: string } | null;
   onDeploy: () => void;
   onBack: () => void;
   walletConnected: boolean;
+  isPreviewMode: boolean;
 }) {
   const copyJson = () => {
     navigator.clipboard.writeText(JSON.stringify(config, null, 2));
@@ -571,54 +585,131 @@ function DeployStep({
   };
 
   if (deployStatus === "done" && deployResult) {
-    return (
-      <div className="p-6">
-        <h2 className="text-[16px] font-semibold text-[var(--foreground)]">🎉 Deployed!</h2>
-        <p className="text-[11px] text-[var(--hl-muted)] mt-1">
-          Your HLOne build is live. Bookmark these links.
-        </p>
+    const inPreview = deployResult.devMode || isPreviewMode;
 
-        <div className="mt-5 space-y-3">
-          {deployResult.deployUrl && (
-            <div>
-              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wide mb-1">Your terminal</div>
-              <a
-                href={deployResult.deployUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block p-3 rounded border border-[var(--hl-accent)] bg-[var(--hl-accent)]/10 text-[var(--hl-accent)] font-mono text-[11px] hover:brightness-110 transition"
-              >
-                {deployResult.deployUrl} →
-              </a>
+    // Preview mode: dry-run success, explain what WOULD happen
+    if (inPreview) {
+      return (
+        <div className="p-6 space-y-5">
+          <div className="rounded-lg border border-[#f5a524]/40 bg-[#f5a524]/10 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[16px]">🧪</span>
+              <h2 className="text-[14px] font-semibold text-[#f5a524]">Preview Run Complete</h2>
             </div>
-          )}
-          {deployResult.repoUrl && (
-            <div>
-              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wide mb-1">GitHub repo</div>
-              <a
-                href={deployResult.repoUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block p-3 rounded border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--foreground)] font-mono text-[11px] hover:bg-[var(--hl-surface-hover)] transition"
-              >
-                {deployResult.repoUrl}
-              </a>
-            </div>
-          )}
-          {deployResult.apiKey && (
-            <div>
-              <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wide mb-1">API Key (save this!)</div>
-              <div className="p-3 rounded border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--foreground)] font-mono text-[10px] break-all">
-                {deployResult.apiKey}
-              </div>
-              <p className="text-[9px] text-[var(--hl-muted)] mt-1">Already set as NEXT_PUBLIC_HLONE_API_KEY in your Vercel deploy.</p>
-            </div>
-          )}
+            <p className="text-[11px] text-[var(--foreground)] leading-relaxed">
+              Your config passed validation. <span className="font-medium">Nothing was actually deployed</span> because Studio is in preview mode — the team hasn't enabled real deploys yet.
+            </p>
+          </div>
+
+          <section>
+            <h3 className="text-[11px] font-semibold text-[var(--hl-accent)] uppercase tracking-wider mb-2">What would happen on real deploy:</h3>
+            <ol className="space-y-2 text-[11px] text-[var(--foreground)] leading-snug">
+              <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0 mt-0.5">1.</span><span>You pay <span className="font-mono">50 USDC</span> on Arbitrum (auto-triggered in your wallet)</span></li>
+              <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0 mt-0.5">2.</span><span>A private fork of <span className="font-mono">hlone-template</span> is created in your GitHub account</span></li>
+              <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0 mt-0.5">3.</span><span>Your <span className="font-mono">studio.config.json</span> is committed to the fork</span></li>
+              <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0 mt-0.5">4.</span><span>A Vercel project is created from the fork + env vars baked in</span></li>
+              <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0 mt-0.5">5.</span><span>Your terminal goes live at <span className="font-mono">{config.slug}.vercel.app</span> (~90s)</span></li>
+              <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0 mt-0.5">6.</span><span>API key issued, tied to your wallet — used for rate limiting + data access</span></li>
+            </ol>
+          </section>
+
+          <section>
+            <h3 className="text-[11px] font-semibold text-[var(--hl-accent)] uppercase tracking-wider mb-2">Export your config</h3>
+            <p className="text-[10.5px] text-[var(--hl-muted)] leading-relaxed mb-2">
+              Download the JSON now — you can manually deploy it yourself, or wait until real deploys are enabled and upload it here.
+            </p>
+            <button
+              onClick={downloadJson}
+              className="w-full py-2 rounded text-[12px] text-[var(--foreground)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] border border-[var(--hl-border)]"
+            >
+              Download {config.slug}.studio.config.json
+            </button>
+          </section>
+
+          <button
+            onClick={onBack}
+            className="w-full py-2 rounded text-[11px] text-[var(--hl-muted)] hover:text-[var(--foreground)] border border-[var(--hl-border)]"
+          >
+            ← Back to edit config
+          </button>
         </div>
+      );
+    }
+
+    // Real deploy: actually live
+    return (
+      <div className="p-6 space-y-5">
+        <div className="rounded-lg border border-[var(--hl-green)]/40 bg-[var(--hl-green)]/10 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[16px]">🎉</span>
+            <h2 className="text-[14px] font-semibold text-[var(--hl-green)]">Your terminal is live!</h2>
+          </div>
+          <p className="text-[11px] text-[var(--foreground)]">
+            Deploy confirmed. Your HLOne build is now running. Bookmark everything below.
+          </p>
+        </div>
+
+        {deployResult.deployUrl && (
+          <section>
+            <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wide mb-1.5">Your terminal URL</div>
+            <a
+              href={deployResult.deployUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block p-3 rounded border-2 border-[var(--hl-accent)] bg-[var(--hl-accent)]/10 text-[var(--hl-accent)] font-mono text-[11px] hover:brightness-110 transition"
+            >
+              {deployResult.deployUrl} <span className="opacity-60">→ open</span>
+            </a>
+            <p className="text-[9px] text-[var(--hl-muted)] mt-1.5">Takes ~90s for first Vercel build to complete. Refresh if blank.</p>
+          </section>
+        )}
+
+        {deployResult.repoUrl && (
+          <section>
+            <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wide mb-1.5">GitHub repo (source code)</div>
+            <a
+              href={deployResult.repoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block p-3 rounded border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--foreground)] font-mono text-[11px] hover:bg-[var(--hl-surface-hover)] transition"
+            >
+              {deployResult.repoUrl}
+            </a>
+            <p className="text-[9px] text-[var(--hl-muted)] mt-1.5">You own this repo. Edit config/widgets, push, Vercel auto-redeploys.</p>
+          </section>
+        )}
+
+        {deployResult.apiKey && (
+          <section>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wide">API Key</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--hl-red)]/20 text-[var(--hl-red)] font-medium">Save this now — shown once</span>
+            </div>
+            <div className="p-3 rounded border border-[var(--hl-border)] bg-[var(--hl-surface)] text-[var(--foreground)] font-mono text-[10px] break-all flex items-center gap-2">
+              <span className="flex-1">{deployResult.apiKey}</span>
+              <button
+                onClick={() => navigator.clipboard.writeText(deployResult.apiKey!)}
+                className="text-[10px] px-2 py-1 rounded bg-[var(--hl-accent)] text-[var(--background)] font-medium hover:brightness-110 shrink-0"
+              >
+                Copy
+              </button>
+            </div>
+            <p className="text-[9px] text-[var(--hl-muted)] mt-1.5">Already baked into your Vercel deploy. Don't share publicly — rate-limited per key.</p>
+          </section>
+        )}
+
+        <section>
+          <h3 className="text-[11px] font-semibold text-[var(--hl-accent)] uppercase tracking-wider mb-2">Next steps</h3>
+          <ul className="space-y-1.5 text-[11px] text-[var(--foreground)]">
+            <li className="flex gap-2"><span className="text-[var(--hl-muted)]">→</span><span>Open your terminal and do a test trade (HLOne builder fee kicks in automatically)</span></li>
+            <li className="flex gap-2"><span className="text-[var(--hl-muted)]">→</span><span>Bookmark or set up a custom domain in Vercel project settings</span></li>
+            <li className="flex gap-2"><span className="text-[var(--hl-muted)]">→</span><span>Visit the dashboard to track your usage + (future) earnings</span></li>
+          </ul>
+        </section>
 
         <Link
           href="/studio/dashboard"
-          className="block mt-6 text-center py-2 rounded text-[12px] text-[var(--hl-muted)] hover:text-[var(--foreground)] border border-[var(--hl-border)]"
+          className="block text-center py-2.5 rounded text-[12px] font-medium bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] border border-[var(--hl-border)] text-[var(--foreground)]"
         >
           Go to Dashboard →
         </Link>
@@ -675,11 +766,19 @@ function DeployStep({
             ? "Confirm payment in wallet..."
             : deployStatus === "deploying"
             ? "Forking + deploying..."
+            : isPreviewMode
+            ? "Run preview (no payment, no deploy)"
             : "Deploy — Pay 50 USDC on Arbitrum"}
         </button>
-        <p className="text-[9px] text-[var(--hl-muted)] mt-2 leading-relaxed">
-          Pay once with USDC on Arbitrum (same network you use to deposit to HL). Covers API key + rate limits for ~12 months.
-        </p>
+        {isPreviewMode ? (
+          <p className="text-[9px] text-[#f5a524] mt-2 leading-relaxed">
+            Preview mode — running this will validate your config and show what would happen. No wallet popup, no payment, no real deploy.
+          </p>
+        ) : (
+          <p className="text-[9px] text-[var(--hl-muted)] mt-2 leading-relaxed">
+            Pay once with USDC on Arbitrum (same network you use to deposit to HL). Covers API key + rate limits for ~12 months. Takes ~90 seconds total.
+          </p>
+        )}
       </section>
 
       {/* Alt: download JSON */}
