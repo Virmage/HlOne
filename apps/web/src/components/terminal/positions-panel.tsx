@@ -629,9 +629,22 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
                       <span className="text-[var(--foreground)] font-medium tabular-nums">{closePercent}% &middot; {closeSize.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
                     </div>
                     <input type="range" min={1} max={100} value={closePercent} onChange={(e) => setClosePercent(parseInt(e.target.value))} className="w-full h-1.5 rounded-full appearance-none bg-[var(--hl-border)] accent-[var(--hl-accent)] cursor-pointer" />
-                    <div className="flex justify-between mt-1">
+                    {/* Preset buttons positioned at their actual % along the slider track
+                        (25% button sits under the 25% slider mark, not at the 1/4 way through flex). */}
+                    <div className="relative h-5 mt-1">
                       {[25, 50, 75, 100].map(pct => (
-                        <button key={pct} onClick={() => setClosePercent(pct)} className={`px-2 py-0.5 text-[9px] rounded font-medium transition-colors ${closePercent === pct ? "bg-[var(--hl-accent)] text-white" : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}>{pct}%</button>
+                        <button
+                          key={pct}
+                          onClick={() => setClosePercent(pct)}
+                          style={{
+                            position: "absolute",
+                            // 100% button right-aligned to edge so it doesn't overflow
+                            ...(pct === 100 ? { right: 0 } : { left: `${pct}%`, transform: "translateX(-50%)" }),
+                          }}
+                          className={`px-2 py-0.5 text-[9px] rounded font-medium transition-colors whitespace-nowrap ${closePercent === pct ? "bg-[var(--hl-accent)] text-white" : "bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)]"}`}
+                        >
+                          {pct}%
+                        </button>
                       ))}
                     </div>
                   </div>
