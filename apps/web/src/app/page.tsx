@@ -198,14 +198,108 @@ function LoadingScreen() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* Vibe-coded disclaimer — bottom of loading screen */}
-      <div className="absolute bottom-0 left-0 right-0 px-6 py-4 text-center">
-        <div className="mx-auto max-w-[520px] rounded-md border border-[var(--hl-border)] bg-[rgba(20,24,26,0.8)] backdrop-blur px-4 py-2.5">
-          <div className="text-[10px] uppercase tracking-[0.15em] text-[var(--hl-accent)] font-medium mb-1">Heads up</div>
-          <p className="text-[10.5px] text-[var(--hl-muted)] leading-snug">
-            This project is <span className="text-[var(--foreground)] font-medium">vibe coded</span>. As much as possible has been done to make it safe, but safety cannot be guaranteed. <span className="text-[var(--foreground)]">Use at your own risk.</span>
+// ─── Vibe Coded Disclaimer Modal ────────────────────────────────────────────
+// Shown once per browser (localStorage flag) after the terminal loads.
+// User must tick the checkbox and click Continue — no dismiss button.
+
+const DISCLAIMER_ACK_KEY = "hlone-disclaimer-ack-v1";
+
+function VibeCodedDisclaimer() {
+  const [show, setShow] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+
+  useEffect(() => {
+    // Only open after mount, so loading screen has passed
+    try {
+      const alreadyAcked = localStorage.getItem(DISCLAIMER_ACK_KEY);
+      if (!alreadyAcked) setShow(true);
+    } catch {
+      setShow(true);
+    }
+  }, []);
+
+  const handleAgree = () => {
+    if (!agreed) return;
+    try {
+      localStorage.setItem(DISCLAIMER_ACK_KEY, new Date().toISOString());
+    } catch {}
+    setShow(false);
+  };
+
+  if (!show) return null;
+
+  return (
+    <div className="fixed inset-0 z-[99998] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(6px)" }}>
+      <div className="w-full max-w-[500px] bg-[var(--background)] border border-[var(--hl-border)] rounded-lg shadow-2xl overflow-hidden">
+        {/* Top accent bar */}
+        <div className="h-1 bg-gradient-to-r from-[var(--hl-accent)] via-[#f5a524] to-[var(--hl-accent)]" />
+
+        <div className="p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[18px]">⚠️</span>
+            <h2 className="text-[16px] font-semibold text-[var(--foreground)]">Before you start trading</h2>
+          </div>
+
+          <p className="text-[12px] text-[var(--hl-muted)] leading-relaxed mb-4">
+            You're about to use HLOne, a trading terminal built on HyperLiquid. A few things to know before you continue:
           </p>
+
+          <div className="space-y-3 mb-5">
+            <div className="flex gap-2.5">
+              <span className="text-[var(--hl-accent)] shrink-0 mt-0.5">•</span>
+              <div>
+                <div className="text-[12px] text-[var(--foreground)] font-medium">This project is vibe coded</div>
+                <div className="text-[11px] text-[var(--hl-muted)] leading-snug mt-0.5">
+                  Built by one person with AI pair-programming assistance. Code has not been independently audited.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2.5">
+              <span className="text-[var(--hl-accent)] shrink-0 mt-0.5">•</span>
+              <div>
+                <div className="text-[12px] text-[var(--foreground)] font-medium">Safety is best-effort, not guaranteed</div>
+                <div className="text-[11px] text-[var(--hl-muted)] leading-snug mt-0.5">
+                  Reasonable precautions have been taken — no custody of your funds, signatures happen in your wallet, keys stored locally. But bugs, edge cases, and vulnerabilities may exist.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2.5">
+              <span className="text-[var(--hl-accent)] shrink-0 mt-0.5">•</span>
+              <div>
+                <div className="text-[12px] text-[var(--foreground)] font-medium">Use at your own risk</div>
+                <div className="text-[11px] text-[var(--hl-muted)] leading-snug mt-0.5">
+                  Trade with amounts you can afford to lose. HLOne is not responsible for any financial loss, technical failure, or unintended behavior resulting from use of this software.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Checkbox + continue button */}
+          <label className="flex items-start gap-2.5 mb-4 cursor-pointer select-none group">
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={e => setAgreed(e.target.checked)}
+              className="mt-0.5 accent-[var(--hl-accent)] cursor-pointer"
+            />
+            <span className="text-[11.5px] text-[var(--foreground)] leading-snug">
+              I understand HLOne is vibe coded, unaudited, and provided as-is. I accept all risk for any trades or actions I take through this platform.
+            </span>
+          </label>
+
+          <button
+            onClick={handleAgree}
+            disabled={!agreed}
+            className="w-full py-2.5 rounded text-[13px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+          >
+            {agreed ? "I understand — continue" : "Tick the box to continue"}
+          </button>
         </div>
       </div>
     </div>
@@ -529,6 +623,9 @@ export default function HomePage() {
       )}
       <OptionsChainModal coin={optionsChainCoin || "BTC"} isOpen={!!optionsChainCoin} onClose={() => setOptionsChainCoin(null)} />
       {copyTrader && <CopyDialog open={true} onOpenChange={handleClearCopy} traderAddress={copyTrader} walletAddress={walletAddress} />}
+
+      {/* First-visit disclaimer — appears once, user must acknowledge */}
+      <VibeCodedDisclaimer />
     </div>
   );
 }
