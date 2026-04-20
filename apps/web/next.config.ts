@@ -10,7 +10,9 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "X-Frame-Options", value: "DENY" },
+          // SAMEORIGIN allows /studio to iframe / (same-origin preview), still
+          // blocks clickjacking attempts from external sites.
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
           { key: "X-XSS-Protection", value: "1; mode=block" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },

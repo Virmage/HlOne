@@ -198,6 +198,16 @@ function LoadingScreen() {
           </div>
         </div>
       </div>
+
+      {/* Vibe-coded disclaimer — bottom of loading screen */}
+      <div className="absolute bottom-0 left-0 right-0 px-6 py-4 text-center">
+        <div className="mx-auto max-w-[520px] rounded-md border border-[var(--hl-border)] bg-[rgba(20,24,26,0.8)] backdrop-blur px-4 py-2.5">
+          <div className="text-[10px] uppercase tracking-[0.15em] text-[var(--hl-accent)] font-medium mb-1">Heads up</div>
+          <p className="text-[10.5px] text-[var(--hl-muted)] leading-snug">
+            This project is <span className="text-[var(--foreground)] font-medium">vibe coded</span>. As much as possible has been done to make it safe, but safety cannot be guaranteed. <span className="text-[var(--foreground)]">Use at your own risk.</span>
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

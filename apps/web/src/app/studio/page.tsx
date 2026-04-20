@@ -7,7 +7,7 @@
  * Live preview on the right (iframe of the terminal with config injected).
  */
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 import {
@@ -154,21 +154,35 @@ export default function StudioPage() {
           </Link>
           <span className="text-[10px] text-[var(--hl-muted)] hidden sm:inline">Build your own HyperLiquid terminal</span>
         </div>
-        <div className="flex items-center gap-2 text-[11px]">
-          {(["template", "customize", "deploy"] as Step[]).map((s, i) => (
-            <button
-              key={s}
-              onClick={() => setStep(s)}
-              className={`px-3 py-1 rounded transition-colors ${
-                step === s
-                  ? "bg-[var(--hl-accent)] text-[var(--background)] font-medium"
-                  : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
-              }`}
-            >
-              {i + 1}. {s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
-          ))}
-        </div>
+        <nav className="flex items-center gap-1 text-[11px]" aria-label="Studio steps">
+          {(["template", "customize", "deploy"] as Step[]).map((s, i) => {
+            const isActive = step === s;
+            const currentIdx = (["template", "customize", "deploy"] as Step[]).indexOf(step);
+            const visited = i <= currentIdx;
+            return (
+              <div key={s} className="flex items-center">
+                {i > 0 && (
+                  <span className={`mx-1 text-[10px] ${visited ? "text-[var(--hl-accent)]" : "text-[var(--hl-muted)]"}`}>→</span>
+                )}
+                <button
+                  onClick={() => setStep(s)}
+                  className={`px-3 py-1.5 rounded transition-colors ${
+                    isActive
+                      ? "bg-[var(--hl-accent)] text-[var(--background)] font-medium"
+                      : visited
+                      ? "text-[var(--hl-accent)] hover:bg-[var(--hl-accent)]/10"
+                      : "text-[var(--hl-muted)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-current/20 mr-1.5 text-[9px] font-bold">
+                    {i + 1}
+                  </span>
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </button>
+              </div>
+            );
+          })}
+        </nav>
       </header>
 
       <div className="flex flex-col lg:flex-row h-[calc(100vh-49px)]">
@@ -176,10 +190,9 @@ export default function StudioPage() {
         <div className="lg:w-[520px] flex-shrink-0 border-r border-[var(--hl-border)] overflow-y-auto">
           {step === "template" && (
             <TemplateStep
-              onPick={(tmpl) => {
-                setConfig(tmpl.config);
-                setStep("customize");
-              }}
+              currentConfig={config}
+              onPick={(tmpl) => setConfig(tmpl.config)}
+              onNext={() => setStep("customize")}
             />
           )}
           {step === "customize" && (
@@ -188,6 +201,7 @@ export default function StudioPage() {
               toggleWidget={toggleWidget}
               update={update}
               updateBranding={updateBranding}
+              onBack={() => setStep("template")}
               onNext={() => setStep("deploy")}
             />
           )}
@@ -228,39 +242,94 @@ export default function StudioPage() {
 
 // ─── Template Picker Step ───────────────────────────────────────────────────
 
-function TemplateStep({ onPick }: { onPick: (t: typeof STUDIO_TEMPLATES[number]) => void }) {
+function TemplateStep({
+  currentConfig,
+  onPick,
+  onNext,
+}: {
+  currentConfig: StudioConfig;
+  onPick: (t: typeof STUDIO_TEMPLATES[number]) => void;
+  onNext: () => void;
+}) {
+  // Identify which template (if any) is currently selected by matching slug
+  const selectedId = STUDIO_TEMPLATES.find(t => t.config.slug === currentConfig.slug)?.id;
+
   return (
-    <div className="p-6">
+    <div className="p-6 pb-24 lg:pb-6">
       <h2 className="text-[16px] font-semibold text-[var(--foreground)]">Pick a starting template</h2>
       <p className="text-[11px] text-[var(--hl-muted)] mt-1">
-        Start from a template and customize, or pick Default for the full experience.
+        Click to preview each template in the live preview on the right. Pick one to start from, then customize.
       </p>
 
       <div className="mt-5 space-y-2">
-        {STUDIO_TEMPLATES.map(t => (
-          <button
-            key={t.id}
-            onClick={() => onPick(t)}
-            className="w-full text-left p-4 rounded-lg border border-[var(--hl-border)] bg-[var(--hl-surface)] hover:border-[var(--hl-accent)] hover:bg-[var(--hl-surface-hover)] transition-colors group"
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="inline-block w-2 h-2 rounded-full"
-                    style={{ backgroundColor: t.config.branding.accentColor }}
-                  />
-                  <span className="text-[13px] font-semibold text-[var(--foreground)]">{t.name}</span>
+        {STUDIO_TEMPLATES.map(t => {
+          const isSelected = t.id === selectedId;
+          const widgetCount = Object.values(t.config.widgets).filter(Boolean).length;
+          return (
+            <button
+              key={t.id}
+              onClick={() => onPick(t)}
+              className={`w-full text-left p-4 rounded-lg border transition-all ${
+                isSelected
+                  ? "border-[var(--hl-accent)] bg-[var(--hl-accent)]/10 ring-2 ring-[var(--hl-accent)]/30"
+                  : "border-[var(--hl-border)] bg-[var(--hl-surface)] hover:border-[var(--hl-accent)]/60 hover:bg-[var(--hl-surface-hover)]"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="inline-block w-3 h-3 rounded-full shrink-0"
+                      style={{ backgroundColor: t.config.branding.accentColor }}
+                    />
+                    <span className="text-[13px] font-semibold text-[var(--foreground)]">{t.name}</span>
+                    {isSelected && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--hl-accent)] text-[var(--background)] font-bold uppercase tracking-wide">
+                        Previewing
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10.5px] text-[var(--hl-muted)] mt-0.5">{t.tagline}</div>
+                  <div className="text-[10.5px] text-[var(--hl-muted)] mt-2 leading-relaxed">{t.description}</div>
+                  {/* Show which categories are enabled to make differences concrete */}
+                  <div className="flex flex-wrap gap-1 mt-2.5">
+                    {Object.entries(t.config.widgets)
+                      .filter(([, on]) => on)
+                      .slice(0, 6)
+                      .map(([key]) => (
+                        <span
+                          key={key}
+                          className="text-[8.5px] px-1.5 py-0.5 rounded bg-[var(--hl-border)]/40 text-[var(--hl-muted)] font-mono"
+                        >
+                          {key}
+                        </span>
+                      ))}
+                    {widgetCount > 6 && (
+                      <span className="text-[8.5px] text-[var(--hl-muted)]">+{widgetCount - 6} more</span>
+                    )}
+                  </div>
                 </div>
-                <div className="text-[10.5px] text-[var(--hl-muted)] mt-0.5">{t.tagline}</div>
-                <div className="text-[10.5px] text-[var(--hl-muted)] mt-2 leading-relaxed">{t.description}</div>
+                <div className="text-right shrink-0">
+                  <div className="text-[14px] font-bold text-[var(--foreground)] tabular-nums">{widgetCount}</div>
+                  <div className="text-[8.5px] text-[var(--hl-muted)] uppercase tracking-wide">widgets</div>
+                </div>
               </div>
-              <div className="text-[9px] text-[var(--hl-muted)] text-right">
-                {Object.values(t.config.widgets).filter(Boolean).length} widgets
-              </div>
-            </div>
-          </button>
-        ))}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Sticky Continue button */}
+      <div className="sticky bottom-0 lg:static pt-4 mt-4 -mx-6 lg:mx-0 px-6 lg:px-0 bg-gradient-to-t from-[var(--background)] via-[var(--background)] to-transparent">
+        <button
+          onClick={onNext}
+          disabled={!selectedId}
+          className="w-full py-2.5 rounded text-[13px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+        >
+          {selectedId
+            ? `Continue with "${STUDIO_TEMPLATES.find(t => t.id === selectedId)?.name}" →`
+            : "Pick a template to continue"}
+        </button>
       </div>
     </div>
   );
@@ -273,12 +342,14 @@ function CustomizeStep({
   toggleWidget,
   update,
   updateBranding,
+  onBack,
   onNext,
 }: {
   config: StudioConfig;
   toggleWidget: (k: WidgetKey) => void;
   update: <K extends keyof StudioConfig>(k: K, v: StudioConfig[K]) => void;
   updateBranding: <K extends keyof StudioConfig["branding"]>(k: K, v: StudioConfig["branding"][K]) => void;
+  onBack: () => void;
   onNext: () => void;
 }) {
   const categories = ["core", "flow", "market", "derivatives", "ecosystem"] as const;
@@ -444,12 +515,20 @@ function CustomizeStep({
         </p>
       </section>
 
-      <button
-        onClick={onNext}
-        className="w-full py-2.5 rounded text-[13px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 transition-all"
-      >
-        Continue to Deploy →
-      </button>
+      <div className="flex gap-2">
+        <button
+          onClick={onBack}
+          className="py-2.5 px-4 rounded text-[12px] text-[var(--foreground)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] border border-[var(--hl-border)] transition-colors"
+        >
+          ← Back
+        </button>
+        <button
+          onClick={onNext}
+          className="flex-1 py-2.5 rounded text-[13px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 transition-all"
+        >
+          Continue to Deploy →
+        </button>
+      </div>
     </div>
   );
 }
@@ -632,12 +711,10 @@ function DeployStep({
   );
 }
 
-// ─── Live Preview (mockup) ──────────────────────────────────────────────────
-// Renders a visual mockup of the terminal layout with branding applied.
-// We use a mockup instead of iframing the real terminal because:
-//   (a) X-Frame-Options blocks same-origin iframes site-wide
-//   (b) loading the full terminal is heavy + noisy for a preview
-//   (c) a clean mockup makes the layout/branding easier to evaluate
+// ─── Live Preview (real terminal iframed) ──────────────────────────────────
+// Loads the actual terminal at `/` inside a same-origin iframe and pushes the
+// config via postMessage. The terminal's useStudioConfig hook listens for
+// STUDIO_CONFIG_UPDATE messages and updates widgets + branding in real-time.
 
 function LivePreview({ config }: { config: StudioConfig }) {
   const enabledWidgets = WIDGET_CATALOG.filter(w => (config.widgets[w.key] ?? w.defaultOn));
@@ -652,144 +729,115 @@ function LivePreview({ config }: { config: StudioConfig }) {
     ecosystem: enabledWidgets.filter(w => w.category === "ecosystem"),
   };
 
+  const [iframeReady, setIframeReady] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  // Push config on every change
+  useEffect(() => {
+    if (!iframeReady) return;
+    const iframe = iframeRef.current;
+    if (!iframe || !iframe.contentWindow) return;
+    try {
+      iframe.contentWindow.postMessage({ type: "STUDIO_CONFIG_UPDATE", config }, window.location.origin);
+    } catch (err) {
+      console.warn("[preview] postMessage failed:", err);
+    }
+  }, [config, iframeReady]);
+
+  const handleLoad = () => {
+    setIframeReady(true);
+    const iframe = iframeRef.current;
+    if (iframe?.contentWindow) {
+      try {
+        iframe.contentWindow.postMessage({ type: "STUDIO_CONFIG_UPDATE", config }, window.location.origin);
+      } catch {}
+    }
+  };
+
   return (
-    <div
-      className="h-full overflow-y-auto"
-      style={{
-        // Set the accent color as a CSS variable for this preview
-        ["--preview-accent" as string]: accent,
-      }}
-    >
-      {/* Mock header */}
-      <div
-        className="px-4 py-2.5 border-b flex items-center justify-between"
-        style={{ borderColor: "var(--hl-border)", background: "var(--background)" }}
-      >
-        <div className="flex items-center gap-2">
+    <div className="h-full flex flex-col bg-[var(--hl-surface)]">
+      {/* Real terminal iframe — main preview */}
+      <div className="flex-[2] min-h-0 bg-[var(--background)] border-b border-[var(--hl-border)] relative overflow-hidden">
+        {!iframeReady && (
+          <div className="absolute inset-0 flex items-center justify-center z-10 bg-[var(--background)]">
+            <div className="text-[11px] text-[var(--hl-muted)] animate-pulse">Loading live preview...</div>
+          </div>
+        )}
+        <iframe
+          ref={iframeRef}
+          src="/?preview=1"
+          title="HLOne Live Preview"
+          onLoad={handleLoad}
+          className="w-full h-full border-0"
+          // sandbox keeps it safe — allow scripts so React runs, but no form submission / top nav
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+        />
+      </div>
+
+      {/* Below iframe: enabled widgets summary + fee stack (always visible) */}
+      <div className="flex-1 min-h-[180px] overflow-y-auto px-4 py-3 bg-[var(--hl-surface)]">
+        {/* Branding row */}
+        <div className="flex items-center gap-3 mb-3 pb-3 border-b border-[var(--hl-border)]">
           {config.branding.logoUrl ? (
-            <img src={config.branding.logoUrl} alt="" className="h-5 w-5 rounded" />
+            <img src={config.branding.logoUrl} alt="" className="h-8 w-8 rounded" />
           ) : (
             <div
-              className="h-5 w-5 rounded"
-              style={{ background: `linear-gradient(135deg, ${accent}, ${accent}80)` }}
+              className="h-8 w-8 rounded shrink-0"
+              style={{ background: `linear-gradient(135deg, ${accent}, ${accent}60)` }}
             />
           )}
-          <div>
-            <div className="text-[13px] font-semibold text-[var(--foreground)] leading-none">{config.name || "Untitled"}</div>
-            {config.tagline && (
-              <div className="text-[9px] text-[var(--hl-muted)] mt-0.5 leading-none">{config.tagline}</div>
-            )}
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-[var(--foreground)] truncate">{config.name || "Untitled"}</div>
+            {config.tagline && <div className="text-[10px] text-[var(--hl-muted)] truncate">{config.tagline}</div>}
+          </div>
+          <div className="ml-auto text-right shrink-0">
+            <div className="text-[14px] font-bold text-[var(--foreground)] tabular-nums">{enabledWidgets.length}</div>
+            <div className="text-[8px] text-[var(--hl-muted)] uppercase tracking-wide">widgets</div>
           </div>
         </div>
-        <div className="text-[10px] text-[var(--hl-muted)] font-mono">
-          {config.defaultToken} · {config.watchlist.length} tokens
+
+        {/* Enabled widgets pills */}
+        <div className="flex flex-wrap gap-1 mb-3">
+          {enabledWidgets.map(w => (
+            <span
+              key={w.key}
+              className="text-[9px] px-2 py-0.5 rounded border"
+              style={{ color: accent, borderColor: `${accent}40`, background: `${accent}10` }}
+            >
+              {w.label}
+            </span>
+          ))}
+          {enabledWidgets.length === 0 && (
+            <span className="text-[10px] text-[var(--hl-muted)]">No widgets enabled.</span>
+          )}
+        </div>
+
+        {/* Fee stack */}
+        <div className="text-[9px] text-[var(--hl-muted)] uppercase tracking-wide mb-1">Fee stack per trade</div>
+        <div className="space-y-0.5 text-[10px] font-mono">
+          <FeeRow label="HL exchange fee" value="~0.035%" />
+          <FeeRow label="HLOne builder fee" value={`${(HLONE_PLATFORM_FEE_BPS / 100).toFixed(3)}%`} accent={accent} />
+        </div>
+
+        {/* Category summary */}
+        <div className="mt-3 pt-3 border-t border-[var(--hl-border)] grid grid-cols-5 gap-2 text-center">
+          {(["core", "flow", "market", "derivatives", "ecosystem"] as const).map(cat => (
+            <div key={cat}>
+              <div className="text-[11px] font-semibold text-[var(--foreground)] tabular-nums">
+                {byCategory[cat].length}
+              </div>
+              <div className="text-[8px] text-[var(--hl-muted)] uppercase tracking-wide">{cat}</div>
+            </div>
+          ))}
         </div>
       </div>
-
-      {/* Mock ticker bar (if enabled) */}
-      {(config.widgets.tickerBar ?? true) && (
-        <div
-          className="px-4 py-1.5 border-b overflow-hidden"
-          style={{ borderColor: "var(--hl-border)", background: "var(--hl-surface)" }}
-        >
-          <div className="flex items-center gap-4 text-[9px] font-mono whitespace-nowrap">
-            {config.watchlist.slice(0, 8).map(t => (
-              <div key={t} className="flex items-center gap-1">
-                <span className="text-[var(--foreground)] font-medium">{t}</span>
-                <span className="text-[var(--hl-muted)]">—</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Mock main area: Chart + right column */}
-      <div className="p-3 grid grid-cols-[1fr_180px] gap-2">
-        {/* Left: Chart */}
-        <div className="space-y-2">
-          {(config.widgets.priceChart ?? true) && (
-            <MockPanel label="Price Chart" accent={accent} height={180} showAxis />
-          )}
-          {(config.widgets.positionsPanel ?? true) && (
-            <MockPanel label="Positions & Orders" accent={accent} height={80} rows={3} />
-          )}
-        </div>
-        {/* Right column: Trade panel + OB */}
-        <div className="space-y-2">
-          {(config.widgets.tradingPanel ?? true) && (
-            <MockPanel label="Trade" accent={accent} height={130} compact />
-          )}
-          {(config.widgets.orderBook ?? true) && (
-            <MockPanel label="Order Book" accent={accent} height={100} rows={6} compact />
-          )}
-        </div>
-      </div>
-
-      {/* Mock tabs + below-fold widgets */}
-      {(byCategory.flow.length > 0 || byCategory.market.length > 0 || byCategory.derivatives.length > 0 || byCategory.ecosystem.length > 0) && (
-        <div className="px-3 pb-3">
-          <div className="border-t border-[var(--hl-border)] pt-3">
-            <div className="flex items-center gap-3 text-[10px] mb-2 overflow-x-auto">
-              {byCategory.flow.length > 0 && (
-                <Tab label="Signals / Whales" active accent={accent} />
-              )}
-              {byCategory.derivatives.length > 0 && <Tab label="Options Flow" accent={accent} />}
-              {byCategory.ecosystem.length > 0 && <Tab label="Ecosystem" accent={accent} />}
-              {byCategory.market.length > 0 && <Tab label="Market / News" accent={accent} />}
-            </div>
-
-            {/* Active tab: flow widgets */}
-            {byCategory.flow.length > 0 && (
-              <div className="grid grid-cols-2 gap-2">
-                {byCategory.flow.map(w => (
-                  <MockPanel key={w.key} label={w.label} accent={accent} height={70} rows={3} compact />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* All enabled widgets summary */}
-          <div className="mt-4 pt-3 border-t border-[var(--hl-border)]">
-            <div className="text-[9px] text-[var(--hl-muted)] uppercase tracking-wide mb-2">
-              All enabled widgets · {enabledWidgets.length} of {WIDGET_CATALOG.length}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {enabledWidgets.map(w => (
-                <span
-                  key={w.key}
-                  className="text-[9px] px-2 py-0.5 rounded border"
-                  style={{
-                    color: accent,
-                    borderColor: `${accent}40`,
-                    background: `${accent}10`,
-                  }}
-                >
-                  {w.label}
-                </span>
-              ))}
-              {enabledWidgets.length === 0 && (
-                <span className="text-[10px] text-[var(--hl-muted)]">No widgets enabled. Pick at least one.</span>
-              )}
-            </div>
-          </div>
-
-          {/* Fee summary */}
-          <div className="mt-4 pt-3 border-t border-[var(--hl-border)]">
-            <div className="text-[9px] text-[var(--hl-muted)] uppercase tracking-wide mb-1.5">Fee stack</div>
-            <div className="space-y-0.5 text-[10px] font-mono">
-              <FeeRow label="HL exchange fee" value="~0.035%" />
-              <FeeRow label="HLOne builder fee" value={`${(HLONE_PLATFORM_FEE_BPS / 100).toFixed(3)}%`} accent={accent} />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-// ─── Preview primitives ────────────────────────────────────────────────────
+// ─── Preview primitives (legacy mockup, unused; kept for reference) ────────
 
-function MockPanel({
+function _MockPanel_UNUSED({
   label,
   accent,
   height,
