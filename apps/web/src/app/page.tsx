@@ -214,7 +214,9 @@ const DISCLAIMER_ACK_KEY = "hlone-disclaimer-ack-v1";
 
 function VibeCodedDisclaimer() {
   const [show, setShow] = useState(false);
-  const [agreed, setAgreed] = useState(false);
+  const [agreedRisk, setAgreedRisk] = useState(false);
+  const [agreedDprk, setAgreedDprk] = useState(false);
+  const bothAgreed = agreedRisk && agreedDprk;
 
   useEffect(() => {
     // Only open after mount, so loading screen has passed
@@ -227,7 +229,7 @@ function VibeCodedDisclaimer() {
   }, []);
 
   const handleAgree = () => {
-    if (!agreed) return;
+    if (!bothAgreed) return;
     try {
       localStorage.setItem(DISCLAIMER_ACK_KEY, new Date().toISOString());
     } catch {}
@@ -256,12 +258,12 @@ function VibeCodedDisclaimer() {
             <DisclaimerBullets />
           </div>
 
-          {/* Checkbox + continue button */}
-          <label className="flex items-start gap-2.5 mb-4 cursor-pointer select-none group">
+          {/* Risk acknowledgment */}
+          <label className="flex items-start gap-2.5 mb-3 cursor-pointer select-none group">
             <input
               type="checkbox"
-              checked={agreed}
-              onChange={e => setAgreed(e.target.checked)}
+              checked={agreedRisk}
+              onChange={e => setAgreedRisk(e.target.checked)}
               className="mt-0.5 accent-[var(--hl-accent)] cursor-pointer"
             />
             <span className="text-[11.5px] text-[var(--foreground)] leading-snug">
@@ -269,12 +271,25 @@ function VibeCodedDisclaimer() {
             </span>
           </label>
 
+          {/* DPRK filter — sanctioned entities won't tick this */}
+          <label className="flex items-start gap-2.5 mb-4 cursor-pointer select-none group">
+            <input
+              type="checkbox"
+              checked={agreedDprk}
+              onChange={e => setAgreedDprk(e.target.checked)}
+              className="mt-0.5 accent-[var(--hl-accent)] cursor-pointer"
+            />
+            <span className="text-[11.5px] text-[var(--foreground)] leading-snug">
+              Fuck Kim Jong Un. <span className="text-[var(--hl-muted)]">(For security reasons.)</span>
+            </span>
+          </label>
+
           <button
             onClick={handleAgree}
-            disabled={!agreed}
+            disabled={!bothAgreed}
             className="w-full py-2.5 rounded text-[13px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
-            {agreed ? "I understand — continue" : "Tick the box to continue"}
+            {bothAgreed ? "I understand — continue" : "Tick both boxes to continue"}
           </button>
         </div>
       </div>
