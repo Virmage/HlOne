@@ -38,8 +38,12 @@ const nextConfig: NextConfig = {
   // IMPORTANT: explicitly list backend routes — do NOT use /api/:path* because that
   // would also proxy /api/studio/* which lives in this Next.js app, not the backend.
   async rewrites() {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    let apiUrl = process.env.NEXT_PUBLIC_API_URL;
     if (!apiUrl) return [];
+    // Forgiving parsing: auto-prepend https:// if missing, strip trailing slash.
+    // Next.js rewrites require full URLs with protocol.
+    apiUrl = apiUrl.trim().replace(/\/$/, "");
+    if (!/^https?:\/\//.test(apiUrl)) apiUrl = `https://${apiUrl}`;
     return [
       { source: "/api/market/:path*",    destination: `${apiUrl}/api/market/:path*` },
       { source: "/api/traders/:path*",   destination: `${apiUrl}/api/traders/:path*` },
