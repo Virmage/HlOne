@@ -84,7 +84,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
                     <span className={`text-[10px] font-medium ${dirColor}`}>{posDirection}</span>
                   )}
                   <button
-                    onClick={() => onSelectToken(alert.coin)}
+                    onClick={(e) => { e.stopPropagation(); onSelectToken(alert.coin); }}
                     className="font-medium text-[var(--foreground)] hover:text-[var(--hl-accent)] transition-colors"
                   >
                     {alert.coin.includes(":") ? alert.coin.split(":")[1] : alert.coin}
@@ -113,7 +113,7 @@ export function WhaleFeed({ alerts, onSelectToken, onSelectTrader, onCopy }: Wha
               <div className="flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                 {onCopy && (
                   <button
-                    onClick={() => onCopy(alert.whaleAddress)}
+                    onClick={(e) => { e.stopPropagation(); onCopy(alert.whaleAddress); }}
                     className="px-2 py-0.5 rounded text-[10px] font-medium bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110"
                   >
                     Copy Trader

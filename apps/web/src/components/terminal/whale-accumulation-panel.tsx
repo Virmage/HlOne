@@ -20,7 +20,7 @@ interface Props {
 function AccumulationRow({ row, onSelectToken }: { row: WhaleAccumulation; onSelectToken: (coin: string) => void }) {
   return (
     <tr
-      onClick={() => onSelectToken(row.coin)}
+      onClick={(e) => { e.stopPropagation(); onSelectToken(row.coin); }}
       className="border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
     >
       <td className="py-1.5 px-2 font-medium text-[var(--foreground)]">{displayCoin(row.coin)}</td>

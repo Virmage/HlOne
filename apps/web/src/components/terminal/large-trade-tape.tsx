@@ -27,7 +27,7 @@ function TradeRow({ t, onSelectToken }: { t: LargeTrade; onSelectToken: (coin: s
   return (
     <div
       className="grid grid-cols-[1fr_50px_80px_1fr_50px] items-center px-2 py-1 text-[11px] border-b border-[var(--hl-border)] hover:bg-[var(--hl-surface-hover)] cursor-pointer transition-colors"
-      onClick={() => onSelectToken(t.coin)}
+      onClick={(e) => { e.stopPropagation(); onSelectToken(t.coin); }}
     >
       <span className="font-medium text-[var(--foreground)]">{t.coin.includes(":") ? t.coin.split(":")[1] : t.coin}</span>
       <span className={`font-medium ${isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
