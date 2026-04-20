@@ -165,7 +165,10 @@ export const DEFAULT_CONFIG: StudioConfig = {
   slug: "hlone",
   name: "HLOne",
   tagline: "The HyperLiquid trading terminal",
-  widgets: Object.fromEntries(WIDGET_CATALOG.map(w => [w.key, w.defaultOn])) as Record<WidgetKey, boolean>,
+  // DEFAULT_CONFIG = flagship HLOne experience = ALL widgets on.
+  // The `defaultOn` property in WIDGET_CATALOG is for Studio template suggestions,
+  // not for the flagship build. Flagship should always render everything.
+  widgets: Object.fromEntries(WIDGET_CATALOG.map(w => [w.key, true])) as Record<WidgetKey, boolean>,
   defaultToken: "BTC",
   watchlist: ["BTC", "ETH", "HYPE", "SOL"],
   branding: {
