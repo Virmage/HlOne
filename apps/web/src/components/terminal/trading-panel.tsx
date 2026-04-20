@@ -3,9 +3,8 @@
 import { useState, useCallback, useEffect } from "react";
 import type { TokenOverview, HLOneScore } from "@/lib/api";
 import type { PlaceOrderResult } from "@/lib/hl-exchange";
-import { BUILDER_FEE_PERCENT, BUILDER_FEE_DISPLAY, BUILDER_ADDRESS } from "@/lib/hl-exchange";
-import { OrderConfirmModal } from "@/components/security/order-confirm-modal";
-import { describeOrder, shouldRequireConfirmation, verifyOrderParams } from "@/lib/security-guards";
+import { BUILDER_FEE_PERCENT, BUILDER_FEE_DISPLAY } from "@/lib/hl-exchange";
+import { verifyOrderParams } from "@/lib/security-guards";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 import { useGeoCheck } from "@/hooks/use-geo-check";
 import { hasDeriveOptions } from "./hype-options";
@@ -46,11 +45,6 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
   const [showLevModal, setShowLevModal] = useState(false);
   const [levInput, setLevInput] = useState("");
   const [sizePercent, setSizePercent] = useState(0);
-  // Security: pending confirm state for trades above threshold
-  const [pendingConfirm, setPendingConfirm] = useState<{
-    description: ReturnType<typeof describeOrder>;
-    warnings: string[];
-  } | null>(null);
 
   const { address, isConnected } = useSafeAccount();
   const [accountValue, setAccountValue] = useState(0);
@@ -127,49 +121,26 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
     }
   }, [levInput, maxLev, handleLeverageChange]);
 
-  const handleSubmit = useCallback(async (opts?: { skipConfirm?: boolean }) => {
+  const handleSubmit = useCallback(async () => {
     if (!address || sizeNum <= 0) return;
 
-    // ── SECURITY: sanity-check order params + large-trade confirmation ──
-    if (!opts?.skipConfirm) {
-      const effectivePrice = orderType === "limit" && limitPrice
-        ? parseFloat(limitPrice)
-        : overview?.price ?? 0;
-      const notionalUsd = effectivePrice * sizeNum;
-
-      const check = verifyOrderParams(
-        {
-          asset: coin,
-          isBuy: side === "long",
-          size: sizeNum,
-          limitPrice: orderType === "limit" ? parseFloat(limitPrice) : undefined,
-          orderType,
-          reduceOnly,
-          slippageBps: 50,
-        },
-        { marketPrice: overview?.price, accountValue },
-      );
-
-      if (!check.ok) {
-        setLastResult({ success: false, error: `Order rejected: ${check.critical.join("; ")}` });
-        return;
-      }
-
-      if (shouldRequireConfirmation(notionalUsd) || check.warnings.length > 0) {
-        const description = describeOrder(
-          {
-            asset: coin,
-            isBuy: side === "long",
-            size: sizeNum,
-            limitPrice: orderType === "limit" ? parseFloat(limitPrice) : undefined,
-            orderType,
-            reduceOnly,
-          },
-          overview?.price,
-        );
-        setPendingConfirm({ description, warnings: check.warnings });
-        return; // User must confirm via modal → will call handleSubmit({ skipConfirm: true })
-      }
+    // Silent security: reject clearly-invalid params (size <= 0, bad price, etc.)
+    // No modal, no warnings, no friction. Only blocks orders that would fail anyway.
+    const check = verifyOrderParams(
+      {
+        asset: coin,
+        isBuy: side === "long",
+        size: sizeNum,
+        limitPrice: orderType === "limit" ? parseFloat(limitPrice) : undefined,
+        orderType,
+        reduceOnly,
+        slippageBps: 50,
+      },
+      { marketPrice: overview?.price, accountValue },
+    );
+    if (!check.ok) {
+      setLastResult({ success: false, error: check.critical.join("; ") });
+      return;
     }
 
     setSubmitting(true);
@@ -718,19 +689,6 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         </>
       )}
 
-      {/* Security: order confirmation modal (shown for trades over threshold) */}
-      {pendingConfirm && (
-        <OrderConfirmModal
-          description={pendingConfirm.description}
-          warnings={pendingConfirm.warnings}
-          builderInfo={{ address: BUILDER_ADDRESS, feePercent: BUILDER_FEE_DISPLAY }}
-          onConfirm={() => {
-            setPendingConfirm(null);
-            handleSubmit({ skipConfirm: true });
-          }}
-          onCancel={() => setPendingConfirm(null)}
-        />
-      )}
     </div>
   );
 }

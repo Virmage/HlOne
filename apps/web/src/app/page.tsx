@@ -17,7 +17,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useStudioConfig } from "@/hooks/use-studio-config";
 import { UnlockModal } from "@/components/security/unlock-modal";
 import { BUILDER_ADDRESS, BUILDER_FEE } from "@/lib/hl-exchange";
-import { verifyCriticalConstants, showConsoleWarning } from "@/lib/security-guards";
+import { verifyCriticalConstants } from "@/lib/security-guards";
 
 /* ── PanelSkeleton: placeholder while lazy panels load ────────────────────── */
 function PanelSkeleton() {
@@ -342,14 +342,11 @@ export default function HomePage() {
     return () => clearTimeout(t);
   }, [data]);
 
-  // ── Security checks on app load ─────────────────────────────────────────
+  // Silent runtime check: verify critical addresses haven't been swapped by a
+  // compromised dependency or XSS injection. Only fires when something's
+  // actually wrong — blocks UI to prevent bad signing in that case.
   const [securityTamperError, setSecurityTamperError] = useState<string | null>(null);
   useEffect(() => {
-    // 1. Phishing warning in console
-    showConsoleWarning();
-
-    // 2. Runtime verification of critical constants. If tampered, show a red
-    //    banner and refuse to let user trade.
     const check = verifyCriticalConstants({ BUILDER_ADDRESS, BUILDER_FEE });
     if (!check.ok) {
       console.error("[security] Constants tampered:", check.error);
