@@ -44,23 +44,39 @@ export function useTerminal() {
   useEffect(() => {
     fetch();
 
-    // Refresh whale alerts every 30s — but pause when tab is hidden
-    // (saves bandwidth + server load when users aren't looking)
-    let interval: ReturnType<typeof setInterval> | null = null;
+    // Two polling cadences, both pause when the tab is hidden:
+    //   1. Fast (30s): whale alerts — low payload, event-driven
+    //   2. Slow (60s): full terminal data — sharp flow, divergences, top traders,
+    //      ticker prices, macro, market pulse, etc. Keeps everything fresh while
+    //      you're watching without hammering the API.
+    let fastInterval: ReturnType<typeof setInterval> | null = null;
+    let slowInterval: ReturnType<typeof setInterval> | null = null;
+
+    const refetchWhaleAlerts = async () => {
+      if (document.hidden) return;
+      try {
+        const result = await getWhaleAlertsFeed(30);
+        setData(prev => prev ? { ...prev, whaleAlerts: result.alerts, hotTokens: result.hotTokens } : prev);
+      } catch { /* ignore polling errors */ }
+    };
+
+    const refetchFullTerminal = async () => {
+      if (document.hidden) return;
+      try {
+        const result = await getTerminalData();
+        // Merge rather than replace so React can diff + only re-render changed widgets
+        setData(prev => prev ? { ...prev, ...result } : result);
+      } catch { /* ignore polling errors */ }
+    };
 
     const startPolling = () => {
-      if (interval) return;
-      interval = setInterval(async () => {
-        if (document.hidden) return; // skip if tab not visible
-        try {
-          const result = await getWhaleAlertsFeed(30);
-          setData(prev => prev ? { ...prev, whaleAlerts: result.alerts, hotTokens: result.hotTokens } : prev);
-        } catch { /* ignore polling errors */ }
-      }, 30_000);
+      if (!fastInterval) fastInterval = setInterval(refetchWhaleAlerts, 30_000);
+      if (!slowInterval) slowInterval = setInterval(refetchFullTerminal, 60_000);
     };
 
     const stopPolling = () => {
-      if (interval) { clearInterval(interval); interval = null; }
+      if (fastInterval) { clearInterval(fastInterval); fastInterval = null; }
+      if (slowInterval) { clearInterval(slowInterval); slowInterval = null; }
     };
 
     let lastRefetch = Date.now();
@@ -69,12 +85,10 @@ export function useTerminal() {
         stopPolling();
       } else {
         startPolling();
-        // Only refetch if tab was hidden for >2 minutes
-        if (Date.now() - lastRefetch > 120_000) {
+        // Coming back after being away for >1 min: refresh immediately
+        if (Date.now() - lastRefetch > 60_000) {
           lastRefetch = Date.now();
-          getWhaleAlertsFeed(20)
-            .then(result => setData(prev => prev ? { ...prev, whaleAlerts: result.alerts, hotTokens: result.hotTokens } : prev))
-            .catch(() => {});
+          refetchFullTerminal();
         }
       }
     };
