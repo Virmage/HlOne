@@ -16,6 +16,7 @@ import { useAccountInfo } from "@/hooks/use-account-info";
 import { useTheme } from "@/hooks/use-theme";
 import { useStudioConfig } from "@/hooks/use-studio-config";
 import { UnlockModal } from "@/components/security/unlock-modal";
+import { DisclaimerBullets } from "@/components/security/disclaimer-content";
 import { BUILDER_ADDRESS, BUILDER_FEE } from "@/lib/hl-exchange";
 import { verifyCriticalConstants } from "@/lib/security-guards";
 
@@ -251,36 +252,8 @@ function VibeCodedDisclaimer() {
             You're about to use HLOne, a trading terminal built on HyperLiquid. A few things to know before you continue:
           </p>
 
-          <div className="space-y-3 mb-5">
-            <div className="flex gap-2.5">
-              <span className="text-[var(--hl-accent)] shrink-0 mt-0.5">•</span>
-              <div>
-                <div className="text-[12px] text-[var(--foreground)] font-medium">This project is vibe coded</div>
-                <div className="text-[11px] text-[var(--hl-muted)] leading-snug mt-0.5">
-                  Built by one person with AI pair-programming assistance. Code has not been independently audited.
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-2.5">
-              <span className="text-[var(--hl-accent)] shrink-0 mt-0.5">•</span>
-              <div>
-                <div className="text-[12px] text-[var(--foreground)] font-medium">Safety is best-effort, not guaranteed</div>
-                <div className="text-[11px] text-[var(--hl-muted)] leading-snug mt-0.5">
-                  Reasonable precautions have been taken — no custody of your funds, signatures happen in your wallet, keys stored locally. But bugs, edge cases, and vulnerabilities may exist.
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-2.5">
-              <span className="text-[var(--hl-accent)] shrink-0 mt-0.5">•</span>
-              <div>
-                <div className="text-[12px] text-[var(--foreground)] font-medium">Use at your own risk</div>
-                <div className="text-[11px] text-[var(--hl-muted)] leading-snug mt-0.5">
-                  Trade with amounts you can afford to lose. HLOne is not responsible for any financial loss, technical failure, or unintended behavior resulting from use of this software.
-                </div>
-              </div>
-            </div>
+          <div className="mb-5">
+            <DisclaimerBullets />
           </div>
 
           {/* Checkbox + continue button */}

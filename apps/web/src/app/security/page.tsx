@@ -25,6 +25,7 @@ import {
 } from "@/lib/crypto-storage";
 import { DERIVE_SESSION_KEY_PREFIX } from "@/lib/derive-exchange";
 import { AGENT_STORAGE_PREFIX } from "@/lib/hl-exchange";
+import { DisclaimerViewModal } from "@/components/security/disclaimer-content";
 
 export default function SecurityPage() {
   const { address, isConnected } = useSafeAccount();
@@ -54,6 +55,7 @@ export default function SecurityPage() {
   const [showEnableModal, setShowEnableModal] = useState(false);
   const [showDisableModal, setShowDisableModal] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
+  const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
@@ -157,7 +159,7 @@ export default function SecurityPage() {
             <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>Keys are stored only in your browser — never sent to our servers.</span></li>
             <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>With password protection enabled, stored keys are AES-GCM encrypted with PBKDF2 (100k iterations).</span></li>
             <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>Open source — <a href="https://github.com/Virmage/hl-copy-trading" target="_blank" rel="noopener noreferrer" className="text-[var(--hl-accent)] underline">inspect the code on GitHub</a>.</span></li>
-            <li className="flex gap-2"><span className="text-[#f5a524] shrink-0">!</span><span>Vibe coded, unaudited. See full disclosure on the <Link href="/" className="text-[var(--hl-accent)] underline">main disclaimer</Link>.</span></li>
+            <li className="flex gap-2"><span className="text-[#f5a524] shrink-0">!</span><span>Vibe coded, unaudited. <button onClick={() => setShowDisclaimerModal(true)} className="text-[var(--hl-accent)] underline hover:brightness-110">View full disclaimer</button>.</span></li>
           </ul>
         </section>
       </main>
@@ -179,6 +181,9 @@ export default function SecurityPage() {
           onCancel={() => setShowClearModal(false)}
           onSuccess={() => { setShowClearModal(false); refresh(); }}
         />
+      )}
+      {showDisclaimerModal && (
+        <DisclaimerViewModal onClose={() => setShowDisclaimerModal(false)} />
       )}
     </div>
   );
