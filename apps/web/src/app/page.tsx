@@ -100,10 +100,6 @@ const TraderDetailPanel = dynamic(
   () => import("@/components/traders/trader-detail-panel").then(m => ({ default: m.TraderDetailPanel })),
   { ssr: false }
 );
-const OptionsChainModal = dynamic(
-  () => import("@/components/terminal/hype-options").then(m => ({ default: m.OptionsChainModal })),
-  { ssr: false }
-);
 const InlineOptionsChain = dynamic(
   () => import("@/components/terminal/inline-options-chain").then(m => ({ default: m.InlineOptionsChain })),
   { ssr: false }
@@ -332,7 +328,6 @@ export default function HomePage() {
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
   const [selectedTrader, setSelectedTrader] = useState<string | null>(null);
   const [copyTrader, setCopyTrader] = useState<string | null>(null);
-  const [optionsChainCoin, setOptionsChainCoin] = useState<string | null>(null);
   const [tradingMode, setTradingMode] = useState<"perp" | "options">("perp");
   const [selectedOption, setSelectedOption] = useState<SelectedOption | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>("perps");
@@ -378,7 +373,14 @@ export default function HomePage() {
   }, []);
 
   const handleOpenOptions = useCallback((coin: string) => {
-    setOptionsChainCoin(coin);
+    // Previously this opened a full-screen popup. Now we treat the options
+    // action as a tab swap: load the coin into the chart and flip trading
+    // mode to "options" so the inline chain renders in-place. On mobile we
+    // also switch to the Options bottom-nav tab.
+    setChartCoin(coin);
+    setSelectedOption(null);
+    setTradingMode("options");
+    setMobileTab("options");
   }, []);
 
   const handleChangeCoin = useCallback((c: string) => {
@@ -723,7 +725,6 @@ export default function HomePage() {
           <TraderDetailPanel address={selectedTrader} onClose={() => setSelectedTrader(null)} onCopy={handleCopy} />
         </div>
       )}
-      <OptionsChainModal coin={optionsChainCoin || "BTC"} isOpen={!!optionsChainCoin} onClose={() => setOptionsChainCoin(null)} />
       {copyTrader && <CopyDialog open={true} onOpenChange={handleClearCopy} traderAddress={copyTrader} walletAddress={walletAddress} />}
 
       {/* First-visit disclaimer — appears once, user must acknowledge */}
