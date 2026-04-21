@@ -21,9 +21,15 @@
  */
 
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import crypto from "crypto";
 
 const DEFAULT_BUILDER_WALLET = "0xbB0f753321e2B5FD29Bd1d14b532f5B54959ae63".toLowerCase();
 const DEFAULT_BUILDER_FEE_TENTH_BPS = 15; // 0.015%
+
+function hashApiKey(key: string): string {
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
 
 interface OrderValidationRequest {
   apiKey: string;
@@ -80,7 +86,7 @@ export async function POST(req: Request): Promise<NextResponse<ValidationResult>
       }, { status: 402 });
     }
 
-    await recordApiUsage(body.apiKey, body.userWallet);
+    await recordApiUsage(build.buildId, body.userWallet);
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[validate-order] Error:", err);
@@ -88,25 +94,51 @@ export async function POST(req: Request): Promise<NextResponse<ValidationResult>
   }
 }
 
-// ─── Persistence (stubbed — replace with Prisma/Drizzle + Postgres) ────────
+// ─── Persistence (Prisma + Postgres) ────────────────────────────────────────
 
 async function lookupBuildByApiKey(apiKey: string): Promise<{
+  buildId: string;
   deployId: string;
   wallet: string;
   slug: string;
-  createdAt: string;
+  createdAt: Date;
 } | null> {
-  if (process.env.NODE_ENV !== "production") {
+  if (!prisma) {
+    // No DB: fall back to dev stub so local testing works
     return {
+      buildId: "dev_stub",
       deployId: "dev_stub",
       wallet: "0x0000000000000000000000000000000000000000",
       slug: "dev",
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(),
     };
   }
-  return null;
+  const build = await prisma.studioBuild.findUnique({
+    where: { apiKeyHash: hashApiKey(apiKey) },
+    select: { id: true, deployId: true, ownerWallet: true, slug: true, createdAt: true, status: true },
+  });
+  if (!build || build.status !== "ACTIVE") return null;
+  return {
+    buildId: build.id,
+    deployId: build.deployId,
+    wallet: build.ownerWallet,
+    slug: build.slug,
+    createdAt: build.createdAt,
+  };
 }
 
-async function recordApiUsage(apiKey: string, userWallet?: string): Promise<void> {
-  console.log("[validate-order] usage:", apiKey.slice(0, 16) + "...", userWallet?.slice(0, 10));
+async function recordApiUsage(buildId: string, userWallet?: string, statusCode = 200): Promise<void> {
+  if (!prisma || buildId === "dev_stub") return;
+  try {
+    await prisma.apiUsageEvent.create({
+      data: {
+        buildId,
+        endpoint: "/api/studio/validate-order",
+        userWallet: userWallet?.toLowerCase(),
+        statusCode,
+      },
+    });
+  } catch (err) {
+    console.warn("[validate-order] usage log skipped:", (err as Error).message);
+  }
 }

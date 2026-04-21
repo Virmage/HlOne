@@ -21,6 +21,7 @@ import { NextResponse } from "next/server";
 import { createPublicClient, http, parseUnits, decodeEventLog, parseAbi } from "viem";
 import { arbitrum } from "viem/chains";
 import { validateConfig, type StudioConfig } from "@/lib/studio-config";
+import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
 
 // USDC on Arbitrum (native, not bridged)
@@ -32,8 +33,37 @@ const TRANSFER_EVENT_ABI = parseAbi([
   "event Transfer(address indexed from, address indexed to, uint256 value)",
 ]);
 
-// In-memory used-tx cache (replace with DB in prod)
-const usedTxHashes = new Set<string>();
+// Fallback in-memory cache when DB isn't available (dev mode)
+const usedTxHashesMemory = new Set<string>();
+
+async function isTxHashUsed(txHash: string): Promise<boolean> {
+  const normalized = txHash.toLowerCase();
+  if (!prisma) return usedTxHashesMemory.has(normalized);
+  try {
+    const existing = await prisma.usedPaymentTx.findUnique({ where: { txHash: normalized } });
+    return existing !== null;
+  } catch {
+    return usedTxHashesMemory.has(normalized);
+  }
+}
+
+async function markTxHashUsed(txHash: string, wallet: string, amountUsdc: number): Promise<void> {
+  const normalized = txHash.toLowerCase();
+  usedTxHashesMemory.add(normalized); // always track in-memory as a safety net
+  if (!prisma) return;
+  try {
+    await prisma.usedPaymentTx.create({
+      data: {
+        txHash: normalized,
+        wallet: wallet.toLowerCase(),
+        amountUsdc,
+      },
+    });
+  } catch (err) {
+    // Race condition or duplicate — already marked. Ignore.
+    console.warn("[checkout] mark tx used:", (err as Error).message);
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -77,8 +107,8 @@ export async function POST(req: Request) {
       });
     }
 
-    // Replay protection
-    if (usedTxHashes.has(txHash.toLowerCase())) {
+    // Replay protection (DB-backed, falls back to in-memory cache)
+    if (await isTxHashUsed(txHash)) {
       return NextResponse.json({ error: "Transaction already used for a previous deploy" }, { status: 409 });
     }
 
@@ -142,8 +172,9 @@ export async function POST(req: Request) {
       }, { status: 402 });
     }
 
-    // Mark tx as used (in prod, persist to DB)
-    usedTxHashes.add(txHash.toLowerCase());
+    // Mark tx as used (DB + in-memory)
+    const paidAmount = Number(matchingTransfer.value) / 10 ** USDC_DECIMALS;
+    await markTxHashUsed(txHash, wallet, paidAmount);
 
     const sessionId = `pay_${crypto.randomBytes(12).toString("hex")}`;
     console.log(`[studio/checkout] Payment verified: ${wallet} → ${txHash} → sessionId=${sessionId}`);

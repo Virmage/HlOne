@@ -21,7 +21,12 @@
 
 import { NextResponse } from "next/server";
 import { validateConfig, type StudioConfig } from "@/lib/studio-config";
+import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
+
+function hashApiKey(key: string): string {
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
 
 export async function POST(req: Request) {
   try {
@@ -62,12 +67,14 @@ export async function POST(req: Request) {
       },
     };
 
-    // Persist build record to DB (stubbed — TODO: wire to real DB)
-    await saveBuildRecord({ deployId, apiKey, wallet, config: finalConfig });
-
-    // Dev mode or missing creds — return placeholder URLs
+    // Dev mode or missing creds — persist (if DB available) then return placeholders
     if (isDev || !githubToken || !vercelToken) {
       console.log("[studio/deploy] Dev mode — returning placeholder URLs");
+      await saveBuildRecord({
+        deployId, apiKey, wallet, config: finalConfig,
+        paymentTxHash: sessionId?.startsWith("pay_") ? sessionId : undefined,
+        paymentAmountUsd: 50,
+      }).catch(err => console.warn("[studio/deploy] save build skipped:", err));
       return NextResponse.json({
         deployId,
         apiKey,
@@ -154,6 +161,20 @@ export async function POST(req: Request) {
     const vercelProject = await vercelResp.json();
     const deployUrl = `https://${vercelProject.name}.vercel.app`;
 
+    // Persist the build record with real URLs
+    await saveBuildRecord({
+      deployId,
+      apiKey,
+      wallet,
+      config: finalConfig,
+      paymentTxHash: sessionId,
+      paymentAmountUsd: 50,
+      repoUrl,
+      deployUrl,
+      vercelProjectId: vercelProject.id,
+      githubRepoId: String(fork.id),
+    });
+
     return NextResponse.json({
       deployId,
       apiKey,
@@ -166,23 +187,55 @@ export async function POST(req: Request) {
   }
 }
 
-// ─── Persistence (stubbed) ──────────────────────────────────────────────────
-// TODO: replace with real DB (Postgres, Turso, Supabase)
+// ─── Persistence (Prisma + Postgres) ────────────────────────────────────────
 async function saveBuildRecord(record: {
   deployId: string;
   apiKey: string;
   wallet: string;
   config: StudioConfig;
+  paymentTxHash?: string;
+  paymentAmountUsd?: number;
+  repoUrl?: string | null;
+  deployUrl?: string | null;
+  vercelProjectId?: string | null;
+  githubRepoId?: string | null;
 }): Promise<void> {
-  // In dev, just log. In prod, upsert to DB.
-  console.log("[studio/deploy] Would save build record:", {
-    deployId: record.deployId,
-    wallet: record.wallet,
-    slug: record.config.slug,
-    name: record.config.name,
-    // Don't log full API key
-    apiKeyPrefix: record.apiKey.slice(0, 16) + "...",
-  });
-  // Example real impl:
-  // await db.insert("studio_builds", { deploy_id, api_key_hash, wallet, config_json, created_at });
+  if (!prisma) {
+    // Dev / no-DB mode: just log (still allows full UX testing without Postgres)
+    console.log("[studio/deploy] No DB — logging only:", {
+      deployId: record.deployId,
+      wallet: record.wallet,
+      slug: record.config.slug,
+      name: record.config.name,
+      apiKeyPrefix: record.apiKey.slice(0, 16) + "...",
+    });
+    return;
+  }
+
+  try {
+    await prisma.studioBuild.create({
+      data: {
+        deployId: record.deployId,
+        apiKeyHash: hashApiKey(record.apiKey),
+        ownerWallet: record.wallet.toLowerCase(),
+        slug: record.config.slug,
+        name: record.config.name,
+        configJson: record.config as unknown as object,
+        builderWallet: (record.config.fees?.builderWallet ?? record.wallet).toLowerCase(),
+        markupBps: record.config.fees?.markupBps ?? 0,
+        repoUrl: record.repoUrl ?? null,
+        deployUrl: record.deployUrl ?? null,
+        vercelProjectId: record.vercelProjectId ?? null,
+        githubRepoId: record.githubRepoId ?? null,
+        paymentTxHash: record.paymentTxHash ?? `dev_${Date.now()}`,
+        paymentAmount: record.paymentAmountUsd ?? 50,
+        paidAt: new Date(),
+        status: "ACTIVE",
+      },
+    });
+    console.log(`[studio/deploy] Build saved: ${record.deployId}`);
+  } catch (err) {
+    console.error("[studio/deploy] Failed to save build:", err);
+    throw err;
+  }
 }

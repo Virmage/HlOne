@@ -56,7 +56,8 @@ model StudioBuild {
   revokedReason String?
 
   // Relations
-  apiUsageEvents ApiUsageEvent[]
+  apiUsageEvents  ApiUsageEvent[]
+  discoverListing DiscoverListing?
 
   @@unique([ownerWallet, slug])
   @@index([ownerWallet])
