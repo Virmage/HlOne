@@ -91,7 +91,10 @@ export async function verifyReadSignature(
   const ts = Number(tsStr);
   if (!Number.isFinite(ts)) throw new Error("Invalid timestamp header");
 
-  return verifyWalletSignature(walletHeader, sig, ts, action, walletAddress.toLowerCase());
+  // Reads are idempotent — allow the signature to be reused across requests
+  // within the validity window (5 min). Without this, the client's cached
+  // signed header would fail on the second fetch.
+  return verifyWalletSignature(walletHeader, sig, ts, action, walletAddress.toLowerCase(), { allowReuse: true });
 }
 
 function firstHeader(h: Record<string, string | string[] | undefined>, key: string): string | undefined {
@@ -117,6 +120,13 @@ export function hashRequestBody(body: Record<string, unknown>): string {
  * Verify that `signature` was produced by `walletAddress` signing the expected
  * message. `bodyHash` optional — when provided, the signature is bound to the
  * specific request body (required for action parameters to be tamper-proof).
+ *
+ * `opts.allowReuse` — set to true for IDEMPOTENT read endpoints. The client
+ * caches the signed header across fetches (so the user doesn't re-sign on
+ * every page reload); one-shot dedupe would then cause a 401 on the second
+ * request. For mutating endpoints keep the default (false) so captured
+ * signatures can't be replayed.
+ *
  * Returns the lowercase wallet address if valid, throws otherwise.
  */
 export async function verifyWalletSignature(
@@ -125,6 +135,7 @@ export async function verifyWalletSignature(
   timestamp: number,
   action: string,
   bodyHash?: string,
+  opts: { allowReuse?: boolean } = {},
 ): Promise<string> {
   // Shape checks
   if (!walletAddress || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)) {
@@ -162,10 +173,14 @@ export async function verifyWalletSignature(
     throw new Error("Invalid signature — wallet address does not match signer");
   }
 
-  // Nonce dedupe — signatures are one-shot within the validity window. The
-  // signature bytes themselves are the nonce (unique by construction).
-  if (!recordNonce(signature.toLowerCase())) {
-    throw new Error("Signature already used (replay prevention). Please re-sign.");
+  // Nonce dedupe — signatures are one-shot within the validity window for
+  // mutating endpoints. Skipped for read endpoints so the client can cache
+  // the signed header across page reloads / auto-refreshes without the user
+  // being prompted to sign every time.
+  if (!opts.allowReuse) {
+    if (!recordNonce(signature.toLowerCase())) {
+      throw new Error("Signature already used (replay prevention). Please re-sign.");
+    }
   }
 
   return walletAddress.toLowerCase();

@@ -155,21 +155,27 @@ export interface PortfolioData {
 /** Build the `x-hlone-*` headers for a signed GET request. Used by portfolio
  * endpoints that expose wallet-scoped financial data.
  *
- * We cache the signed headers in sessionStorage (per wallet+action) for
- * ~4 minutes — shorter than the server's 5-min expiry window — so that
- * auto-refreshing UI doesn't prompt the user for a new signature on every
- * refetch. Signatures are per-wallet and cleared on wallet switch.
+ * We cache the signed headers in LOCALstorage (per wallet+action) for
+ * ~4.5 minutes — just under the server's 5-min validity window — so that
+ * reloads and auto-refreshes reuse the same signature without prompting
+ * the user. Signatures are per-wallet and the cache survives tab close.
+ *
+ * Server-side, read endpoints opt into signature reuse (`allowReuse: true`)
+ * so the cached header passes verification on every request within the
+ * window. Mutating endpoints still enforce one-shot replay protection.
  */
-const SIG_CACHE_TTL_MS = 4 * 60 * 1000;
+const SIG_CACHE_TTL_MS = 4 * 60 * 1000 + 30 * 1000; // 4m30s
 async function signReadHeaders(
   walletAddress: string,
   action: string,
   signMessage: (args: { message: string }) => Promise<string>,
 ): Promise<Record<string, string>> {
   const cacheKey = `hlone-readsig-${action}-${walletAddress.toLowerCase()}`;
-  if (typeof sessionStorage !== "undefined") {
+  // localStorage (not sessionStorage) so the signature survives full tab
+  // close — users don't re-sign just because they opened a new tab.
+  if (typeof localStorage !== "undefined") {
     try {
-      const raw = sessionStorage.getItem(cacheKey);
+      const raw = localStorage.getItem(cacheKey);
       if (raw) {
         const cached = JSON.parse(raw) as { signature: string; timestamp: number };
         if (Date.now() - cached.timestamp < SIG_CACHE_TTL_MS) {
@@ -185,8 +191,8 @@ async function signReadHeaders(
   const timestamp = Date.now();
   const message = `HLOne v1:${action}:${walletAddress.toLowerCase()}:${timestamp}`;
   const signature = await signMessage({ message });
-  if (typeof sessionStorage !== "undefined") {
-    try { sessionStorage.setItem(cacheKey, JSON.stringify({ signature, timestamp })); } catch { /* quota */ }
+  if (typeof localStorage !== "undefined") {
+    try { localStorage.setItem(cacheKey, JSON.stringify({ signature, timestamp })); } catch { /* quota */ }
   }
   return {
     "x-hlone-signature": signature,
