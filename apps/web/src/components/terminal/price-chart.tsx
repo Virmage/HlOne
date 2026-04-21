@@ -517,7 +517,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
                 {filteredTokens.map(t => (
                   <button
                     key={t.coin}
-                    onClick={() => { onSelectToken(t.displayName || t.coin); setCoinDropdownOpen(false); }}
+                    onClick={() => { onSelectToken(t.coin); setCoinDropdownOpen(false); }}
                     className={`w-full grid grid-cols-[1fr_80px_90px] sm:grid-cols-[1fr_90px_110px_90px_100px_100px] px-3 py-1.5 text-[12px] hover:bg-[var(--hl-surface-hover)] transition-colors ${
                       (t.coin === coin || t.displayName === coin) ? "bg-[var(--hl-surface)]" : ""
                     }`}

@@ -54,7 +54,9 @@ export function TickerBar({ tokens, options = {}, macro = [], onSelectToken }: T
       key: `c-${t.coin}`,
       label: t.displayName || (t.coin.includes(":") ? t.coin.split(":")[1] : t.coin),
       change: t.change24h,
-      onClick: () => onSelectToken(t.displayName || t.coin),
+      // Always pass canonical t.coin (@N for spot, SYMBOL for perp, xyz:X for proxy)
+      // so backend unambiguously resolves which market to fetch candles from.
+      onClick: () => onSelectToken(t.coin),
     }));
 
   // Interleave: macro items spread among crypto items
