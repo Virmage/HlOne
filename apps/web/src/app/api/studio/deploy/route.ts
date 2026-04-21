@@ -20,6 +20,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { validateConfig, type StudioConfig } from "@/lib/studio-config";
 import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
@@ -49,12 +50,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing or invalid payment session. Complete payment first." }, { status: 402 });
     }
 
-    const githubToken = process.env.GITHUB_STUDIO_TOKEN;
+    // ── Resolve which GitHub token + owner to use ─────────────────────────
+    // Priority: user's OAuth token (so fork lands in their account) → fallback
+    // to our bot token (so fork lands in a shared org, legacy behavior).
+    const cookieStore = await cookies();
+    const userGhToken = cookieStore.get("hlone-gh-token")?.value;
+    const userGhLogin = cookieStore.get("hlone-gh-login")?.value;
+    const botGhToken = process.env.GITHUB_STUDIO_TOKEN;
+
+    const githubToken = userGhToken ?? botGhToken;
     const templateRepo = process.env.GITHUB_TEMPLATE_REPO ?? "hlone-xyz/hlone-template";
-    // Owner of the forked repo. Derived from GITHUB_TEMPLATE_REPO by default (same org
-    // owns the forks). To fork into a different org, set GITHUB_FORK_OWNER.
-    // Future: when GitHub OAuth is wired, replace with the OAuth'd user's login.
-    const forkOwner = process.env.GITHUB_FORK_OWNER ?? templateRepo.split("/")[0];
+    // Owner of the forked repo. Priority:
+    //   1. OAuth'd user's GitHub login (preferred — fork lands in their account)
+    //   2. GITHUB_FORK_OWNER env var (manual override)
+    //   3. Template repo's owner (fallback — fork lands in same org as template)
+    const forkOwner = userGhLogin ?? process.env.GITHUB_FORK_OWNER ?? templateRepo.split("/")[0];
     const vercelToken = process.env.VERCEL_API_TOKEN;
     const vercelTeamId = process.env.VERCEL_TEAM_ID;
 

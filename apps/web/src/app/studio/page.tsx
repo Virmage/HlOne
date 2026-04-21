@@ -30,9 +30,29 @@ export default function StudioPage() {
   const [deployStatus, setDeployStatus] = useState<"idle" | "paying" | "deploying" | "done" | "error">("idle");
   const [deployError, setDeployError] = useState<string>("");
   const [deployResult, setDeployResult] = useState<{ repoUrl?: string; deployUrl?: string; apiKey?: string; devMode?: boolean; note?: string } | null>(null);
+  const [githubStatus, setGithubStatus] = useState<{ connected: boolean; login?: string | null }>({ connected: false });
 
   // Preview mode = env vars not set yet. We detect via the public payments wallet var.
   const isPreviewMode = !process.env.NEXT_PUBLIC_HLONE_PAYMENTS_WALLET;
+
+  // Fetch GitHub OAuth status on mount (so we know if user is connected)
+  useEffect(() => {
+    fetch("/api/studio/github-status")
+      .then(r => r.json())
+      .then(d => setGithubStatus({ connected: !!d.connected, login: d.login }))
+      .catch(() => {});
+
+    // If we just returned from the OAuth callback, clear the ?gh_connected=1 param
+    // from the URL so the user doesn't keep seeing it in the address bar.
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("gh_connected") || url.searchParams.has("gh_error")) {
+        url.searchParams.delete("gh_connected");
+        url.searchParams.delete("gh_error");
+        window.history.replaceState({}, "", url.toString());
+      }
+    }
+  }, []);
 
   const validation = useMemo(() => validateConfig(config), [config]);
 
@@ -227,6 +247,11 @@ export default function StudioPage() {
               onBack={() => setStep("customize")}
               walletConnected={isConnected}
               isPreviewMode={isPreviewMode}
+              githubStatus={githubStatus}
+              onDisconnectGithub={async () => {
+                await fetch("/api/studio/github-status", { method: "DELETE" });
+                setGithubStatus({ connected: false });
+              }}
             />
           )}
         </div>
@@ -557,6 +582,8 @@ function DeployStep({
   onBack,
   walletConnected,
   isPreviewMode,
+  githubStatus,
+  onDisconnectGithub,
 }: {
   config: StudioConfig;
   validation: ReturnType<typeof validateConfig>;
@@ -567,6 +594,8 @@ function DeployStep({
   onBack: () => void;
   walletConnected: boolean;
   isPreviewMode: boolean;
+  githubStatus: { connected: boolean; login?: string | null };
+  onDisconnectGithub: () => void;
 }) {
   const copyJson = () => {
     navigator.clipboard.writeText(JSON.stringify(config, null, 2));
@@ -752,16 +781,64 @@ function DeployStep({
         </div>
       )}
 
+      {/* GitHub connection (required for real deploys) */}
+      {!isPreviewMode && (
+        <section>
+          <h3 className="text-[12px] font-semibold text-[var(--hl-accent)] uppercase tracking-wider mb-3">GitHub</h3>
+          {githubStatus.connected ? (
+            <div className="rounded border border-[var(--hl-green)]/30 bg-[var(--hl-green)]/5 px-3 py-2.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[var(--hl-green)]" />
+                <span className="text-[12px] text-[var(--foreground)]">
+                  Connected as <span className="font-mono font-medium">{githubStatus.login ?? "user"}</span>
+                </span>
+              </div>
+              <button
+                onClick={onDisconnectGithub}
+                className="text-[10px] text-[var(--hl-muted)] hover:text-[var(--foreground)] underline"
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <>
+              <a
+                href="/api/studio/github-auth?next=/studio"
+                className="block w-full py-2.5 rounded text-[13px] font-semibold bg-[#24292e] text-white hover:brightness-110 transition-all text-center"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path fillRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                  </svg>
+                  Connect GitHub to deploy
+                </span>
+              </a>
+              <p className="text-[10px] text-[var(--hl-muted)] mt-2 leading-relaxed">
+                HLOne Studio creates a public repo in your GitHub account containing your build's code + config. Only the <span className="font-mono">public_repo</span> scope is requested — we can't read private data.
+              </p>
+            </>
+          )}
+        </section>
+      )}
+
       {/* Deploy options */}
       <section>
         <h3 className="text-[12px] font-semibold text-[var(--hl-accent)] uppercase tracking-wider mb-3">Deploy</h3>
         <button
           onClick={onDeploy}
-          disabled={!validation.ok || deployStatus === "paying" || deployStatus === "deploying" || !walletConnected}
+          disabled={
+            !validation.ok ||
+            deployStatus === "paying" ||
+            deployStatus === "deploying" ||
+            !walletConnected ||
+            (!isPreviewMode && !githubStatus.connected)
+          }
           className="w-full py-3 rounded text-[13px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
           {!walletConnected
             ? "Connect wallet to deploy"
+            : !isPreviewMode && !githubStatus.connected
+            ? "Connect GitHub to deploy"
             : deployStatus === "paying"
             ? "Confirm payment in wallet..."
             : deployStatus === "deploying"
