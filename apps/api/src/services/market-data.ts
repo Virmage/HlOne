@@ -156,8 +156,25 @@ export async function getCachedSpotTokens() {
 /**
  * Resolve a display name (e.g. "WATER") to the Hyperliquid API identifier
  * (e.g. "@155" for spot pairs). Returns the input unchanged if no mapping found.
+ *
+ * IMPORTANT: checks the perp universe first. If the name exists as a perp
+ * (e.g. "MON"), the input is returned unchanged — perp candles use the plain
+ * name, not the spot index. Previously this was incorrectly swapping perp
+ * names to their spot equivalents, breaking candle fetches for tokens that
+ * exist in both markets.
  */
 export function resolveSpotName(displayName: string): string {
+  // HL proxy assets (xyz:CL, cash:USA500, etc.) or already-resolved spot
+  // pairs (@N) pass through unchanged.
+  if (displayName.includes(":") || displayName.startsWith("@")) {
+    return displayName;
+  }
+  // Prefer perp: if the name exists in the perp universe, don't translate.
+  const perps = metaCache?.data?.universe;
+  if (perps?.some(u => u.name === displayName)) {
+    return displayName;
+  }
+  // Fall back to spot lookup
   const spots = spotCache?.data;
   if (!spots) return displayName;
   const match = spots.find(s => s.name === displayName);
