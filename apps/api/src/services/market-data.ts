@@ -131,8 +131,15 @@ export async function getCachedSpotTokens() {
       const pairName = u.name; // e.g. "PURR/USDC" or "@88"
       let displayName: string;
       if (pairName.startsWith("@")) {
-        const idx = parseInt(pairName.slice(1));
-        displayName = idxToName[idx] || pairName;
+        // BUGFIX: @N refers to the UNIVERSE index (array position), not a token
+        // index. The base token's name lives at u.tokens[0] → idxToName[...].
+        // Previously we were parsing N from the name and looking it up as a
+        // token index, which only worked by coincidence when the two indexes
+        // matched. For pairs like @109 (WOW/USDC), token 109 happened to be
+        // "H" — so HLOne displayed "H" with WOW's price. Fixed to use the
+        // base token's actual index.
+        const baseTokenIdx = u.tokens?.[0];
+        displayName = (baseTokenIdx !== undefined && idxToName[baseTokenIdx]) || pairName;
       } else {
         displayName = pairName.split("/")[0];
       }
