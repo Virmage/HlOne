@@ -43,6 +43,10 @@ const SignalsPanel = dynamic(
   () => import("@/components/terminal/signals-panel").then(m => ({ default: m.SignalsPanel })),
   { ssr: false, loading: () => <PanelSkeleton /> }
 );
+const MobileSignalsStrip = dynamic(
+  () => import("@/components/terminal/mobile-signals-strip").then(m => ({ default: m.MobileSignalsStrip })),
+  { ssr: false }
+);
 const NewsFeed = dynamic(
   () => import("@/components/terminal/news-feed").then(m => ({ default: m.NewsFeed })),
   { ssr: false, loading: () => <PanelSkeleton /> }
@@ -333,6 +337,8 @@ export default function HomePage() {
   const [selectedOption, setSelectedOption] = useState<SelectedOption | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>("perps");
   const [dataTab, setDataTab] = useState<DataTab>("signals");
+  type MobileDataSubTab = "signals" | "whales" | "flows" | "news";
+  const [mobileDataSubTab, setMobileDataSubTab] = useState<MobileDataSubTab>("signals");
 
   // Defer below-fold grid rendering briefly after data loads
   const [showBelow, setShowBelow] = useState(false);
@@ -448,6 +454,11 @@ export default function HomePage() {
               </div>
             )}
           </div>
+          {/* Mobile-only: top-3 signals strip under the chart — quick read
+              without swapping to the Data tab. Full list still lives there. */}
+          {mobileTab === "perps" && isEnabled("sharpFlowTable") && (
+            <MobileSignalsStrip flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
+          )}
           <div className="px-2">
             {isEnabled("positionsPanel") && <PositionsPanel onSelectToken={handleSelectToken} />}
           </div>
@@ -484,33 +495,86 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ═══ MOBILE: Data tab ══════════════════════════════════════════════ */}
+      {/* ═══ MOBILE: Data tab ══════════════════════════════════════════════
+          Grouped into 4 sub-tabs so users can jump straight to the section
+          they want instead of scrolling through 8 stacked panels.
+      */}
       {mobileTab === "data" && (
-        <div className="md:hidden space-y-0">
-          <div className="p-3 border-b border-[var(--hl-border)]">
-            <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
+        <div className="md:hidden">
+          {/* Sub-tab bar — sticky at top while scrolling sections */}
+          <div className="sticky top-10 z-30 flex border-b border-[var(--hl-border)] bg-[var(--hl-nav)] overflow-x-auto">
+            {([
+              { key: "signals", label: "Signals" },
+              { key: "whales",  label: "Whales"  },
+              { key: "flows",   label: "Flows"   },
+              { key: "news",    label: "News"    },
+            ] as const).map(t => (
+              <button
+                key={t.key}
+                onClick={() => setMobileDataSubTab(t.key)}
+                className={`flex-1 px-3 py-2 text-[11px] font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
+                  mobileDataSubTab === t.key
+                    ? "text-[var(--foreground)] border-[var(--hl-accent)]"
+                    : "text-[var(--hl-muted)] border-transparent hover:text-[var(--foreground)]"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
-          <div className="p-3 border-b border-[var(--hl-border)]">
-            <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
-          </div>
-          <div className="p-3 border-b border-[var(--hl-border)]">
-            <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
-          </div>
-          <div className="p-3 border-b border-[var(--hl-border)]">
-            <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
-          </div>
-          <div className="p-3 border-b border-[var(--hl-border)]">
-            <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
-          </div>
-          <div className="p-3 border-b border-[var(--hl-border)]">
-            <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
-          </div>
-          <div className="p-3 border-b border-[var(--hl-border)]">
-            <LendingRatesPanel />
-          </div>
-          <div className="p-3 border-b border-[var(--hl-border)]">
-            <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
-          </div>
+
+          {/* Sub-tab content — tighter padding so the table actually breathes */}
+          {mobileDataSubTab === "signals" && (
+            <div>
+              <div className="p-2 border-b border-[var(--hl-border)]">
+                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Sharp Flow</h3>
+                <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
+              </div>
+              <div className="p-2 border-b border-[var(--hl-border)]">
+                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Position Concentration</h3>
+                <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
+              </div>
+            </div>
+          )}
+
+          {mobileDataSubTab === "whales" && (
+            <div>
+              <div className="p-2 border-b border-[var(--hl-border)]">
+                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Whale Feed</h3>
+                <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
+              </div>
+              <div className="p-2 border-b border-[var(--hl-border)]">
+                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Large Trades</h3>
+                <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
+              </div>
+            </div>
+          )}
+
+          {mobileDataSubTab === "flows" && (
+            <div>
+              <div className="p-2 border-b border-[var(--hl-border)]">
+                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Funding Leaders</h3>
+                <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
+              </div>
+              <div className="p-2 border-b border-[var(--hl-border)]">
+                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Lending Rates</h3>
+                <LendingRatesPanel />
+              </div>
+            </div>
+          )}
+
+          {mobileDataSubTab === "news" && (
+            <div>
+              <div className="p-2 border-b border-[var(--hl-border)]">
+                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">News</h3>
+                <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
+              </div>
+              <div className="p-2 border-b border-[var(--hl-border)]">
+                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Social</h3>
+                <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
