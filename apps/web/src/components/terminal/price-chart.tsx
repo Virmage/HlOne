@@ -1777,8 +1777,8 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
                   </text>
                   {/* Visible endpoint + larger invisible hit zone for easy grab */}
                   <circle cx={handleX} cy={y} r={3.5} fill={d.color} opacity={0.85} stroke="var(--background)" strokeWidth={1} />
-                  <circle cx={handleX} cy={y} r={9} fill="transparent"
-                    style={{ cursor: drawingTool === "none" ? "grab" : "default" }}
+                  <circle cx={handleX} cy={y} r={10} fill="white" fillOpacity={0.001}
+                    style={{ cursor: drawingTool === "none" ? "grab" : "default", pointerEvents: "all" }}
                     onMouseDown={(e) => beginHandleDrag(e, d, "p1")}
                   />
                   {/* Delete button — offset from the grab handle */}
@@ -1806,14 +1806,14 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
                     stroke={d.color} strokeWidth={1.2} />
                   {/* Endpoint 1 — visible + larger hit zone */}
                   <circle cx={x1} cy={y1} r={3.5} fill={d.color} opacity={0.85} stroke="var(--background)" strokeWidth={1} />
-                  <circle cx={x1} cy={y1} r={9} fill="transparent"
-                    style={{ cursor: drawingTool === "none" ? "grab" : "default" }}
+                  <circle cx={x1} cy={y1} r={10} fill="white" fillOpacity={0.001}
+                    style={{ cursor: drawingTool === "none" ? "grab" : "default", pointerEvents: "all" }}
                     onMouseDown={(e) => beginHandleDrag(e, d, "p1")}
                   />
                   {/* Endpoint 2 — visible + larger hit zone */}
                   <circle cx={x2} cy={y2} r={3.5} fill={d.color} opacity={0.85} stroke="var(--background)" strokeWidth={1} />
-                  <circle cx={x2} cy={y2} r={9} fill="transparent"
-                    style={{ cursor: drawingTool === "none" ? "grab" : "default" }}
+                  <circle cx={x2} cy={y2} r={10} fill="white" fillOpacity={0.001}
+                    style={{ cursor: drawingTool === "none" ? "grab" : "default", pointerEvents: "all" }}
                     onMouseDown={(e) => beginHandleDrag(e, d, "p2")}
                   />
                   {/* Delete button at midpoint (between the user's two points, not the extended ray end) */}
