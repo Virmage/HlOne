@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import type { TokenOverview, HLOneScore } from "@/lib/api";
 import type { PlaceOrderResult } from "@/lib/hl-exchange";
-import { dlog, dwarn } from "@/lib/logger";
+import { dlog, dwarn, derror } from "@/lib/logger";
 import { BUILDER_FEE_PERCENT, BUILDER_FEE_DISPLAY } from "@/lib/hl-exchange";
 import { verifyOrderParams } from "@/lib/security-guards";
 import { useSafeAccount } from "@/hooks/use-safe-account";
@@ -151,7 +151,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
 
     setSubmitting(true);
     setLastResult(null);
-    console.log(`[trade] Starting ${side} ${coin} size=${sizeNum} type=${orderType} lev=${leverage}x margin=${marginMode}`);
+    dlog(`[trade] Starting ${side} ${coin} size=${sizeNum} type=${orderType} lev=${leverage}x margin=${marginMode}`);
 
     try {
       const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
@@ -162,15 +162,15 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
 
       const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
       if (!walletClient) {
-        console.error("[trade] No wallet client");
+        derror("[trade] No wallet client");
         setLastResult({ success: false, error: "Wallet not connected" });
         setSubmitting(false);
         return;
       }
-      console.log("[trade] Wallet client OK, address:", address);
+      dlog("[trade] Wallet client OK, address:", address);
 
       // Step 1: Ensure agent wallet (one-time MetaMask approval)
-      console.log("[trade] Ensuring agent wallet...");
+      dlog("[trade] Ensuring agent wallet...");
       let agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
       if (agentResult.error) {
         setLastResult({ success: false, error: `Agent setup: ${agentResult.error}` });
@@ -181,12 +181,12 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
 
       // Step 2: Builder fee approval (MetaMask, one-time)
       if (!builderApproved) {
-        console.log("[trade] Checking builder fee approval...");
+        dlog("[trade] Checking builder fee approval...");
         const alreadyApproved = await exchange.checkBuilderApproval(address as string);
         if (alreadyApproved) {
           setBuilderApproved(true);
         } else {
-          console.log("[trade] Requesting builder fee approval...");
+          dlog("[trade] Requesting builder fee approval...");
           const approvalResult = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
           if (!approvalResult.success) {
             setLastResult({ success: false, error: `Fee approval: ${approvalResult.error}` });
@@ -199,7 +199,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
 
       // Helper: re-create agent if stale
       const refreshAgent = async (): Promise<boolean> => {
-        console.log("[trade] Agent stale, re-approving...");
+        dlog("[trade] Agent stale, re-approving...");
         agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
         if (agentResult.error) {
           setLastResult({ success: false, error: `Agent re-setup: ${agentResult.error}` });
@@ -211,7 +211,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
 
       // Step 3: Set leverage (signed locally with agent key — no popup)
       if (!leverageSet) {
-        console.log(`[trade] Setting leverage to ${leverage}x (${marginMode})...`);
+        dlog(`[trade] Setting leverage to ${leverage}x (${marginMode})...`);
         let levResult = await exchange.setLeverage(agentKey, address as `0x${string}`, coin, leverage, marginMode === "cross");
         if (!levResult.success && levResult.error === exchange.STALE_AGENT_MSG) {
           if (!(await refreshAgent())) { setSubmitting(false); return; }
@@ -226,7 +226,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
       }
 
       // Step 4: Place order (signed locally with agent key — no popup)
-      console.log("[trade] Placing order...");
+      dlog("[trade] Placing order...");
       const orderStart = Date.now();
       let result = await exchange.placeOrder(agentKey, address as `0x${string}`, {
         asset: coin,
@@ -248,7 +248,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
       }
       const latencyMs = Date.now() - orderStart;
 
-      console.log("[trade] Order result:", result);
+      dlog("[trade] Order result:", result);
       setLastResult(result);
       if (result.success) {
         setSize(""); setSizePercent(0);
@@ -764,7 +764,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
           localStorage.setItem(`derive-wallet-${address.toLowerCase()}`, wallet);
         }
       } catch (err) {
-        console.error("[derive] Failed to lookup wallet:", err);
+        derror("[derive] Failed to lookup wallet:", err);
         // Fall back to cached value if RPC fails
         const saved = localStorage.getItem(`derive-wallet-${address.toLowerCase()}`);
         if (!cancelled && saved) setDeriveWallet(saved);
@@ -829,7 +829,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
       setDeriveWallet(wallet);
       localStorage.setItem(cacheKey, wallet);
 
-      console.log("[derive] Connecting with EOA:", address, "Derive wallet:", wallet);
+      dlog("[derive] Connecting with EOA:", address, "Derive wallet:", wallet);
 
       // getDeriveAuth looks up the stored session key, signs a timestamp with it,
       // and logs in via WebSocket. If no session key is stored, it throws
@@ -841,7 +841,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
 
       // Get subaccounts
       const rawResult = await derive.derivePostRaw("/private/get_subaccounts", { wallet }, wallet);
-      console.log("[derive] RAW get_subaccounts:", JSON.stringify(rawResult));
+      dlog("[derive] RAW get_subaccounts:", JSON.stringify(rawResult));
 
       const subs = await derive.getSubaccounts(wallet);
       if (subs.length > 0) {
@@ -887,7 +887,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
         }
       }
     } catch (err) {
-      console.error("[derive] connectDerive error:", err);
+      derror("[derive] connectDerive error:", err);
       // If no session key stored, open the import modal instead of showing an error
       if ((err as Error).name === "DeriveSessionKeyMissingError") {
         setShowImportKeyModal(true);

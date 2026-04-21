@@ -86,6 +86,24 @@ model UsedPaymentTx {
   @@index([usedAt])
 }
 
+// ─── Payment Sessions ─────────────────────────────────────────────────────
+// One row per issued sessionId from /api/studio/checkout. /api/studio/deploy
+// consumes the session atomically (`update where consumedAt=null`) before
+// forking/deploying — this is the single source of truth that a payment
+// existed and hasn't already been spent on another deploy.
+model PaymentSession {
+  id          String   @id                         // "pay_<hex>" — opaque handle issued to client
+  txHash      String   @unique                     // the USDC tx that funded this session (1:1)
+  wallet      String                               // lowercase payer wallet
+  amountUsdc  Decimal  @db.Decimal(10, 2)
+  consumedAt  DateTime?                            // null until /deploy consumes it
+  deployId    String?                              // linked deploy once consumed
+  createdAt   DateTime @default(now())
+
+  @@index([wallet])
+  @@index([consumedAt])
+}
+
 // ─── API Usage Events ─────────────────────────────────────────────────────
 // Per-request tracking for rate limiting + analytics.
 // Consider using a time-series DB (TimescaleDB, ClickHouse) if volume grows.

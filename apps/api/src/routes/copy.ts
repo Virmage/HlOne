@@ -9,7 +9,7 @@ import {
   copiedPositions,
 } from "@hl-copy/db";
 import { ethAddress, positiveNumber, nonNegativeNumber } from "../lib/validation.js";
-import { verifyWalletSignature } from "../lib/auth.js";
+import { verifyWalletSignature, hashRequestBody } from "../lib/auth.js";
 
 const BUILDER_ADDRESS = process.env.BUILDER_ADDRESS;
 if (!BUILDER_ADDRESS || !/^0x[a-fA-F0-9]{40}$/.test(BUILDER_ADDRESS)) {
@@ -157,13 +157,15 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
       return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
     }
 
-    // Verify wallet ownership via signature
+    // Verify wallet ownership via signature, bound to request body so a
+    // stolen signature can't be replayed with different parameters.
     try {
       await verifyWalletSignature(
         parsed.data.walletAddress,
         parsed.data.signature,
         parsed.data.timestamp,
         "copy-start",
+        hashRequestBody(req.body as Record<string, unknown>),
       );
     } catch (err) {
       reply.code(401);
@@ -287,13 +289,14 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
       return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
     }
 
-    // Verify wallet ownership via signature
+    // Verify wallet ownership via signature, bound to request body.
     try {
       await verifyWalletSignature(
         parsed.data.walletAddress,
         parsed.data.signature,
         parsed.data.timestamp,
         "copy-stop",
+        hashRequestBody(req.body as Record<string, unknown>),
       );
     } catch (err) {
       reply.code(401);
@@ -342,13 +345,14 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
       return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
     }
 
-    // Verify wallet ownership via signature
+    // Verify wallet ownership via signature, bound to request body.
     try {
       await verifyWalletSignature(
         parsed.data.walletAddress,
         parsed.data.signature,
         parsed.data.timestamp,
         "copy-pause",
+        hashRequestBody(req.body as Record<string, unknown>),
       );
     } catch (err) {
       reply.code(401);
@@ -379,13 +383,14 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
       return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
     }
 
-    // Verify wallet ownership via signature
+    // Verify wallet ownership via signature, bound to request body.
     try {
       await verifyWalletSignature(
         parsed.data.walletAddress,
         parsed.data.signature,
         parsed.data.timestamp,
         "copy-allocation",
+        hashRequestBody(req.body as Record<string, unknown>),
       );
     } catch (err) {
       reply.code(401);
@@ -430,13 +435,16 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
       return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
     }
 
-    // Verify wallet ownership via signature
+    // Verify wallet ownership via signature, bound to request body.
+    // CRITICAL: without body-binding, a stolen signature for one positionId
+    // could close any of the attacker's chosen positionIds.
     try {
       await verifyWalletSignature(
         parsed.data.walletAddress,
         parsed.data.signature,
         parsed.data.timestamp,
         "copy-close-position",
+        hashRequestBody(req.body as Record<string, unknown>),
       );
     } catch (err) {
       reply.code(401);

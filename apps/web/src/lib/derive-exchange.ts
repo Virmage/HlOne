@@ -19,7 +19,8 @@ import {
   toHex,
   type Hex,
 } from "viem";
-import { dlog, dwarn } from "./logger";
+import { dlog, dwarn, derror } from "./logger";
+import { getDecrypted, setDecrypted } from "./crypto-storage";
 
 const DERIVE_API = "https://api.lyra.finance";
 
@@ -91,7 +92,7 @@ export async function lookupDeriveWallet(eoa: `0x${string}`): Promise<`0x${strin
     functionName: "getAddress",
     args: [eoa, BigInt(0)],
   });
-  console.log(`[derive] Looked up Derive wallet for ${eoa}: ${result}`);
+  dlog(`[derive] Looked up Derive wallet for ${eoa}: ${result}`);
   return result as `0x${string}`;
 }
 
@@ -337,11 +338,11 @@ async function signOrder(
     const sessionAccount = privateKeyToAccount(storedSessionKey);
     signerAddress = sessionAccount.address as `0x${string}`;
     signFn = async (hash: Hex) => sessionAccount.signMessage({ message: { raw: hash } });
-    console.log(`[derive] Signing order with session key: ${signerAddress}`);
+    dlog(`[derive] Signing order with session key: ${signerAddress}`);
   } else {
     signerAddress = address;
     signFn = async (hash: Hex) => walletClient.signMessage({ account: address, message: { raw: hash } });
-    console.log(`[derive] Signing order with EOA (no session key): ${signerAddress}`);
+    dlog(`[derive] Signing order with EOA (no session key): ${signerAddress}`);
   }
 
   // Encode trade module data and hash it
@@ -411,17 +412,17 @@ function ensureWs(): Promise<WebSocket> {
 
     ws.onopen = () => {
       wsReady = true;
-      console.log("[derive-ws] Connected");
+      dlog("[derive-ws] Connected");
       resolve(ws!);
     };
 
     ws.onerror = (e) => {
-      console.error("[derive-ws] Error:", e);
+      derror("[derive-ws] Error:", e);
       reject(new Error("WebSocket connection failed"));
     };
 
     ws.onclose = () => {
-      console.log("[derive-ws] Closed");
+      dlog("[derive-ws] Closed");
       wsReady = false;
       wsLoggedIn = false;
       // Reject all pending requests
@@ -444,7 +445,7 @@ function ensureWs(): Promise<WebSocket> {
           pending.resolve(data);
         }
       } catch (err) {
-        console.warn("[derive-ws] Failed to parse message:", err);
+        dwarn("[derive-ws] Failed to parse message:", err);
       }
     };
   });
@@ -498,7 +499,7 @@ async function wsLoginInner(): Promise<void> {
       signature: auth.signature,
     };
 
-    console.log(`[derive-ws] Trying login with wallet: ${wallet} (session key auth)`);
+    dlog(`[derive-ws] Trying login with wallet: ${wallet} (session key auth)`);
 
     const result = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
       const timer = setTimeout(() => {
@@ -508,7 +509,7 @@ async function wsLoginInner(): Promise<void> {
 
       wsPending.set(id, {
         resolve: (data) => {
-          console.log(`[derive-ws] Login response (wallet=${wallet}):`, JSON.stringify(data).slice(0, 400));
+          dlog(`[derive-ws] Login response (wallet=${wallet}):`, JSON.stringify(data).slice(0, 400));
           if (data.error) {
             const errObj = data.error as { code?: number; message?: string; data?: string };
             resolve({ ok: false, error: `[${errObj.code}] ${errObj.message}${errObj.data ? ` — ${errObj.data}` : ""}` });
@@ -525,12 +526,12 @@ async function wsLoginInner(): Promise<void> {
 
     if (result.ok) {
       wsLoggedIn = true;
-      console.log(`[derive-ws] Login SUCCESS with wallet: ${wallet}`);
+      dlog(`[derive-ws] Login SUCCESS with wallet: ${wallet}`);
       return;
     }
 
     lastError = result.error || "Unknown error";
-    console.warn(`[derive-ws] Login failed with wallet ${wallet}: ${lastError}`);
+    dwarn(`[derive-ws] Login failed with wallet ${wallet}: ${lastError}`);
   }
 
   // If session key was rejected or account not found, clear stored session key
@@ -545,7 +546,7 @@ async function wsLoginInner(): Promise<void> {
       try {
         localStorage.removeItem(`derive-wallet-${eoa.toLowerCase()}`);
       } catch {}
-      console.warn(`[derive-ws] Cleared stale session key + wallet cache for ${eoa}`);
+      dwarn(`[derive-ws] Cleared stale session key + wallet cache for ${eoa}`);
     }
     // Clear cached auth so getDeriveAuth() re-runs the full session key flow
     cachedAuth = null;
@@ -617,9 +618,10 @@ export const DERIVE_SESSION_KEY_PREFIX = "hlone-derive-sk-";
 function getStoredSessionKey(eoa: string): `0x${string}` | null {
   try {
     const storageKey = `${DERIVE_SESSION_KEY_PREFIX}${eoa.toLowerCase()}`;
-    // Check decrypted cache first (fast path, no crypto)
-    // Dynamically imported to avoid circular deps
-    const cached = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache?.get(storageKey);
+    // Check decrypted cache first (fast path, no crypto).
+    // NOTE: cache is module-scoped in crypto-storage (not globalThis) to
+    // prevent enumeration by any script on the page.
+    const cached = getDecrypted(storageKey);
     if (cached && cached.startsWith("0x") && cached.length === 66) {
       return cached as `0x${string}`;
     }
@@ -657,10 +659,8 @@ export async function unlockSessionKey(eoa: string, password: string): Promise<{
     if (!stored) return { ok: false, error: "No session key stored for this wallet" };
     if (!stored.encrypted) return { ok: true }; // already plaintext
     const plaintext = await crypto.decryptString(stored.blob, password);
-    // Populate global cache so sync getters see it
-    const cache = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache ??=
-      new Map<string, string>();
-    cache.set(storageKey, plaintext);
+    // Populate the module-scoped decrypted cache (NOT globalThis).
+    setDecrypted(storageKey, plaintext);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
@@ -691,13 +691,11 @@ function storeSessionKey(eoa: string, privateKey: `0x${string}`, password?: stri
     if (password) {
       // Encrypt async — we handle that via dynamic import below (fire and forget).
       // The decrypted cache is set synchronously so immediate reads work.
-      const cache = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache ??=
-        new Map<string, string>();
-      cache.set(storageKey, privateKey);
+      setDecrypted(storageKey, privateKey);
 
       import("./crypto-storage").then(crypto =>
         crypto.writeStoredValue(storageKey, privateKey, password)
-      ).catch(err => console.error("[derive] Encrypted store failed:", err));
+      ).catch(err => dwarn("[derive] Encrypted store failed:", err));
     } else {
       localStorage.setItem(storageKey, privateKey);
     }
@@ -741,7 +739,7 @@ export async function ensureDeriveSessionKey(
   }
   const { privateKeyToAccount } = await import("viem/accounts");
   const account = privateKeyToAccount(existing);
-  console.log(`[derive] Using stored session key: ${account.address}`);
+  dlog(`[derive] Using stored session key: ${account.address}`);
   return { sessionKey: existing, sessionAddress: account.address };
 }
 
@@ -766,7 +764,7 @@ export async function importDeriveSessionKey(
   const crypto = await import("./crypto-storage");
   const password = crypto.getSessionPassword();
   storeSessionKey(eoa, key as `0x${string}`, password ?? undefined);
-  console.log(`[derive] Imported session key: ${account.address} (${password ? "encrypted" : "plaintext"})`);
+  dlog(`[derive] Imported session key: ${account.address} (${password ? "encrypted" : "plaintext"})`);
   return { sessionAddress: account.address };
 }
 
@@ -1182,7 +1180,7 @@ export async function getAccount(
     getCachedDeriveAuth() ?? undefined,
   );
 
-  console.log("[derive] getAccount raw:", JSON.stringify(result).slice(0, 500));
+  dlog("[derive] getAccount raw:", JSON.stringify(result).slice(0, 500));
 
   // Check for error response (code 14000 = account not found)
   if (result.error && typeof result.error === "object") {
@@ -1210,12 +1208,12 @@ export async function getSubaccounts(
       auth ?? getCachedDeriveAuth() ?? undefined,
     );
 
-    console.log("[derive] getSubaccounts raw response:", JSON.stringify(result).slice(0, 800));
+    dlog("[derive] getSubaccounts raw response:", JSON.stringify(result).slice(0, 800));
 
     // Check for error response (code 14000 = account not found)
     if (result.error && typeof result.error === "object") {
       const err = result.error as { code?: number; message?: string };
-      console.warn("[derive] getSubaccounts API error:", err.code, err.message);
+      dwarn("[derive] getSubaccounts API error:", err.code, err.message);
       return [];
     }
 
@@ -1225,7 +1223,7 @@ export async function getSubaccounts(
     const subaccountIds = (inner.subaccount_ids as number[]) ?? [];
     const subaccounts = (inner.subaccounts as Array<Record<string, unknown>>) ?? [];
 
-    console.log("[derive] parsed: subaccountIds=", subaccountIds, "subaccounts=", subaccounts.length);
+    dlog("[derive] parsed: subaccountIds=", subaccountIds, "subaccounts=", subaccounts.length);
 
     if (subaccountIds.length > 0) {
       return subaccountIds.map((id) => ({
@@ -1241,7 +1239,7 @@ export async function getSubaccounts(
       label: (s.label as string) ?? "",
     }));
   } catch (err) {
-    console.error("[derive] getSubaccounts failed:", (err as Error).message);
+    derror("[derive] getSubaccounts failed:", (err as Error).message);
     return [];
   }
 }
@@ -1353,7 +1351,7 @@ export async function getPositions(
       vega: parseFloat((p.vega as string) ?? "0"),
     }));
   } catch (err) {
-    console.error("[derive] getPositions failed:", (err as Error).message);
+    derror("[derive] getPositions failed:", (err as Error).message);
     return [];
   }
 }
@@ -1405,7 +1403,7 @@ export async function getOpenOrders(
       createdAt: (o.created_timestamp_ms as number) ?? 0,
     }));
   } catch (err) {
-    console.error("[derive] getOpenOrders failed:", (err as Error).message);
+    derror("[derive] getOpenOrders failed:", (err as Error).message);
     return [];
   }
 }

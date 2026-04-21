@@ -12,8 +12,11 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     try {
       if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * attempt)); // backoff
       const res = await fetch(`${API_URL}${path}`, {
-        headers: { "Content-Type": "application/json" },
         ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options?.headers || {}),
+        },
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -149,27 +152,102 @@ export interface PortfolioData {
   suggestions: string[];
 }
 
-export async function getPortfolio(walletAddress: string) {
-  return apiFetch<PortfolioData>(`/api/portfolio/${walletAddress}`);
+/** Build the `x-hlone-*` headers for a signed GET request. Used by portfolio
+ * endpoints that expose wallet-scoped financial data.
+ *
+ * We cache the signed headers in sessionStorage (per wallet+action) for
+ * ~4 minutes — shorter than the server's 5-min expiry window — so that
+ * auto-refreshing UI doesn't prompt the user for a new signature on every
+ * refetch. Signatures are per-wallet and cleared on wallet switch.
+ */
+const SIG_CACHE_TTL_MS = 4 * 60 * 1000;
+async function signReadHeaders(
+  walletAddress: string,
+  action: string,
+  signMessage: (args: { message: string }) => Promise<string>,
+): Promise<Record<string, string>> {
+  const cacheKey = `hlone-readsig-${action}-${walletAddress.toLowerCase()}`;
+  if (typeof sessionStorage !== "undefined") {
+    try {
+      const raw = sessionStorage.getItem(cacheKey);
+      if (raw) {
+        const cached = JSON.parse(raw) as { signature: string; timestamp: number };
+        if (Date.now() - cached.timestamp < SIG_CACHE_TTL_MS) {
+          return {
+            "x-hlone-signature": cached.signature,
+            "x-hlone-timestamp": String(cached.timestamp),
+            "x-hlone-wallet": walletAddress,
+          };
+        }
+      }
+    } catch { /* ignore cache parse errors */ }
+  }
+  const timestamp = Date.now();
+  const message = `HLOne v1:${action}:${walletAddress.toLowerCase()}:${timestamp}`;
+  const signature = await signMessage({ message });
+  if (typeof sessionStorage !== "undefined") {
+    try { sessionStorage.setItem(cacheKey, JSON.stringify({ signature, timestamp })); } catch { /* quota */ }
+  }
+  return {
+    "x-hlone-signature": signature,
+    "x-hlone-timestamp": String(timestamp),
+    "x-hlone-wallet": walletAddress,
+  };
 }
 
-export async function getPortfolioHistory(walletAddress: string, days = 30) {
+export async function getPortfolio(
+  walletAddress: string,
+  signMessage?: (args: { message: string }) => Promise<string>,
+) {
+  const headers = signMessage ? await signReadHeaders(walletAddress, "portfolio-read", signMessage) : undefined;
+  return apiFetch<PortfolioData>(`/api/portfolio/${walletAddress}`, { headers });
+}
+
+export async function getPortfolioHistory(
+  walletAddress: string,
+  days = 30,
+  signMessage?: (args: { message: string }) => Promise<string>,
+) {
+  const headers = signMessage ? await signReadHeaders(walletAddress, "portfolio-read", signMessage) : undefined;
   return apiFetch<{ snapshots: Record<string, unknown>[] }>(
-    `/api/portfolio/${walletAddress}/history?days=${days}`
+    `/api/portfolio/${walletAddress}/history?days=${days}`,
+    { headers },
   );
 }
 
 // ─── Wallet Signature Helper ─────────────────────────────────────────────────
-// All mutating endpoints require a signed message proving wallet ownership.
-// The frontend signs "HLOne:<action>:<timestamp>" with the connected wallet.
+// All mutating endpoints require a signed message proving wallet ownership
+// AND binding the signature to the request body. Format:
+//   "HLOne v1:<action>:<sha256(body)>:<timestamp>"
+// The body hash covers every field EXCEPT `signature`, `timestamp`,
+// `walletAddress`. Keys are sorted so client and server compute the same
+// hash deterministically.
+
+async function sha256Hex(input: string): Promise<string> {
+  // Browser-native SubtleCrypto — available in all target browsers.
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function canonicalizeBody(body: Record<string, unknown>): string {
+  const clone: Record<string, unknown> = {};
+  for (const k of Object.keys(body).sort()) {
+    if (k === "signature" || k === "timestamp" || k === "walletAddress") continue;
+    clone[k] = body[k];
+  }
+  return JSON.stringify(clone);
+}
 
 async function signAction(
   walletAddress: string,
   action: string,
+  body: Record<string, unknown>,
   signMessage: (args: { message: string }) => Promise<string>,
 ): Promise<{ signature: string; timestamp: number }> {
   const timestamp = Date.now();
-  const message = `HLOne:${action}:${timestamp}`;
+  const bodyHash = await sha256Hex(canonicalizeBody(body));
+  const message = `HLOne v1:${action}:${bodyHash}:${timestamp}`;
   const signature = await signMessage({ message });
   return { signature, timestamp };
 }
@@ -187,7 +265,7 @@ export async function startCopy(
   },
   signMessage: (args: { message: string }) => Promise<string>,
 ) {
-  const auth = await signAction(data.walletAddress, "copy-start", signMessage);
+  const auth = await signAction(data.walletAddress, "copy-start", data, signMessage);
   return apiFetch<{ id: string; status: string }>("/api/copy/start", {
     method: "POST",
     body: JSON.stringify({ ...data, ...auth }),
@@ -199,10 +277,11 @@ export async function stopCopy(
   traderAddress: string,
   signMessage: (args: { message: string }) => Promise<string>,
 ) {
-  const auth = await signAction(walletAddress, "copy-stop", signMessage);
+  const body = { walletAddress, traderAddress };
+  const auth = await signAction(walletAddress, "copy-stop", body, signMessage);
   return apiFetch<{ status: string }>("/api/copy/stop", {
     method: "POST",
-    body: JSON.stringify({ walletAddress, traderAddress, ...auth }),
+    body: JSON.stringify({ ...body, ...auth }),
   });
 }
 
@@ -212,10 +291,11 @@ export async function pauseCopy(
   paused: boolean,
   signMessage: (args: { message: string }) => Promise<string>,
 ) {
-  const auth = await signAction(walletAddress, "copy-pause", signMessage);
+  const body = { walletAddress, copyRelationshipId, paused };
+  const auth = await signAction(walletAddress, "copy-pause", body, signMessage);
   return apiFetch<{ status: string }>("/api/copy/pause", {
     method: "POST",
-    body: JSON.stringify({ walletAddress, copyRelationshipId, paused, ...auth }),
+    body: JSON.stringify({ ...body, ...auth }),
   });
 }
 
@@ -230,7 +310,7 @@ export async function updateAllocation(
   },
   signMessage: (args: { message: string }) => Promise<string>,
 ) {
-  const auth = await signAction(data.walletAddress, "copy-allocation", signMessage);
+  const auth = await signAction(data.walletAddress, "copy-allocation", data, signMessage);
   return apiFetch<{ status: string }>("/api/copy/allocation", {
     method: "PUT",
     body: JSON.stringify({ ...data, ...auth }),
@@ -243,10 +323,11 @@ export async function closePosition(
   signMessage: (args: { message: string }) => Promise<string>,
   reason?: string,
 ) {
-  const auth = await signAction(walletAddress, "copy-close-position", signMessage);
+  const body = { walletAddress, positionId, reason };
+  const auth = await signAction(walletAddress, "copy-close-position", body, signMessage);
   return apiFetch<{ status: string }>("/api/copy/close-position", {
     method: "POST",
-    body: JSON.stringify({ walletAddress, positionId, reason, ...auth }),
+    body: JSON.stringify({ ...body, ...auth }),
   });
 }
 
@@ -926,13 +1007,14 @@ export async function connectUser(
   walletAddress: string,
   signMessage: (args: { message: string }) => Promise<string>,
 ) {
-  const auth = await signAction(walletAddress, "connect", signMessage);
+  const body = { walletAddress };
+  const auth = await signAction(walletAddress, "connect", body, signMessage);
   return apiFetch<{
     user: { id: string; walletAddress: string; createdAt: string };
     hasApiWallet: boolean;
     apiWalletExpiry: string | null;
   }>("/api/users/connect", {
     method: "POST",
-    body: JSON.stringify({ walletAddress, ...auth }),
+    body: JSON.stringify({ ...body, ...auth }),
   });
 }

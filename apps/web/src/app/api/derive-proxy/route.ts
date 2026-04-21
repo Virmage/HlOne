@@ -37,7 +37,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid endpoint" }, { status: 400 });
     }
 
-    const walletLower = wallet?.toLowerCase();
+    // Require a valid-shaped wallet. For endpoints that can move funds or
+    // create account-lifecycle entities, also require Derive's session-key
+    // signature headers to be present (Derive itself validates them). We
+    // refuse to act as a blind relay for anonymous callers.
+    if (typeof wallet !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) {
+      return NextResponse.json({ error: "Valid wallet required" }, { status: 400 });
+    }
+    const SENSITIVE_ENDPOINTS = new Set([
+      "/private/create_subaccount", "/private/deposit", "/private/order",
+      "/private/cancel", "/private/create_account",
+    ]);
+    if (SENSITIVE_ENDPOINTS.has(endpoint) && (!authTimestamp || !authSignature)) {
+      return NextResponse.json({ error: "Derive session signature required" }, { status: 401 });
+    }
+
+    const walletLower = wallet.toLowerCase();
 
     // Header casing matches official Derive Python SDK (X-LYRAWALLET etc.)
     // Origin/Referer mimic browser request to avoid nginx filtering
@@ -47,9 +62,7 @@ export async function POST(req: NextRequest) {
       "Referer": "https://derive.xyz/",
       "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     };
-    if (walletLower) {
-      headers["X-LYRAWALLET"] = walletLower;
-    }
+    headers["X-LYRAWALLET"] = walletLower;
     if (authTimestamp) {
       headers["X-LYRATIMESTAMP"] = authTimestamp;
     }
@@ -67,8 +80,6 @@ export async function POST(req: NextRequest) {
       ? { ...fixedBody, signer: fixedBody.signer.toLowerCase() }
       : fixedBody;
 
-    console.log(`[derive-proxy] ${endpoint} wallet=${walletLower?.slice(0, 10)} hasAuth=${!!authTimestamp}`);
-
     const res = await fetch(`${DERIVE_URL}${endpoint}`, {
       method: "POST",
       headers,
@@ -78,19 +89,20 @@ export async function POST(req: NextRequest) {
 
     const contentType = res.headers.get("content-type") || "";
     if (!contentType.includes("json")) {
-      const text = await res.text();
-      console.log(`[derive-proxy] ${endpoint} non-JSON ${res.status}: ${text.slice(0, 100)}`);
+      // Do NOT log response body — it may contain session keys / signatures.
       return NextResponse.json(
-        { error: `Derive API returned ${res.status}`, needsAuth: res.status === 401, detail: text.slice(0, 200) },
+        { error: `Derive API returned ${res.status}`, needsAuth: res.status === 401 },
         { status: res.status },
       );
     }
 
     const data = await res.json();
-    console.log(`[derive-proxy] ${endpoint} ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
     return NextResponse.json(data, { status: res.status });
   } catch (err) {
-    console.error("[derive-proxy] Failed:", (err as Error).message);
+    // Log a terse line, not the error's full message (may echo request body).
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[derive-proxy] Failed:", (err as Error).message);
+    }
     return NextResponse.json({ error: "Derive API unreachable" }, { status: 502 });
   }
 }

@@ -13,8 +13,9 @@ import { keccak256 } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { encode as msgpackEncode } from "@msgpack/msgpack";
 import { getAccount } from "@wagmi/core";
-import { dlog, dwarn } from "./logger";
+import { dlog, dwarn, derror } from "./logger";
 import { config } from "@/config/wagmi";
+import { getDecrypted, setDecrypted, clearDecryptedFor } from "./crypto-storage";
 
 const HL_API = "https://api.hyperliquid.xyz";
 
@@ -33,8 +34,11 @@ export const AGENT_STORAGE_PREFIX = "hlone-agent-";
 function getStoredAgent(userAddress: string): `0x${string}` | null {
   try {
     const storageKey = `${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`;
-    // Check decrypted cache first
-    const cached = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache?.get(storageKey);
+    // Decrypted cache is module-local in crypto-storage — NOT on globalThis.
+    // Putting it on globalThis made every decrypted key readable to any
+    // script on the page (XSS, extensions, third-party libs). Module scope
+    // limits reach to code that explicitly imports the helper.
+    const cached = getDecrypted(storageKey);
     if (cached && cached.startsWith("0x") && cached.length === 66) {
       return cached as `0x${string}`;
     }
@@ -58,12 +62,10 @@ function storeAgent(userAddress: string, privateKey: `0x${string}`): void {
     import("./crypto-storage").then(crypto => {
       const password = crypto.getSessionPassword();
       if (password) {
-        // Populate decrypted cache for immediate reads
-        const cache = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache ??=
-          new Map<string, string>();
-        cache.set(storageKey, privateKey);
+        // Populate decrypted cache for immediate reads (module-scoped, NOT globalThis)
+        setDecrypted(storageKey, privateKey);
         crypto.writeStoredValue(storageKey, privateKey, password).catch(err =>
-          console.error("[agent] Encrypted store failed:", err)
+          dwarn("[agent] Encrypted store failed:", err)
         );
       } else {
         localStorage.setItem(storageKey, privateKey);
@@ -78,8 +80,8 @@ function clearStoredAgent(userAddress: string): void {
   try {
     const storageKey = `${AGENT_STORAGE_PREFIX}${userAddress.toLowerCase()}`;
     localStorage.removeItem(storageKey);
-    (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache?.delete(storageKey);
-    console.log("[agent] Cleared stored agent for", userAddress.slice(0, 8) + "...");
+    clearDecryptedFor(storageKey);
+    dlog("[agent] Cleared stored agent for", userAddress.slice(0, 8) + "...");
   } catch {}
 }
 
@@ -94,9 +96,7 @@ export async function unlockAgent(userAddress: string, password: string): Promis
     if (!stored) return { ok: false, error: "No agent stored for this wallet" };
     if (!stored.encrypted) return { ok: true };
     const plaintext = await crypto.decryptString(stored.blob, password);
-    const cache = (globalThis as { __hloneDecryptCache?: Map<string, string> }).__hloneDecryptCache ??=
-      new Map<string, string>();
-    cache.set(storageKey, plaintext);
+    setDecrypted(storageKey, plaintext);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
@@ -152,7 +152,7 @@ async function ensureArbitrumForSigning(walletClient: WalletClient): Promise<num
   const originalChainId = await walletClient.getChainId();
   if (originalChainId === 42161) return originalChainId;
 
-  console.log(`[hl-exchange] Switching chain: ${originalChainId} → 42161 (Arbitrum)`);
+  dlog(`[hl-exchange] Switching chain: ${originalChainId} → 42161 (Arbitrum)`);
   try {
     await walletClient.switchChain({ id: 42161 });
   } catch (err) {
@@ -201,7 +201,7 @@ async function approveAgentOnChain(
   };
 
   // Use viem's signTypedData — handles wallet compatibility natively
-  console.log("[approveAgent] Requesting signature for agent:", agentAddr.slice(0, 10) + "...", "user:", userAddress.slice(0, 10) + "...");
+  dlog("[approveAgent] Requesting signature for agent:", agentAddr.slice(0, 10) + "...", "user:", userAddress.slice(0, 10) + "...");
 
   const originalChainId = await ensureArbitrumForSigning(walletClient);
   let signature: `0x${string}`;
@@ -234,7 +234,7 @@ async function approveAgentOnChain(
     await restoreChain(walletClient, originalChainId);
   }
 
-  console.log("[approveAgent] Got signature:", signature.slice(0, 12) + "...");
+  dlog("[approveAgent] Got signature:", signature.slice(0, 12) + "...");
 
   const r = signature.slice(0, 66);
   const s = `0x${signature.slice(66, 130)}`;
@@ -252,7 +252,7 @@ async function approveAgentOnChain(
   });
 
   const result = await res.json();
-  console.log("[approveAgent] API response:", JSON.stringify(result));
+  dlog("[approveAgent] API response:", JSON.stringify(result));
 
   if ((result as { status?: string }).status === "ok") {
     return { success: true };
@@ -275,15 +275,15 @@ export async function ensureAgent(
   // Check if we already have an agent
   const stored = getStoredAgent(userAddress);
   if (stored) {
-    console.log("[agent] Using stored agent for", userAddress.slice(0, 8) + "...");
+    dlog("[agent] Using stored agent for", userAddress.slice(0, 8) + "...");
     return { agentKey: stored };
   }
 
   // Generate new agent keypair
-  console.log("[agent] Generating new agent wallet...");
+  dlog("[agent] Generating new agent wallet...");
   const agentKey = generatePrivateKey();
   const agentAccount = privateKeyToAccount(agentKey);
-  console.log("[agent] Agent address:", agentAccount.address, "for user:", userAddress.slice(0, 10) + "...");
+  dlog("[agent] Agent address:", agentAccount.address, "for user:", userAddress.slice(0, 10) + "...");
 
   // Approve agent on-chain (MetaMask popup — one time only)
   const result = await approveAgentOnChain(walletClient, userAddress, agentAccount.address);
@@ -292,23 +292,23 @@ export async function ensureAgent(
   }
 
   // Wait for HL to register the new agent before we use it
-  console.log("[agent] Approval OK, waiting 2s for propagation...");
+  dlog("[agent] Approval OK, waiting 2s for propagation...");
   await new Promise(r => setTimeout(r, 2000));
 
   // Verify the agent works by trying a simple leverage set on ETH
-  console.log("[agent] Verifying agent with setLeverage test...");
+  dlog("[agent] Verifying agent with setLeverage test...");
   const testResult = await setLeverage(agentKey, userAddress as `0x${string}`, "ETH", 5, true);
-  console.log("[agent] Verification result:", JSON.stringify(testResult));
+  dlog("[agent] Verification result:", JSON.stringify(testResult));
   if (!testResult.success && testResult.error === STALE_AGENT_MSG) {
-    console.error("[agent] Agent NOT recognized by HL after approval!");
+    derror("[agent] Agent NOT recognized by HL after approval!");
     return { agentKey: "0x" as `0x${string}`, error: "Agent approval succeeded but HL doesn't recognize it. Check browser console for details." };
   }
   // Even if leverage set fails for other reasons (e.g. no balance), the agent itself is valid
-  console.log("[agent] Agent verified — storing");
+  dlog("[agent] Agent verified — storing");
 
   // Store for future use
   storeAgent(userAddress, agentKey);
-  console.log("[agent] Agent stored successfully");
+  dlog("[agent] Agent stored successfully");
   return { agentKey };
 }
 
@@ -457,7 +457,7 @@ async function getRawProvider(): Promise<EIP1193Provider> {
         return provider as EIP1193Provider;
       }
     } catch (err) {
-      console.warn("[signing] connector.getProvider() failed:", err);
+      dwarn("[signing] connector.getProvider() failed:", err);
     }
   }
   if (typeof window !== "undefined" && (window as unknown as { ethereum?: EIP1193Provider }).ethereum) {
@@ -473,7 +473,7 @@ async function rawSignTypedData(
 ): Promise<string> {
   const provider = await getRawProvider();
   const dataStr = JSON.stringify(typedData);
-  console.log("[signing] Requesting eth_signTypedData_v4 for", address.slice(0, 8) + "...");
+  dlog("[signing] Requesting eth_signTypedData_v4 for", address.slice(0, 8) + "...");
 
   const sig = await withTimeout(
     provider.request({
@@ -541,7 +541,7 @@ async function signL1Action(
     },
   });
 
-  console.log("[signL1Action] Signed locally with agent, connectionId:", connectionId.slice(0, 10) + "...");
+  dlog("[signL1Action] Signed locally with agent, connectionId:", connectionId.slice(0, 10) + "...");
   return signature;
 }
 
@@ -583,7 +583,7 @@ async function submitToExchange(
 
     // Retry on rate limit (429)
     if (res.status === 429 && attempt < retries) {
-      console.log(`[exchange] 429 rate limited, retrying in ${(attempt + 1) * 1000}ms...`);
+      dlog(`[exchange] 429 rate limited, retrying in ${(attempt + 1) * 1000}ms...`);
       await new Promise(r => setTimeout(r, (attempt + 1) * 1000));
       continue;
     }
@@ -654,6 +654,15 @@ export async function placeOrder(
   params: PlaceOrderParams,
 ): Promise<PlaceOrderResult> {
   try {
+    // Runtime guard: verify BUILDER_ADDRESS and BUILDER_FEE haven't been
+    // tampered with (e.g. by a malicious dependency or XSS-injected overrides).
+    // A silent builder-address swap would route every user's builder fee to
+    // an attacker — this check catches it before we sign.
+    const { verifyCriticalConstants } = await import("./security-guards");
+    const guard = verifyCriticalConstants({ BUILDER_ADDRESS, BUILDER_FEE });
+    if (!guard.ok) {
+      throw new Error(guard.error || "Critical constants check failed");
+    }
     const assetIndex = await getAssetIndex(params.asset);
     const szDecimals = await getSzDecimals(params.asset);
     const nonce = Date.now();
@@ -778,7 +787,7 @@ export async function placeTriggerOrder(
   // For TP: use reduce-only limit order (reliable, no trigger needed)
   // For SL: use trigger order format
   if (params.type === "tp") {
-    console.log("[tpsl] Placing TP as reduce-only limit order");
+    dlog("[tpsl] Placing TP as reduce-only limit order");
     return placeOrder(agentKey, address, {
       asset: params.asset,
       isBuy: !params.isLong, // opposite side to close
@@ -789,7 +798,7 @@ export async function placeTriggerOrder(
     });
   }
 
-  console.log("[tpsl] Placing SL as trigger order");
+  dlog("[tpsl] Placing SL as trigger order");
   try {
     const assetIndex = await getAssetIndex(params.asset);
     const szDecimals = await getSzDecimals(params.asset);
@@ -822,18 +831,18 @@ export async function placeTriggerOrder(
 
     // NOTE: no builder fee on trigger orders — HL doesn't support it and it
     // changes the msgpack hash causing "does not exist" signature errors.
-    console.log("[tpsl] SL action:", JSON.stringify(action));
+    dlog("[tpsl] SL action:", JSON.stringify(action));
     const connectionId = actionHash(action, nonce);
-    console.log("[tpsl] SL connectionId:", connectionId);
-    console.log("[tpsl] SL nonce:", nonce);
-    console.log("[tpsl] SL agent address:", privateKeyToAccount(agentKey).address);
+    dlog("[tpsl] SL connectionId:", connectionId);
+    dlog("[tpsl] SL nonce:", nonce);
+    dlog("[tpsl] SL agent address:", privateKeyToAccount(agentKey).address);
 
     const signature = await signL1Action(agentKey, action, nonce);
-    console.log("[tpsl] SL signature:", signature);
+    dlog("[tpsl] SL signature:", signature);
 
     // Direct fetch to see raw response (bypass submitToExchange error wrapping)
     const sigParts = splitSig(signature);
-    console.log("[tpsl] SL sig parts:", JSON.stringify(sigParts));
+    dlog("[tpsl] SL sig parts:", JSON.stringify(sigParts));
 
     const res = await fetch(`${HL_API}/exchange`, {
       method: "POST",
@@ -847,8 +856,8 @@ export async function placeTriggerOrder(
     });
 
     const rawText = await res.text();
-    console.log("[tpsl] SL raw response status:", res.status);
-    console.log("[tpsl] SL raw response body:", rawText);
+    dlog("[tpsl] SL raw response status:", res.status);
+    dlog("[tpsl] SL raw response body:", rawText);
 
     if (!res.ok) {
       // Don't throw StaleAgentError — return the raw error so we can debug
@@ -869,7 +878,7 @@ export async function placeTriggerOrder(
       } | string;
     };
 
-    console.log("[tpsl] SL parsed result:", JSON.stringify(result));
+    dlog("[tpsl] SL parsed result:", JSON.stringify(result));
 
     if (result.status === "ok") {
       const resp = result.response;
@@ -972,7 +981,7 @@ export async function approveBuilderFee(
     };
 
     const originalChainId = await ensureArbitrumForSigning(walletClient);
-    console.log("[approveBuilderFee] Requesting signature...");
+    dlog("[approveBuilderFee] Requesting signature...");
     let signature: `0x${string}`;
     try {
       signature = await walletClient.signTypedData({
@@ -1019,7 +1028,7 @@ export async function approveBuilderFee(
     });
 
     const result = await res.json();
-    console.log("[approveBuilderFee] API response:", JSON.stringify(result));
+    dlog("[approveBuilderFee] API response:", JSON.stringify(result));
     if ((result as { status?: string }).status === "ok") {
       return { success: true };
     }
@@ -1028,7 +1037,7 @@ export async function approveBuilderFee(
       || JSON.stringify(result);
     return { success: false, error: `API: ${apiErr}` };
   } catch (err) {
-    console.error("[approveBuilderFee] Error:", err);
+    derror("[approveBuilderFee] Error:", err);
     return { success: false, error: extractError(err) };
   }
 }
@@ -1232,7 +1241,7 @@ async function loadSpotMeta(): Promise<void> {
       }
     }
   }
-  console.log(`[spot] Loaded ${spotMetaCache.size} spot tokens`);
+  dlog(`[spot] Loaded ${spotMetaCache.size} spot tokens`);
 }
 
 async function getSpotAssetIndex(token: string): Promise<number> {

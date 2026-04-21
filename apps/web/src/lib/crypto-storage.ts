@@ -263,6 +263,11 @@ export function disableSecurityPassword(): void {
 // ─── In-memory decrypted key cache ──────────────────────────────────────────
 // When the user unlocks, we hold decrypted keys here for the session.
 // Module-level, cleared on page refresh. Never persisted.
+//
+// IMPORTANT: this Map is intentionally NOT attached to globalThis. Exposing
+// it there would let any script in the page (XSS, browser extension, third
+// party lib) enumerate and read decrypted session keys in one line.
+// Consumers must import getDecrypted/setDecrypted from this module.
 
 const decryptedCache = new Map<string, string>();
 
@@ -272,6 +277,10 @@ export function getDecrypted(key: string): string | null {
 
 export function setDecrypted(key: string, value: string): void {
   decryptedCache.set(key, value);
+}
+
+export function clearDecryptedFor(key: string): void {
+  decryptedCache.delete(key);
 }
 
 export function clearDecryptedCache(): void {

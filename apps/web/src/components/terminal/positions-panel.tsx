@@ -188,12 +188,12 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   const fetchCopiedTraders = useCallback(async () => {
     if (!address) return;
     try {
-      const data = await getPortfolio(address);
+      const data = await getPortfolio(address, signMessageAsync);
       setCopiedTraders(data.copiedTraders || []);
     } catch (err) {
       console.warn("[positions] fetch copies failed:", (err as Error).message);
     }
-  }, [address]);
+  }, [address, signMessageAsync]);
 
   useEffect(() => {
     if (!isConnected || !address) return;

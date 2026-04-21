@@ -4,6 +4,8 @@ const nextConfig: NextConfig = {
   devIndicators: false,
   reactStrictMode: false,
   // ─── Security headers ──────────────────────────────────────────────
+  // CSP is set per-request by middleware.ts so we can use a fresh nonce on
+  // each response (enables nonce-based strict-dynamic XSS defense).
   async headers() {
     return [
       {
@@ -13,29 +15,12 @@ const nextConfig: NextConfig = {
           // SAMEORIGIN allows /studio to iframe / (same-origin preview), still
           // blocks clickjacking attempts from external sites.
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
-          { key: "X-XSS-Protection", value: "1; mode=block" },
+          // X-XSS-Protection is deprecated (and can introduce bugs in Chromium).
+          // Modern CSP handles XSS; explicitly disable the legacy header.
+          { key: "X-XSS-Protection", value: "0" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-          {
-            key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              // 'unsafe-inline' still required for Next.js bootstrap scripts.
-              // 'wasm-unsafe-eval' needed for wagmi/viem WebAssembly (secp256k1, etc.).
-              // 'unsafe-eval' removed to close a common XSS-to-RCE attack vector.
-              "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
-              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-              "font-src 'self' https://fonts.gstatic.com",
-              "img-src 'self' data: blob: https:",
-              "connect-src 'self' https://api.hyperliquid.xyz wss://api.hyperliquid.xyz https://api.lyra.finance wss://api.lyra.finance https://rpc.lyra.finance https://rpc.derive.xyz https://derive-proxy.hlone.workers.dev wss://derive-proxy.hlone.workers.dev https://*.walletconnect.com wss://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.org https://*.vercel.app https://*.up.railway.app https://arb1.arbitrum.io",
-              "frame-src 'self' https://*.walletconnect.com https://*.walletconnect.org",
-              "object-src 'none'",
-              "base-uri 'self'",
-              "form-action 'self'",
-              "frame-ancestors 'self'",
-              "upgrade-insecure-requests",
-            ].join("; "),
-          },
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
         ],
       },
     ];

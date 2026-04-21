@@ -31,6 +31,36 @@ function hashApiKey(key: string): string {
   return crypto.createHash("sha256").update(key).digest("hex");
 }
 
+function isProduction(): boolean {
+  if (process.env.IS_PRODUCTION === "1") return true;
+  if (process.env.VERCEL_ENV) return process.env.VERCEL_ENV === "production";
+  return process.env.NODE_ENV === "production";
+}
+
+// Very simple in-memory per-apiKey rate limit (60 req/min). An attacker who
+// extracts an apiKey can't sustain more than 60 rpm of validation spam.
+// (Serverless-friendly: at most a handful of isolates, each gets its own bucket.)
+const rateBuckets = new Map<string, number[]>();
+function rateAllow(key: string, max = 60, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const arr = rateBuckets.get(key) ?? [];
+  const fresh = arr.filter(t => now - t < windowMs);
+  if (fresh.length >= max) {
+    rateBuckets.set(key, fresh);
+    return false;
+  }
+  fresh.push(now);
+  rateBuckets.set(key, fresh);
+  // Opportunistic eviction
+  if (rateBuckets.size > 5000) {
+    for (const [k, v] of rateBuckets) {
+      if (v.length === 0 || now - v[v.length - 1] > windowMs) rateBuckets.delete(k);
+      if (rateBuckets.size < 2500) break;
+    }
+  }
+  return true;
+}
+
 interface OrderValidationRequest {
   apiKey: string;
   order: {
@@ -51,8 +81,13 @@ export async function POST(req: Request): Promise<NextResponse<ValidationResult>
   try {
     const body = (await req.json()) as OrderValidationRequest;
 
-    if (!body.apiKey || !body.apiKey.startsWith("hlone_")) {
+    if (!body.apiKey || !/^hlone_[a-f0-9]{32,}$/.test(body.apiKey)) {
       return NextResponse.json({ ok: false, error: "Missing or invalid API key" }, { status: 401 });
+    }
+
+    // Per-apiKey rate limit so a leaked key can't flood the DB.
+    if (!rateAllow(body.apiKey)) {
+      return NextResponse.json({ ok: false, error: "Rate limited" }, { status: 429 });
     }
 
     const build = await lookupBuildByApiKey(body.apiKey);
@@ -90,7 +125,8 @@ export async function POST(req: Request): Promise<NextResponse<ValidationResult>
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[validate-order] Error:", err);
-    return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 500 });
+    // Generic error — never leak internals to a caller we don't trust.
+    return NextResponse.json({ ok: false, error: "Validation failed" }, { status: 500 });
   }
 }
 
@@ -104,10 +140,11 @@ async function lookupBuildByApiKey(apiKey: string): Promise<{
   createdAt: Date;
 } | null> {
   if (!prisma) {
-    // Dev mode: allow stub so local flows work. Production MUST have a DB —
-    // returning a stub here would silently validate orders with a fake record
-    // and potentially let builder fees get misrouted.
-    if (process.env.NODE_ENV === "production") return null;
+    // Dev mode: allow stub so local flows work. ANY non-local environment
+    // (prod or preview) MUST have a DB — Vercel previews were accepting
+    // arbitrary `hlone_*` strings because their NODE_ENV is "development",
+    // letting attackers bypass the builder-fee check.
+    if (isProduction() || process.env.VERCEL_ENV === "preview") return null;
     return {
       buildId: "dev_stub",
       deployId: "dev_stub",

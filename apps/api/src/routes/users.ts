@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { eq } from "drizzle-orm";
 import { users, apiWallets } from "@hl-copy/db";
 import { ethAddress } from "../lib/validation.js";
-import { verifyWalletSignature } from "../lib/auth.js";
+import { verifyWalletSignature, hashRequestBody } from "../lib/auth.js";
 import { z } from "zod";
 
 const ConnectSchema = z.object({
@@ -23,13 +23,14 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       return { error: "Invalid input", details: parsed.error.flatten().fieldErrors };
     }
 
-    // Verify wallet ownership via signature
+    // Verify wallet ownership via signature, bound to request body.
     try {
       await verifyWalletSignature(
         parsed.data.walletAddress,
         parsed.data.signature,
         parsed.data.timestamp,
         "connect",
+        hashRequestBody(req.body as Record<string, unknown>),
       );
     } catch (err) {
       reply.code(401);

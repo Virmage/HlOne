@@ -11,11 +11,17 @@ import {
 } from "@hl-copy/db";
 import { getClearinghouseState } from "../services/hyperliquid.js";
 import { ethAddress } from "../lib/validation.js";
+import { verifyReadSignature } from "../lib/auth.js";
 
 export const portfolioRoutes: FastifyPluginAsync = async (app) => {
   /**
-   * GET /api/portfolio/:walletAddress
-   * Full portfolio overview for a user
+   * GET /api/portfolio/:walletAddress — REQUIRES WALLET SIGNATURE
+   *
+   * Returns allocations, open positions, account value, and PnL. Because this
+   * exposes trading behaviour + financial data, the caller must prove they
+   * control the wallet by signing a message:
+   *   "HLOne v1:portfolio-read:<walletAddress-lowercase>:<timestamp>"
+   * sent via x-hlone-signature / x-hlone-timestamp / x-hlone-wallet headers.
    */
   app.get<{ Params: { walletAddress: string } }>(
     "/:walletAddress",
@@ -24,6 +30,12 @@ export const portfolioRoutes: FastifyPluginAsync = async (app) => {
       if (!ethAddress.safeParse(walletAddress).success) {
         reply.code(400);
         return { error: "Invalid wallet address" };
+      }
+      try {
+        await verifyReadSignature(req.headers as Record<string, string | string[] | undefined>, walletAddress, "portfolio-read");
+      } catch (err) {
+        reply.code(401);
+        return { error: (err as Error).message };
       }
       const addr = walletAddress.toLowerCase();
 
@@ -179,6 +191,12 @@ export const portfolioRoutes: FastifyPluginAsync = async (app) => {
       reply.code(400);
       return { error: "Invalid wallet address" };
     }
+    try {
+      await verifyReadSignature(req.headers as Record<string, string | string[] | undefined>, req.params.walletAddress, "portfolio-read");
+    } catch (err) {
+      reply.code(401);
+      return { error: (err as Error).message };
+    }
     const addr = req.params.walletAddress.toLowerCase();
     const [user] = await app.db
       .select()
@@ -210,6 +228,12 @@ export const portfolioRoutes: FastifyPluginAsync = async (app) => {
     if (!ethAddress.safeParse(req.params.walletAddress).success) {
       reply.code(400);
       return { error: "Invalid wallet address" };
+    }
+    try {
+      await verifyReadSignature(req.headers as Record<string, string | string[] | undefined>, req.params.walletAddress, "portfolio-read");
+    } catch (err) {
+      reply.code(401);
+      return { error: (err as Error).message };
     }
     const addr = req.params.walletAddress.toLowerCase();
     const [user] = await app.db

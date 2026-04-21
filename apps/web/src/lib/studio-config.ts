@@ -189,25 +189,116 @@ export function isWidgetEnabled(config: StudioConfig, key: WidgetKey): boolean {
   return WIDGET_CATALOG.find(w => w.key === key)?.defaultOn ?? false;
 }
 
+/** Validate that a URL is an https:// URL with a safe charset (not javascript:, data:, etc). */
+function isSafeHttpsUrl(raw: unknown): raw is string {
+  if (typeof raw !== "string") return false;
+  if (raw.length > 500) return false;
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Allowlist of widget keys — rejects any unknown keys sent in `widgets`. */
+const ALLOWED_WIDGET_KEYS = new Set<string>(WIDGET_CATALOG.map(w => w.key));
+
 export function validateConfig(config: Partial<StudioConfig>): { ok: true; config: StudioConfig } | { ok: false; errors: string[] } {
   const errors: string[] = [];
 
   if (!config.slug || !/^[a-z0-9-]{2,32}$/.test(config.slug)) {
     errors.push("Slug must be 2-32 chars, lowercase letters/numbers/dashes only");
   }
-  if (!config.name || config.name.length < 2 || config.name.length > 40) {
-    errors.push("Name must be 2-40 characters");
+  if (!config.name || config.name.length < 2 || config.name.length > 40 || /[\r\n\t\x00-\x1f]/.test(config.name)) {
+    errors.push("Name must be 2-40 characters with no control chars");
+  }
+  if (config.tagline && (typeof config.tagline !== "string" || config.tagline.length > 120 || /[\r\n\t\x00-\x1f]/.test(config.tagline))) {
+    errors.push("Tagline must be ≤120 chars with no control chars");
   }
   if (!config.defaultToken || !/^[A-Z0-9]{2,10}$/.test(config.defaultToken)) {
     errors.push("Default token must be 2-10 uppercase letters/numbers (e.g. BTC, HYPE)");
   }
   if (!config.watchlist || config.watchlist.length === 0) {
     errors.push("Watchlist must contain at least one token");
+  } else if (config.watchlist.length > 100 || config.watchlist.some(t => typeof t !== "string" || !/^[A-Z0-9:@_-]{1,32}$/i.test(t))) {
+    errors.push("Watchlist tokens must be ≤32 chars alphanumeric (max 100 total)");
   }
   if (config.branding?.accentColor && !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(config.branding.accentColor)) {
     errors.push("Accent color must be a valid hex (#fff or #ffffff)");
   }
 
+  // URL fields must be https — rejects javascript:, data:, and protocol-relative URLs
+  if (config.branding?.logoUrl && !isSafeHttpsUrl(config.branding.logoUrl)) {
+    errors.push("branding.logoUrl must be an https:// URL");
+  }
+  if (config.branding?.siteUrl && !isSafeHttpsUrl(config.branding.siteUrl)) {
+    errors.push("branding.siteUrl must be an https:// URL");
+  }
+  if (config.branding?.discord && !isSafeHttpsUrl(config.branding.discord)) {
+    errors.push("branding.discord must be an https:// URL");
+  }
+  // Twitter handle must match GitHub's spec — no URL, no @, no control chars.
+  if (config.branding?.twitter !== undefined && config.branding?.twitter !== null) {
+    const t = config.branding.twitter;
+    if (typeof t !== "string" || !/^[A-Za-z0-9_]{1,15}$/.test(t)) {
+      errors.push("branding.twitter must be 1-15 alphanumeric chars (underscores allowed), without @");
+    }
+  }
+
+  // Reject unknown widget keys — attacker can't stuff arbitrary metadata into the config JSON.
+  if (config.widgets && typeof config.widgets === "object") {
+    for (const k of Object.keys(config.widgets)) {
+      if (!ALLOWED_WIDGET_KEYS.has(k)) {
+        errors.push(`Unknown widget key: ${k}`);
+      }
+    }
+  }
+
+  // Builder wallet must be a valid 0x address (otherwise a deploy could ship
+  // with a garbage string that breaks the fork at runtime).
+  if (config.fees?.builderWallet !== undefined && config.fees?.builderWallet !== null) {
+    if (typeof config.fees.builderWallet !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(config.fees.builderWallet)) {
+      errors.push("fees.builderWallet must be a 0x-prefixed 40-char hex address");
+    }
+  }
+  if (config.fees?.markupBps !== undefined) {
+    const m = config.fees.markupBps;
+    if (typeof m !== "number" || m < 0 || m > MAX_MARKUP_BPS) {
+      errors.push(`fees.markupBps must be 0-${MAX_MARKUP_BPS}`);
+    }
+  }
+
   if (errors.length) return { ok: false, errors };
-  return { ok: true, config: { ...DEFAULT_CONFIG, ...config } as StudioConfig };
+
+  // Build a sanitized config: strip to known keys so unexpected properties
+  // don't round-trip into the stored JSON (mass-assignment defense).
+  const sanitized: StudioConfig = {
+    version: STUDIO_CONFIG_VERSION,
+    slug: config.slug!,
+    name: config.name!,
+    tagline: config.tagline,
+    widgets: Object.fromEntries(
+      Object.entries(config.widgets ?? {}).filter(([k]) => ALLOWED_WIDGET_KEYS.has(k))
+    ) as Partial<Record<WidgetKey, boolean>>,
+    widgetOrder: Array.isArray(config.widgetOrder)
+      ? config.widgetOrder.filter(k => ALLOWED_WIDGET_KEYS.has(k))
+      : undefined,
+    defaultToken: config.defaultToken!,
+    watchlist: config.watchlist!,
+    branding: {
+      accentColor: config.branding?.accentColor ?? DEFAULT_CONFIG.branding.accentColor,
+      logoUrl: config.branding?.logoUrl,
+      twitter: config.branding?.twitter,
+      discord: config.branding?.discord,
+      siteUrl: config.branding?.siteUrl,
+    },
+    fees: {
+      markupBps: config.fees?.markupBps ?? 0,
+      builderWallet: config.fees?.builderWallet,
+    },
+    theme: config.theme && ["dark", "light", "auto"].includes(config.theme) ? config.theme : "dark",
+    meta: config.meta,
+  };
+  return { ok: true, config: sanitized };
 }

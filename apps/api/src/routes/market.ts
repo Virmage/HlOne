@@ -28,9 +28,17 @@ import { getDeribitFlowCached } from "../services/deribit-flow.js";
 import { getKoreanPremiumCached } from "../services/korean-premium.js";
 import { getEcosystemCached, fetchEcosystemData } from "../services/hyperliquid-ecosystem.js";
 import { logTrade, getTradeLog, getTradeStats } from "../services/trade-log.js";
+import { verifyReadSignature, verifyWalletSignature, hashRequestBody } from "../lib/auth.js";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { ethAddress, positiveNumber, nonNegativeNumber, coinName } from "../lib/validation.js";
+
+// Cap size * price at $10M per log — no human trades 10M on a single order
+// through HLOne, so anything larger is rejected. trade-log is a telemetry
+// endpoint, NOT a source of truth — fee accounting should come from HL
+// onchain fills. We keep it unauthenticated so trading UX has zero extra
+// friction, but guard against abuse with rate limits + size caps + dedupe.
+const MAX_NOTIONAL_USD = 10_000_000;
 
 const TradeLogSchema = z.object({
   userAddress: ethAddress,
@@ -46,6 +54,23 @@ const TradeLogSchema = z.object({
   error: z.string().max(500).optional(),
   latencyMs: nonNegativeNumber,
 });
+
+// In-memory dedupe for trade-log entries (orderId based). Prevents simple
+// replay-spam from inflating /trade-stats. 10-min TTL.
+const recentTradeLogIds = new Map<string, number>();
+function wasTradeLogged(orderId: string): boolean {
+  const now = Date.now();
+  // Opportunistic eviction
+  if (recentTradeLogIds.size > 5000) {
+    for (const [k, v] of recentTradeLogIds) {
+      if (now - v > 10 * 60 * 1000) recentTradeLogIds.delete(k);
+      if (recentTradeLogIds.size < 2500) break;
+    }
+  }
+  if (recentTradeLogIds.has(orderId)) return true;
+  recentTradeLogIds.set(orderId, now);
+  return false;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -739,7 +764,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
    * Log a trade executed from the frontend (for auditing + fee tracking).
    * Called by the trading panel after every order attempt.
    */
-  app.post("/trade-log", async (req, reply) => {
+  app.post("/trade-log", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (req, reply) => {
     const parsed = TradeLogSchema.safeParse(req.body);
     if (!parsed.success) {
       reply.code(400);
@@ -747,7 +772,18 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const b = parsed.data;
+
     const notionalUsd = b.size * b.price;
+    if (notionalUsd > MAX_NOTIONAL_USD) {
+      reply.code(400);
+      return { error: "Notional exceeds per-log cap" };
+    }
+
+    // Dedupe by orderId — ignores repeat POSTs of the same trade.
+    if (b.orderId && wasTradeLogged(`${b.userAddress.toLowerCase()}:${b.orderId}`)) {
+      return { ok: true, deduped: true };
+    }
+
     const feeEstimatedUsd = notionalUsd * 0.0002; // 0.02% builder fee
 
     logTrade({
@@ -944,13 +980,34 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   /**
    * POST /api/market/client-error
    * Frontend error reports — shows in Railway logs so we can debug remotely.
+   *
+   * Rate-limited per-IP (5/min) so a buggy page can't DDoS our log ingestion.
+   * Input is aggressively sanitized:
+   *   - Control chars / ANSI escapes stripped (prevents log-injection / terminal escapes)
+   *   - Hex blobs ≥64 chars redacted (prevents accidental key / signature leaks)
+   *   - URL query strings stripped (prevents session tokens leaking via logs)
    */
-  app.post("/client-error", async (req) => {
+  const HEX_BLOB_RE = /0x[0-9a-fA-F]{64,}/g;
+  const CTRL_RE = /[\x00-\x1f\x7f-\x9f]/g;
+  function redactSensitive(input: string): string {
+    return input.replace(HEX_BLOB_RE, "[redacted-hex]").replace(CTRL_RE, " ").trim();
+  }
+  function stripQuery(input: string): string {
+    try {
+      const u = new URL(input);
+      u.search = "";
+      u.hash = "";
+      return u.toString();
+    } catch {
+      return input.split("?")[0];
+    }
+  }
+  app.post("/client-error", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (req) => {
     const body = req.body as { message?: string; stack?: string; component?: string; url?: string; userAgent?: string };
-    const msg = String(body.message || "unknown").slice(0, 500);
-    const stack = String(body.stack || "").slice(0, 1000);
-    const component = String(body.component || "unknown").slice(0, 100);
-    const url = String(body.url || "").slice(0, 200);
+    const msg = redactSensitive(String(body.message || "unknown")).slice(0, 300);
+    const stack = redactSensitive(String(body.stack || "")).slice(0, 500);
+    const component = String(body.component || "unknown").replace(/[^\w-]/g, "").slice(0, 60);
+    const url = stripQuery(String(body.url || "")).slice(0, 200);
     console.error(`[CLIENT ERROR] ${component}: ${msg}\n  URL: ${url}\n  Stack: ${stack}`);
     return { ok: true };
   });
@@ -1162,14 +1219,24 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
 
   // ─── Derive API proxy ─────────────────────────────────────────────────────
   // Proxies requests to Derive's private API to avoid CORS issues.
-  // Only whitelisted endpoints are allowed.
+  //
+  // Security model:
+  //   - Only a narrow whitelist of endpoints is allowed.
+  //   - Account-lifecycle + balance-moving endpoints (create_subaccount,
+  //     deposit) are NOT proxied — those should be called directly from the
+  //     user's browser so the session-key signature chain is validated by
+  //     Derive against the true origin wallet, not via our IP.
+  //   - Caller must include an HLOne wallet signature (`x-hlone-*` headers)
+  //     proving ownership of the wallet whose Derive account is being
+  //     accessed. This stops anonymous credential-forwarding where an
+  //     attacker supplies their own Derive authSignature with someone
+  //     else's wallet address.
+  //   - Per-IP rate limit via @fastify/rate-limit.
 
   const DERIVE_ALLOWED_ENDPOINTS = new Set([
     "/private/get_subaccounts",
     "/private/get_subaccount",
     "/private/get_collaterals",
-    "/private/create_subaccount",
-    "/private/deposit",
     "/private/order",
     "/private/cancel",
   ]);
@@ -1184,21 +1251,35 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     };
   }>(
     "/derive-proxy",
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
     async (request, reply) => {
       const { endpoint, body, wallet, authTimestamp, authSignature } = request.body || {};
       if (!endpoint || !DERIVE_ALLOWED_ENDPOINTS.has(endpoint)) {
         return reply.status(400).send({ error: "Invalid endpoint" });
       }
+      if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) {
+        return reply.status(400).send({ error: "wallet required" });
+      }
+
+      // Require HLOne wallet signature — the caller must prove they own the
+      // wallet whose Derive account is being accessed.
+      try {
+        await verifyReadSignature(
+          request.headers as Record<string, string | string[] | undefined>,
+          wallet,
+          "derive-proxy",
+        );
+      } catch (err) {
+        return reply.status(401).send({ error: (err as Error).message });
+      }
 
       // Derive requires lowercase wallet address
-      const walletLower = wallet?.toLowerCase();
+      const walletLower = wallet.toLowerCase();
 
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
-      if (walletLower) {
-        headers["X-LyraWallet"] = walletLower;
-      }
+      headers["X-LyraWallet"] = walletLower;
       // Derive private endpoints require timestamp + signature auth headers
       if (authTimestamp) {
         headers["X-LyraTimestamp"] = authTimestamp;
@@ -1206,8 +1287,6 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       if (authSignature) {
         headers["X-LyraSignature"] = authSignature;
       }
-
-      console.log(`[derive-proxy] ${endpoint} wallet=${walletLower?.slice(0, 10)}... hasAuth=${!!authTimestamp && !!authSignature}`);
 
       const DERIVE_URL = "https://api.lyra.finance";
       try {

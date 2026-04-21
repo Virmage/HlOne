@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Providers } from "@/components/layout/providers";
 import { Header } from "@/components/layout/header";
 import "./globals.css";
@@ -19,11 +20,14 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Per-request CSP nonce (set by middleware.ts). Every inline <script> must
+  // carry this nonce or CSP will block it.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning
       style={{ colorScheme: 'dark' }}>
@@ -31,7 +35,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#060a0c" />
         <meta name="color-scheme" content="dark" />
         <style dangerouslySetInnerHTML={{ __html: `:root,[data-theme="dark"]{--background:#060a0c;--hl-nav:#040808}[data-theme="light"]{--background:#faf8f5;--hl-nav:#fdfcf9}html{background:var(--background)!important}body{background:transparent!important}nextjs-portal,nextjs-portal *,[data-nextjs-dialog-overlay],[data-nextjs-dialog-overlay] *,[data-nextjs-toast],[data-nextjs-toast] *,#__next-build-indicator,#__next-build-indicator *,[class*="nextjs-container-errors"],[class*="nextjs-container-errors"] *,[data-nextjs-scroll-focus-boundary]>[role="dialog"],body>iframe[style*="border"][style*="z-index"]{display:none!important;visibility:hidden!important;opacity:0!important;height:0!important;width:0!important;overflow:hidden!important;position:absolute!important;pointer-events:none!important;max-height:0!important}` }} />
-        <script dangerouslySetInnerHTML={{ __html: `
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: `
           // localStorage polyfill — must run before ANY other JS
           (function(){var n=false;try{if(typeof localStorage==='undefined'){n=true}else if(typeof localStorage.getItem!=='function'){n=true}else{localStorage.setItem('__t','1');localStorage.removeItem('__t')}}catch(e){n=true}if(n){var m={};var p={getItem:function(k){return m.hasOwnProperty(k)?m[k]:null},setItem:function(k,v){m[k]=String(v)},removeItem:function(k){delete m[k]},clear:function(){m={}},get length(){return Object.keys(m).length},key:function(i){return Object.keys(m)[i]||null}};try{Object.defineProperty(window,'localStorage',{value:p,writable:true,configurable:true})}catch(e){try{window.localStorage=p}catch(e2){}}}})();
           // Theme: apply saved preference before paint to prevent flash
@@ -71,7 +75,7 @@ export default function RootLayout({
         }}>
           <img src="/portalspin.gif" alt="" width={112} height={112} />
         </div>
-        <script dangerouslySetInnerHTML={{ __html: `
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: `
           window.__hideStaticLoader=function(){var el=document.getElementById('static-loader');if(el)el.style.display='none'};
           // Match theme — the inline <style> block already sets --background per data-theme,
           // and all elements use var(--background), so just update the meta tag for browser chrome

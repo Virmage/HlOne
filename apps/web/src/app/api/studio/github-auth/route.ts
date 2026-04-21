@@ -15,6 +15,20 @@ import crypto from "crypto";
 
 const GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
 
+/** Strict validator for the `next` redirect. Must be a same-origin absolute
+ * path (no protocol, no host, no `//` protocol-relative). Defaults to /studio. */
+function safeNextPath(raw: string | null): string {
+  if (!raw) return "/studio";
+  // Reject anything that could route cross-origin: `//evil.com/…`, `https://…`,
+  // `javascript:`, `data:`, etc. Must start with `/` and not `//`.
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/studio";
+  if (raw.includes(":")) return "/studio"; // protocols
+  if (raw.length > 200) return "/studio";
+  // Only allow a small charset for paths to keep this boring.
+  if (!/^[\w\-/.?=&]+$/.test(raw)) return "/studio";
+  return raw;
+}
+
 export async function GET(req: Request) {
   const clientId = process.env.GITHUB_OAUTH_CLIENT_ID;
   if (!clientId) {
@@ -24,34 +38,40 @@ export async function GET(req: Request) {
     );
   }
 
+  // The callback URL registered at GitHub MUST match NEXT_PUBLIC_BASE_URL
+  // exactly — we never fall back to the request's host (which can be a
+  // preview deploy's URL and lead to an OAuth app leaking across origins).
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+  if (!baseUrl || !baseUrl.startsWith("https://")) {
+    return NextResponse.json(
+      { error: "NEXT_PUBLIC_BASE_URL must be configured as https://… for GitHub OAuth" },
+      { status: 503 },
+    );
+  }
+  const redirectUri = `${baseUrl.replace(/\/$/, "")}/api/studio/github-callback`;
+
   const url = new URL(req.url);
-  const baseUrl =
-    process.env.NEXT_PUBLIC_BASE_URL ??
-    `${url.protocol}//${url.host}`;
-  const redirectUri = `${baseUrl}/api/studio/github-callback`;
-
-  // CSRF protection: random state, stored in cookie, verified in callback
   const state = crypto.randomBytes(16).toString("hex");
-
-  // Optional: pass along a ?next param so we redirect back to where they came from
-  const next = url.searchParams.get("next") ?? "/studio";
+  const next = safeNextPath(url.searchParams.get("next"));
 
   const authorizeUrl = new URL(GITHUB_AUTHORIZE_URL);
   authorizeUrl.searchParams.set("client_id", clientId);
   authorizeUrl.searchParams.set("redirect_uri", redirectUri);
-  authorizeUrl.searchParams.set("scope", "public_repo"); // minimum to create repos from templates
+  authorizeUrl.searchParams.set("scope", "public_repo");
   authorizeUrl.searchParams.set("state", state);
   authorizeUrl.searchParams.set("allow_signup", "true");
 
   const res = NextResponse.redirect(authorizeUrl.toString());
-  res.cookies.set("hlone-gh-state", state, {
+  // __Host- prefix forbids Domain attribute and requires Secure+Path=/ —
+  // stops cookies from leaking to subdomains (including Vercel previews).
+  res.cookies.set("__Host-hlone-gh-state", state, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
     path: "/",
-    maxAge: 10 * 60, // 10 min
+    maxAge: 10 * 60,
   });
-  res.cookies.set("hlone-gh-next", next, {
+  res.cookies.set("__Host-hlone-gh-next", next, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",

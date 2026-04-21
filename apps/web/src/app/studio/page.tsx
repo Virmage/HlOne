@@ -9,6 +9,7 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useSignMessage } from "wagmi";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 import {
   type StudioConfig,
@@ -25,6 +26,7 @@ type Step = "template" | "customize" | "deploy";
 
 export default function StudioPage() {
   const { address, isConnected } = useSafeAccount();
+  const { signMessageAsync } = useSignMessage();
   const [step, setStep] = useState<Step>("template");
   const [config, setConfig] = useState<StudioConfig>(DEFAULT_CONFIG);
   const [deployStatus, setDeployStatus] = useState<"idle" | "paying" | "deploying" | "done" | "error">("idle");
@@ -146,12 +148,23 @@ export default function StudioPage() {
         sessionId = verifyData.sessionId;
       }
 
-      // Step 2: deploy
+      // Step 2: deploy — sign over sessionId so the server can bind the
+      // consumption of the payment to this specific wallet (stops stolen
+      // sessionIds from being used by anyone other than the payer).
       setDeployStatus("deploying");
+      const timestamp = Date.now();
+      const message = `HLOne v1:studio-deploy:${sessionId}:${timestamp}`;
+      const signature = await signMessageAsync({ message });
       const deployRes = await fetch("/api/studio/deploy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config: validation.config, wallet: address, sessionId }),
+        body: JSON.stringify({
+          config: validation.config,
+          wallet: address,
+          sessionId,
+          signature,
+          timestamp,
+        }),
       });
       const deployData = await deployRes.json();
 
@@ -165,7 +178,7 @@ export default function StudioPage() {
       setDeployStatus("error");
       setDeployError((err as Error).message);
     }
-  }, [validation, address]);
+  }, [validation, address, signMessageAsync]);
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
