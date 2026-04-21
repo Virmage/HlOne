@@ -1251,6 +1251,15 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
                     const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
                     if (!walletClient) { setSubmitting(false); return; }
 
+                    // Derive charges a % of notional + flat fee. The maxFee
+                    // param is a safety ceiling — if the actual fee exceeds this,
+                    // the order is rejected. Scale with order size so big orders
+                    // don't hit false-reject on fee. $50 per contract is generous
+                    // (typical Derive taker fee is ~$5-10/contract on ETH/BTC options).
+                    const contractsNum = parseFloat(amount || "1");
+                    const maxFeePerContract = 50;
+                    const calculatedMaxFee = Math.max(10, contractsNum * maxFeePerContract);
+
                     const result = await derive.placeOrder(walletClient, address as `0x${string}`, {
                       instrumentName: opt.instrument,
                       direction: optionSide,
@@ -1258,7 +1267,7 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
                       limitPrice: optOrderType === "market"
                         ? (optionSide === "buy" ? (opt.askPrice * 1.05).toFixed(2) : (opt.bidPrice * 0.95).toFixed(2))
                         : limitPrice,
-                      maxFee: "10",
+                      maxFee: calculatedMaxFee.toFixed(2),
                       subaccountId: deriveSubaccount,
                       timeInForce: postOnly ? "post_only" : timeInForce,
                       orderType: optOrderType,
