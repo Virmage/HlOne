@@ -104,7 +104,10 @@ async function lookupBuildByApiKey(apiKey: string): Promise<{
   createdAt: Date;
 } | null> {
   if (!prisma) {
-    // No DB: fall back to dev stub so local testing works
+    // Dev mode: allow stub so local flows work. Production MUST have a DB —
+    // returning a stub here would silently validate orders with a fake record
+    // and potentially let builder fees get misrouted.
+    if (process.env.NODE_ENV === "production") return null;
     return {
       buildId: "dev_stub",
       deployId: "dev_stub",

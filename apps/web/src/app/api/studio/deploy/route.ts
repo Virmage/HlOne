@@ -51,6 +51,10 @@ export async function POST(req: Request) {
 
     const githubToken = process.env.GITHUB_STUDIO_TOKEN;
     const templateRepo = process.env.GITHUB_TEMPLATE_REPO ?? "hlone-xyz/hlone-template";
+    // Owner of the forked repo. Derived from GITHUB_TEMPLATE_REPO by default (same org
+    // owns the forks). To fork into a different org, set GITHUB_FORK_OWNER.
+    // Future: when GitHub OAuth is wired, replace with the OAuth'd user's login.
+    const forkOwner = process.env.GITHUB_FORK_OWNER ?? templateRepo.split("/")[0];
     const vercelToken = process.env.VERCEL_API_TOKEN;
     const vercelTeamId = process.env.VERCEL_TEAM_ID;
 
@@ -100,7 +104,7 @@ export async function POST(req: Request) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        owner: "hlone-xyz", // TODO: replace with OAuth'd user's login
+        owner: forkOwner,
         name: forkName,
         description: `${finalConfig.name} — powered by HLOne Studio`,
         private: false,

@@ -71,7 +71,9 @@ async function lookupBuildsByWallet(wallet: string): Promise<Array<{
   createdAt: string;
 }>> {
   if (!prisma) {
-    // Dev / no-DB mode: return a mock build for UI testing
+    // Dev mode (no DB): return a single mock build for UI preview in development
+    // only. In production, no-DB = empty list (don't fake earnings data).
+    if (process.env.NODE_ENV === "production") return [];
     return [
       {
         buildId: "dev_stub_1",
@@ -125,7 +127,13 @@ async function fetchHLBuilderStats(
   last7d: { volumeUsd: number; trades: number };
 }> {
   if (!prisma || buildId === "dev_stub_1") {
-    // Dev stub with random numbers for UI preview
+    // Dev-only mock data. Production without DB returns zeros (never fake earnings).
+    if (process.env.NODE_ENV === "production") {
+      return {
+        volumeUsd: 0, feesEarnedUsd: 0, trades: 0, uniqueUsers: 0,
+        last24h: { volumeUsd: 0, trades: 0 }, last7d: { volumeUsd: 0, trades: 0 },
+      };
+    }
     return {
       volumeUsd: Math.random() * 250_000,
       feesEarnedUsd: Math.random() * 25,
