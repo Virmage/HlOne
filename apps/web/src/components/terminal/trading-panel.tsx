@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import type { TokenOverview, HLOneScore } from "@/lib/api";
 import type { PlaceOrderResult } from "@/lib/hl-exchange";
+import { dlog, dwarn } from "@/lib/logger";
 import { BUILDER_FEE_PERCENT, BUILDER_FEE_DISPLAY } from "@/lib/hl-exchange";
 import { verifyOrderParams } from "@/lib/security-guards";
 import { useSafeAccount } from "@/hooks/use-safe-account";

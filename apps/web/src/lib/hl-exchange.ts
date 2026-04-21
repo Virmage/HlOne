@@ -13,6 +13,7 @@ import { keccak256 } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { encode as msgpackEncode } from "@msgpack/msgpack";
 import { getAccount } from "@wagmi/core";
+import { dlog, dwarn } from "./logger";
 import { config } from "@/config/wagmi";
 
 const HL_API = "https://api.hyperliquid.xyz";
@@ -116,6 +117,30 @@ export function isAgentEncrypted(userAddress: string): boolean {
 /** Normalize v to 27/28 — some wallets return 0/1 */
 function normalizeV(v: number): number {
   return v < 27 ? v + 27 : v;
+}
+
+/**
+ * Detect whether an HL API error message indicates our agent is stale (not
+ * registered, revoked, or from a deleted pairing). We trigger auto-recovery
+ * by re-approving the agent when we see any of these patterns.
+ *
+ * HL has changed wording between versions — match all known variants so we
+ * don't lose auto-heal if they tweak the error text again.
+ */
+const STALE_AGENT_PATTERNS = [
+  "does not exist",        // legacy
+  "unknown wallet",        // legacy
+  "is not registered",     // seen in 2025
+  "not authorized",        // generic fallback
+  "invalid signer",        // some edges
+  "agent not found",       // recent
+  "no agent",              // recent
+] as const;
+
+export function isAgentStaleError(msg: string | undefined | null): boolean {
+  if (!msg || typeof msg !== "string") return false;
+  const lower = msg.toLowerCase();
+  return STALE_AGENT_PATTERNS.some(p => lower.includes(p));
 }
 
 /**
@@ -565,9 +590,9 @@ async function submitToExchange(
 
     if (!res.ok) {
       const text = await res.text();
-      // Detect stale/unrecognized agent wallet — must be agent-specific, not generic "not found"
-      const lower = text.toLowerCase();
-      if (lower.includes("does not exist") || lower.includes("unknown wallet")) {
+      // Detect stale/unrecognized agent wallet. HL has used a few different
+      // phrasings over time — match any of them to auto-recover.
+      if (isAgentStaleError(text)) {
         throw new StaleAgentError(`Exchange API error: ${res.status} ${text}`);
       }
       throw new Error(`Exchange API error: ${res.status} ${text}`);
@@ -575,9 +600,9 @@ async function submitToExchange(
 
     const result = await res.json();
     // Also check for agent-specific errors in response body
-    const responseStr = typeof result.response === "string" ? result.response.toLowerCase() : "";
-    if (responseStr.includes("does not exist") || responseStr.includes("unknown wallet")) {
-      throw new StaleAgentError(typeof result.response === "string" ? result.response : responseStr);
+    const responseStr = typeof result.response === "string" ? result.response : "";
+    if (isAgentStaleError(responseStr)) {
+      throw new StaleAgentError(responseStr);
     }
 
     return result;

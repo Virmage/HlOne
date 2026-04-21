@@ -19,6 +19,7 @@ import {
   toHex,
   type Hex,
 } from "viem";
+import { dlog, dwarn } from "./logger";
 
 const DERIVE_API = "https://api.lyra.finance";
 
