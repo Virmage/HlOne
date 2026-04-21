@@ -935,15 +935,27 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startY: number; startOffset: number; startPricePan: number } | null>(null);
   const yDragRef = useRef<{ startY: number; startZoom: number } | null>(null);
-  // Active drawing-handle drag: which point (p1 or p2, or hline's p1 mid).
-  // `override` holds the live position during the drag — committed to the
-  // parent on mouseup, so the line visibly follows the cursor in real time.
+  // Active drawing-handle drag. Split from the override so the useEffect
+  // that wires window listeners doesn't re-mount on every mouse-move (that
+  // was dropping Y events — the line appeared to only track X).
   const [handleDrag, setHandleDrag] = useState<{
     id: string;
     which: "p1" | "p2";
     mode: "point" | "hline";         // hline = drag updates price only
-    override: { time: number; price: number };
   } | null>(null);
+  // Live position of the handle during drag. Updates at ~60Hz; decoupled
+  // from the handleDrag effect deps.
+  const [dragOverride, setDragOverride] = useState<{ time: number; price: number } | null>(null);
+  // Latest coord-mapping fns, so the window-level mousemove listener always
+  // sees current zoom/pan without needing to re-register.
+  const coordFnsRef = useRef({
+    yToPrice: (y: number) => y,
+    xToTime: (x: number) => x,
+    W: 0, H: 0, ML: 0, MR: 0, MT: 0, priceH: 0,
+    magnetMode: false,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    data: [] as any[],
+  });
   const prevDomainRef = useRef({ min: 0, max: 0, dataLen: 0 });
   const [containerSize, setContainerSize] = useState({ w: 900, h: 400 });
 
@@ -1315,11 +1327,15 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     return data[0].time + ((x - ML - candleW / 2) / candleW) * dur;
   };
 
+  // Keep the drag listener's view of the coord fns fresh without re-mounting
+  // the listener on every render.
+  coordFnsRef.current = { yToPrice, xToTime, W, H, ML, MR, MT, priceH, magnetMode, data };
+
   // Handle drawing click on SVG
   const handleDrawingClick = useCallback((e: React.MouseEvent) => {
     // If a handle drag just finished, the mouseup will bubble a click —
     // swallow it so we don't also start a new drawing or delete something.
-    if (handleDrag) return;
+    if (handleDrag || justFinishedDragRef.current) return;
     if (drawingTool === "none" || !onDrawingClick || !svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const svgX = ((e.clientX - rect.left) / rect.width) * W;
@@ -1329,31 +1345,36 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     const time = xToTime(svgX);
     onDrawingClick(time, price);
   }, [drawingTool, onDrawingClick, W, H, MR, MT, priceH, yToPrice, xToTime, handleDrag]);
+  const justFinishedDragRef = useRef(false);
 
   // Drag-to-reshape: while a handle is being dragged, track the mouse at the
   // window level so the line keeps following the cursor even when the pointer
   // leaves the SVG. On mouseup, commit the final position to the parent.
+  //
+  // Effect deps are intentionally minimal — only what changes on drag-start
+  // and drag-end. Coord mapping comes from coordFnsRef (kept fresh each
+  // render), which means the listener persists for the whole drag and we
+  // don't drop mouse events while React re-renders on every mousemove.
   useEffect(() => {
     if (!handleDrag || !svgRef.current) return;
     const svgEl = svgRef.current;
 
     const toDrawingCoords = (clientX: number, clientY: number) => {
+      const c = coordFnsRef.current;
       const rect = svgEl.getBoundingClientRect();
-      const svgX = ((clientX - rect.left) / rect.width) * W;
-      const svgY = ((clientY - rect.top) / rect.height) * H;
+      const svgX = ((clientX - rect.left) / rect.width) * c.W;
+      const svgY = ((clientY - rect.top) / rect.height) * c.H;
       // Clamp to the price area so handles don't fly into the volume pane.
-      const clampedY = Math.max(MT + 2, Math.min(MT + priceH - 2, svgY));
-      const clampedX = Math.max(ML + 2, Math.min(W - MR - 2, svgX));
-      let price = yToPrice(clampedY);
-      let time = xToTime(clampedX);
-      // Magnet snap: if enabled, snap price to nearest OHLC on the candle
-      // under the cursor (matches the behaviour of new-drawing magnet).
-      if (magnetMode && data.length > 0) {
+      const clampedY = Math.max(c.MT + 2, Math.min(c.MT + c.priceH - 2, svgY));
+      const clampedX = Math.max(c.ML + 2, Math.min(c.W - c.MR - 2, svgX));
+      let price = c.yToPrice(clampedY);
+      let time = c.xToTime(clampedX);
+      if (c.magnetMode && c.data.length > 0) {
         let best = Infinity;
-        for (const c of data) {
-          for (const p of [c.open, c.high, c.low, c.close]) {
-            const d = Math.abs(p - price);
-            if (d < best) { best = d; price = p; }
+        for (const cd of c.data) {
+          for (const p of [cd.open, cd.high, cd.low, cd.close]) {
+            const dist = Math.abs(p - price);
+            if (dist < best) { best = dist; price = p; }
           }
         }
       }
@@ -1362,21 +1383,29 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
     const onMove = (e: MouseEvent) => {
       const { time, price } = toDrawingCoords(e.clientX, e.clientY);
-      setHandleDrag(prev => prev ? { ...prev, override: { time, price } } : prev);
+      setDragOverride({ time, price });
     };
     const onUp = () => {
-      setHandleDrag(current => {
-        if (!current || !onUpdateDrawing) return null;
-        if (current.mode === "hline") {
-          // hline: keep time, only change price
-          onUpdateDrawing(current.id, { p1: { time: current.override.time, price: current.override.price } });
-        } else if (current.which === "p1") {
-          onUpdateDrawing(current.id, { p1: current.override });
+      // Read the latest override from state via the functional setter, then
+      // commit to the parent and clear both pieces of drag state.
+      setDragOverride(finalOverride => {
+        if (!finalOverride || !onUpdateDrawing) return null;
+        const d = handleDrag;
+        if (!d) return null;
+        if (d.mode === "hline") {
+          onUpdateDrawing(d.id, { p1: finalOverride });
+        } else if (d.which === "p1") {
+          onUpdateDrawing(d.id, { p1: finalOverride });
         } else {
-          onUpdateDrawing(current.id, { p2: current.override });
+          onUpdateDrawing(d.id, { p2: finalOverride });
         }
         return null;
       });
+      setHandleDrag(null);
+      // Swallow the click that follows the mouseup so we don't create a new
+      // drawing at the endpoint drop site. Cleared on the next tick.
+      justFinishedDragRef.current = true;
+      setTimeout(() => { justFinishedDragRef.current = false; }, 0);
     };
 
     window.addEventListener("mousemove", onMove);
@@ -1385,7 +1414,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [handleDrag, onUpdateDrawing, W, H, ML, MR, MT, priceH, yToPrice, xToTime, magnetMode, data]);
+  }, [handleDrag, onUpdateDrawing]);
 
   /**
    * Mousedown on an endpoint handle — begin a drag. We prevent event
@@ -1403,7 +1432,8 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     e.preventDefault();
     const mode: "point" | "hline" = drawing.type === "hline" ? "hline" : "point";
     const origin = which === "p1" ? drawing.p1 : (drawing.p2 || drawing.p1);
-    setHandleDrag({ id: drawing.id, which, mode, override: origin });
+    setDragOverride(origin);
+    setHandleDrag({ id: drawing.id, which, mode });
   }, [drawingTool, onUpdateDrawing]);
 
   const volY = (v: number) => MT + priceH + volH - (maxVol > 0 ? (v / maxVol) * (volH - 4) : 0);
@@ -1729,9 +1759,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
           {drawings.map(d => {
             // Live drag override: swap in the cursor-following point so the
             // line visibly follows while mouse is held down.
-            const dragging = handleDrag && handleDrag.id === d.id ? handleDrag : null;
-            const p1 = dragging && (dragging.which === "p1" || dragging.mode === "hline") ? dragging.override : d.p1;
-            const p2 = dragging && dragging.which === "p2" ? dragging.override : d.p2;
+            const dragging = handleDrag && handleDrag.id === d.id && dragOverride ? handleDrag : null;
+            const p1 = dragging && dragOverride && (dragging.which === "p1" || dragging.mode === "hline") ? dragOverride : d.p1;
+            const p2 = dragging && dragOverride && dragging.which === "p2" ? dragOverride : d.p2;
 
             if (d.type === "hline" || d.type === "hray") {
               const y = priceY(p1.price);
