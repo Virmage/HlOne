@@ -68,20 +68,36 @@ function Logo() {
   );
 }
 
+/** Compact equity / uPnL / margin box rendered in the desktop header (next to
+ * the theme toggle). Populated by the positions panel via `setAccountInfo`. */
 function AccountDisplay() {
   const info = useAccountInfo();
   if (!info) return null;
   const pnl = info.unrealizedPnl;
+  const pnlPositive = pnl >= 0;
   return (
-    <div className="hidden sm:flex items-center gap-2.5 text-[11px] tabular-nums mr-1">
-      <span className="text-[var(--hl-accent)]">
-        <span className="text-[var(--hl-muted)] font-normal">Acct:</span>{" "}
-        <span className="font-medium">${info.accountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-      </span>
-      <span className={pnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}>
-        <span className="text-[var(--hl-muted)] font-normal">uPnL:</span>{" "}
-        {pnl >= 0 ? "+" : ""}${pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-      </span>
+    <div className="hidden md:flex items-center gap-2 text-[11px] tabular-nums mr-1 px-2.5 py-1 rounded-lg border border-[var(--hl-border)] bg-[var(--hl-surface)]">
+      <div className="flex flex-col leading-tight">
+        <span className="text-[9px] text-[var(--hl-muted)] uppercase tracking-wide">Equity</span>
+        <span className="text-[var(--foreground)] font-semibold">${info.accountValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+      </div>
+      <div className="w-px h-6 bg-[var(--hl-border)]" />
+      <div className="flex flex-col leading-tight">
+        <span className="text-[9px] text-[var(--hl-muted)] uppercase tracking-wide">uPnL</span>
+        <span className={`font-semibold ${pnlPositive ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
+          {pnlPositive ? "+" : ""}${pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+        </span>
+      </div>
+      <div className="w-px h-6 bg-[var(--hl-border)]" />
+      <div className="flex flex-col leading-tight">
+        <span className="text-[9px] text-[var(--hl-muted)] uppercase tracking-wide">Margin</span>
+        <span className="text-[var(--foreground)] font-semibold">${info.totalMarginUsed.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+      </div>
+      <div className="w-px h-6 bg-[var(--hl-border)]" />
+      <div className="flex flex-col leading-tight">
+        <span className="text-[9px] text-[var(--hl-muted)] uppercase tracking-wide">Avail</span>
+        <span className="text-[var(--foreground)] font-semibold">${info.withdrawable.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+      </div>
     </div>
   );
 }
@@ -121,6 +137,8 @@ export function Header() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Equity / uPnL / Margin / Available — desktop (md+) only */}
+          <AccountDisplay />
           {/* Theme toggle — desktop only (in Account tab on mobile) */}
           <div className="hidden sm:block">
             <ThemeToggle />

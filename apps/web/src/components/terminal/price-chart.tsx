@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { TokenDetail, TokenOverview, WhaleAlert, LiquidationBand } from "@/lib/api";
 import { getTokenDetail, getOICandles as fetchOICandles, getCandles as fetchCandlesViaBackend } from "@/lib/api";
-import { useAccountInfo } from "@/hooks/use-account-info";
 import { useUserFills, type UserFill, type UserOpenPosition } from "@/hooks/use-user-fills";
 import { CoinIntelPanel } from "./coin-intel-panel";
 
@@ -81,7 +80,6 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
   const pollRef = useRef<ReturnType<typeof globalThis.setInterval> | null>(null);
 
   const overview = tokens.find(t => t.coin === coin);
-  const accountInfo = useAccountInfo();
 
   // Full detail fetch (initial load + coin change + background poll)
   const prevCoinRef = useRef(coin);
@@ -640,50 +638,9 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             </>
           )}
 
-          {/* Portfolio stats — accent-bordered pill (desktop only) */}
-          {accountInfo && (
-            <>
-              <div className="w-px h-5 bg-[var(--hl-border)] shrink-0 mx-1 hidden sm:block" />
-              <div className="hidden sm:flex items-center gap-3 shrink-0 px-2.5 py-0.5 rounded-md border border-[var(--hl-accent)]/25 bg-[var(--hl-accent)]/[0.04]">
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">Equity</span>
-                  <span className="text-[var(--foreground)] tabular-nums font-bold text-[11px]">
-                    ${accountInfo.accountValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">uPnL</span>
-                  <span className={`tabular-nums font-bold text-[11px] ${accountInfo.unrealizedPnl >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>
-                    {accountInfo.unrealizedPnl >= 0 ? "+" : ""}${accountInfo.unrealizedPnl.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">Margin</span>
-                  <span className="text-[var(--foreground)] tabular-nums font-medium text-[11px]">
-                    ${accountInfo.totalMarginUsed.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">Available</span>
-                  <span className="text-[var(--foreground)] tabular-nums font-medium text-[11px]">
-                    ${accountInfo.withdrawable.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">Notional</span>
-                  <span className="text-[var(--foreground)] tabular-nums font-medium text-[11px]">
-                    ${accountInfo.totalNotional.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-[var(--hl-accent)] uppercase font-medium">Positions</span>
-                  <span className="text-[var(--foreground)] tabular-nums font-medium text-[11px]">
-                    {accountInfo.positionCount}
-                  </span>
-                </div>
-              </div>
-            </>
-          )}
+          {/* Portfolio stats (Equity / uPnL / Margin / Available) moved to
+              the global header next to the theme toggle — a single source of
+              truth that's always visible regardless of which token is open. */}
         </div>
       </div>
 

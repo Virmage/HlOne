@@ -276,39 +276,38 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
 
   const coinHasOptions = hasDeriveOptions(displayCoin);
 
-  // Reset to perp mode when switching to coin without options
-  useEffect(() => {
-    if (!coinHasOptions) onTradingModeChange?.("perp");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coinHasOptions]);
+  // If the user toggles to Options mode but the current coin has no chain,
+  // OptionsOrderPanel below shows an explanatory empty state — we don't
+  // auto-flip the tab back. The tab itself is always visible so users can
+  // use it to navigate, and so they can land on Options mode then swap to
+  // a coin that has a chain (HYPE, BTC, ETH) without the tab disappearing.
 
   return (
     <div className="flex flex-col h-full border-l border-[var(--hl-border)] bg-[var(--background)]">
-      {/* Perps / Options tab bar — always visible at top, styled like header nav */}
-      {coinHasOptions && (
-        <div className="flex items-center border-b border-[var(--hl-border)] shrink-0">
-          <button
-            onClick={() => setMode("perp")}
-            className={`px-4 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px ${
-              mode === "perp"
-                ? "text-[var(--foreground)] border-[var(--hl-accent)]"
-                : "text-[var(--hl-muted)] border-transparent hover:text-[var(--foreground)]"
-            }`}
-          >
-            Perps
-          </button>
-          <button
-            onClick={() => setMode("options")}
-            className={`px-4 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px ${
-              mode === "options"
-                ? "text-purple-400 border-purple-400"
-                : "text-[var(--hl-muted)] border-transparent hover:text-[var(--foreground)]"
-            }`}
-          >
-            Options
-          </button>
-        </div>
-      )}
+      {/* Perps / Options tab bar — ALWAYS visible (not gated on coinHasOptions)
+          so users can swap tabs regardless of what's currently selected. */}
+      <div className="flex items-center border-b border-[var(--hl-border)] shrink-0">
+        <button
+          onClick={() => setMode("perp")}
+          className={`px-4 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px ${
+            mode === "perp"
+              ? "text-[var(--foreground)] border-[var(--hl-accent)]"
+              : "text-[var(--hl-muted)] border-transparent hover:text-[var(--foreground)]"
+          }`}
+        >
+          Perps
+        </button>
+        <button
+          onClick={() => setMode("options")}
+          className={`px-4 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px ${
+            mode === "options"
+              ? "text-purple-400 border-purple-400"
+              : "text-[var(--hl-muted)] border-transparent hover:text-[var(--foreground)]"
+          }`}
+        >
+          Options
+        </button>
+      </div>
 
       {/* ─── Options Mode: Order Entry ─── */}
       {mode === "options" && coinHasOptions && (
@@ -318,6 +317,24 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
           onClearOption={onClearOption}
           isConnected={isConnected}
         />
+      )}
+
+      {/* ─── Options Mode: no chain for this coin ─── */}
+      {mode === "options" && !coinHasOptions && (
+        <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
+          <div className="text-[13px] font-medium text-[var(--foreground)] mb-2">
+            No options chain for {displayCoin}
+          </div>
+          <div className="text-[11px] text-[var(--hl-muted)] mb-4 max-w-[240px]">
+            Derive lists options for HYPE, BTC, ETH and a few majors. Pick one of those to trade options.
+          </div>
+          <button
+            onClick={() => setMode("perp")}
+            className="px-4 py-1.5 text-[11px] font-medium rounded border border-[var(--hl-border)] text-[var(--foreground)] hover:border-[var(--hl-accent)] transition-colors"
+          >
+            Back to Perps
+          </button>
+        </div>
       )}
 
       {/* ─── Perp Mode (existing) ─── */}
