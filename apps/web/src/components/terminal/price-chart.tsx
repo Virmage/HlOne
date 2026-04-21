@@ -468,7 +468,14 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             onClick={() => setCoinDropdownOpen(!coinDropdownOpen)}
             className="flex items-center gap-1 sm:gap-1.5 pr-2 sm:pr-3 mr-2 sm:mr-3 border-r border-[var(--hl-border)]"
           >
-            <span className="text-[13px] sm:text-[15px] font-bold text-[var(--foreground)]">{coin.includes(":") ? coin.split(":")[1] : coin}-USDC</span>
+            <span className="text-[13px] sm:text-[15px] font-bold text-[var(--foreground)]">{(() => {
+              // Spot pair like @107 → show "HYPE/USDC SPOT" using the
+              // resolved displayName from the token overview. Otherwise:
+              // HIP-3 proxy ("xyz:GOLD") → "GOLD"; plain perp → "HYPE-USDC".
+              if (overview?.isSpot && overview.displayName) return `${overview.displayName}/USDC`;
+              if (coin.includes(":")) return coin.split(":")[1];
+              return `${coin}-USDC`;
+            })()}</span>
             <svg width="10" height="6" viewBox="0 0 10 6" fill="none" className="mt-0.5">
               <path d="M1 1L5 5L9 1" stroke="var(--hl-muted)" strokeWidth="1.5" strokeLinecap="round" />
             </svg>

@@ -87,7 +87,12 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
   const sizeNum = parseFloat(size) || 0;
   const notional = sizeNum * price;
   const margin = leverage > 0 ? notional / leverage : 0;
-  const displayCoin = coin.includes(":") ? coin.split(":")[1] : coin;
+  // For spot pairs (@107 etc.) HL uses an opaque code — the human-readable
+  // token name lives on the overview. Fall back to the ":" split for HIP-3
+  // proxy assets (xyz:GOLD → GOLD) and the coin itself for plain perps.
+  const displayCoin = (overview?.isSpot && overview.displayName)
+    ? overview.displayName
+    : coin.includes(":") ? coin.split(":")[1] : coin;
 
   const signalColor = score
     ? score.signal === "strong_buy" || score.signal === "buy"
