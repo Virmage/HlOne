@@ -14,9 +14,20 @@ declare global {
 }
 
 function createClient(): PrismaClient | null {
-  if (!process.env.DATABASE_URL) {
+  const rawUrl = process.env.DATABASE_URL?.trim();
+  if (!rawUrl) return null;
+
+  // Validate protocol prefix. Prisma throws at query time otherwise, leaking
+  // 500s. Better to treat a malformed URL as missing and let callers fall
+  // back to dev-stub mode with a clean error.
+  if (!/^postgres(ql)?:\/\//i.test(rawUrl)) {
+    console.error(
+      `[prisma] DATABASE_URL is set but missing postgresql:// prefix. Value starts with: "${rawUrl.slice(0, 20)}...". ` +
+      `Studio will run without a database. Fix in Vercel env vars.`,
+    );
     return null;
   }
+
   try {
     return new PrismaClient({
       log: process.env.NODE_ENV === "production" ? ["error"] : ["error", "warn"],
