@@ -118,6 +118,46 @@ function normalizeV(v: number): number {
   return v < 27 ? v + 27 : v;
 }
 
+/**
+ * HL's EIP-712 domain requires Arbitrum chainId (42161). viem asserts the
+ * wallet's current chain matches, so we must switch before signing. Returns
+ * the chain the user was on before so we can restore it after.
+ */
+async function ensureArbitrumForSigning(walletClient: WalletClient): Promise<number> {
+  const originalChainId = await walletClient.getChainId();
+  if (originalChainId === 42161) return originalChainId;
+
+  console.log(`[hl-exchange] Switching chain: ${originalChainId} → 42161 (Arbitrum)`);
+  try {
+    await walletClient.switchChain({ id: 42161 });
+  } catch (err) {
+    const msg = (err as Error).message ?? "";
+    if (msg.toLowerCase().includes("unrecognized") || msg.toLowerCase().includes("4902")) {
+      await walletClient.addChain({
+        chain: {
+          id: 42161,
+          name: "Arbitrum One",
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: { default: { http: ["https://arb1.arbitrum.io/rpc"] } },
+        },
+      });
+      await walletClient.switchChain({ id: 42161 });
+    } else {
+      throw err;
+    }
+  }
+  return originalChainId;
+}
+
+async function restoreChain(walletClient: WalletClient, originalChainId: number): Promise<void> {
+  if (originalChainId === 42161) return;
+  try {
+    await walletClient.switchChain({ id: originalChainId });
+  } catch {
+    // best-effort
+  }
+}
+
 async function approveAgentOnChain(
   walletClient: WalletClient,
   userAddress: string,
@@ -138,30 +178,36 @@ async function approveAgentOnChain(
   // Use viem's signTypedData — handles wallet compatibility natively
   console.log("[approveAgent] Requesting signature for agent:", agentAddr.slice(0, 10) + "...", "user:", userAddress.slice(0, 10) + "...");
 
-  const signature = await walletClient.signTypedData({
-    account: userAddress as `0x${string}`,
-    domain: {
-      name: "HyperliquidSignTransaction",
-      version: "1",
-      chainId: 42161,
-      verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
-    },
-    types: {
-      "HyperliquidTransaction:ApproveAgent": [
-        { name: "hyperliquidChain", type: "string" },
-        { name: "agentAddress", type: "address" },
-        { name: "agentName", type: "string" },
-        { name: "nonce", type: "uint64" },
-      ],
-    },
-    primaryType: "HyperliquidTransaction:ApproveAgent",
-    message: {
-      hyperliquidChain: "Mainnet",
-      agentAddress: agentAddr as `0x${string}`,
-      agentName: "HLOne",
-      nonce: BigInt(nonce),
-    },
-  });
+  const originalChainId = await ensureArbitrumForSigning(walletClient);
+  let signature: `0x${string}`;
+  try {
+    signature = await walletClient.signTypedData({
+      account: userAddress as `0x${string}`,
+      domain: {
+        name: "HyperliquidSignTransaction",
+        version: "1",
+        chainId: 42161,
+        verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+      },
+      types: {
+        "HyperliquidTransaction:ApproveAgent": [
+          { name: "hyperliquidChain", type: "string" },
+          { name: "agentAddress", type: "address" },
+          { name: "agentName", type: "string" },
+          { name: "nonce", type: "uint64" },
+        ],
+      },
+      primaryType: "HyperliquidTransaction:ApproveAgent",
+      message: {
+        hyperliquidChain: "Mainnet",
+        agentAddress: agentAddr as `0x${string}`,
+        agentName: "HLOne",
+        nonce: BigInt(nonce),
+      },
+    });
+  } finally {
+    await restoreChain(walletClient, originalChainId);
+  }
 
   console.log("[approveAgent] Got signature:", signature.slice(0, 12) + "...");
 
@@ -900,31 +946,37 @@ export async function approveBuilderFee(
       nonce,
     };
 
+    const originalChainId = await ensureArbitrumForSigning(walletClient);
     console.log("[approveBuilderFee] Requesting signature...");
-    const signature = await walletClient.signTypedData({
-      account: address,
-      domain: {
-        name: "HyperliquidSignTransaction",
-        version: "1",
-        chainId: 42161,
-        verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
-      },
-      types: {
-        "HyperliquidTransaction:ApproveBuilderFee": [
-          { name: "hyperliquidChain", type: "string" },
-          { name: "maxFeeRate", type: "string" },
-          { name: "builder", type: "address" },
-          { name: "nonce", type: "uint64" },
-        ],
-      },
-      primaryType: "HyperliquidTransaction:ApproveBuilderFee",
-      message: {
-        hyperliquidChain: "Mainnet",
-        maxFeeRate: "0.02%",
-        builder: BUILDER_ADDRESS as `0x${string}`,
-        nonce: BigInt(nonce),
-      },
-    });
+    let signature: `0x${string}`;
+    try {
+      signature = await walletClient.signTypedData({
+        account: address,
+        domain: {
+          name: "HyperliquidSignTransaction",
+          version: "1",
+          chainId: 42161,
+          verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+        },
+        types: {
+          "HyperliquidTransaction:ApproveBuilderFee": [
+            { name: "hyperliquidChain", type: "string" },
+            { name: "maxFeeRate", type: "string" },
+            { name: "builder", type: "address" },
+            { name: "nonce", type: "uint64" },
+          ],
+        },
+        primaryType: "HyperliquidTransaction:ApproveBuilderFee",
+        message: {
+          hyperliquidChain: "Mainnet",
+          maxFeeRate: "0.02%",
+          builder: BUILDER_ADDRESS as `0x${string}`,
+          nonce: BigInt(nonce),
+        },
+      });
+    } finally {
+      await restoreChain(walletClient, originalChainId);
+    }
 
     const r = signature.slice(0, 66);
     const s = `0x${signature.slice(66, 130)}`;
@@ -977,30 +1029,36 @@ export async function withdraw(
     };
 
     // Withdraw is a user L1 action — signed by the actual wallet, not an agent
-    const signature = await walletClient.signTypedData({
-      account: address,
-      domain: {
-        name: "HyperliquidSignTransaction",
-        version: "1",
-        chainId: 42161,
-        verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
-      },
-      types: {
-        "HyperliquidTransaction:Withdraw": [
-          { name: "hyperliquidChain", type: "string" },
-          { name: "destination", type: "string" },
-          { name: "amount", type: "string" },
-          { name: "time", type: "uint64" },
-        ],
-      },
-      primaryType: "HyperliquidTransaction:Withdraw",
-      message: {
-        hyperliquidChain: "Mainnet",
-        destination: address,
-        amount: floatToWire(amount),
-        time: BigInt(nonce),
-      },
-    });
+    const originalChainId = await ensureArbitrumForSigning(walletClient);
+    let signature: `0x${string}`;
+    try {
+      signature = await walletClient.signTypedData({
+        account: address,
+        domain: {
+          name: "HyperliquidSignTransaction",
+          version: "1",
+          chainId: 42161,
+          verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+        },
+        types: {
+          "HyperliquidTransaction:Withdraw": [
+            { name: "hyperliquidChain", type: "string" },
+            { name: "destination", type: "string" },
+            { name: "amount", type: "string" },
+            { name: "time", type: "uint64" },
+          ],
+        },
+        primaryType: "HyperliquidTransaction:Withdraw",
+        message: {
+          hyperliquidChain: "Mainnet",
+          destination: address,
+          amount: floatToWire(amount),
+          time: BigInt(nonce),
+        },
+      });
+    } finally {
+      await restoreChain(walletClient, originalChainId);
+    }
 
     const r = signature.slice(0, 66);
     const s = `0x${signature.slice(66, 130)}`;
@@ -1051,30 +1109,36 @@ export async function transferBetweenSpotAndPerp(
     };
 
     // usdClassTransfer is a user L1 action — must be signed by the actual wallet, not an agent
-    const signature = await walletClient.signTypedData({
-      account: address,
-      domain: {
-        name: "HyperliquidSignTransaction",
-        version: "1",
-        chainId: 42161,
-        verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
-      },
-      types: {
-        "HyperliquidTransaction:UsdClassTransfer": [
-          { name: "hyperliquidChain", type: "string" },
-          { name: "amount", type: "string" },
-          { name: "toPerp", type: "bool" },
-          { name: "nonce", type: "uint64" },
-        ],
-      },
-      primaryType: "HyperliquidTransaction:UsdClassTransfer",
-      message: {
-        hyperliquidChain: "Mainnet",
-        amount: floatToWire(amount),
-        toPerp,
-        nonce: BigInt(nonce),
-      },
-    });
+    const originalChainId = await ensureArbitrumForSigning(walletClient);
+    let signature: `0x${string}`;
+    try {
+      signature = await walletClient.signTypedData({
+        account: address,
+        domain: {
+          name: "HyperliquidSignTransaction",
+          version: "1",
+          chainId: 42161,
+          verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+        },
+        types: {
+          "HyperliquidTransaction:UsdClassTransfer": [
+            { name: "hyperliquidChain", type: "string" },
+            { name: "amount", type: "string" },
+            { name: "toPerp", type: "bool" },
+            { name: "nonce", type: "uint64" },
+          ],
+        },
+        primaryType: "HyperliquidTransaction:UsdClassTransfer",
+        message: {
+          hyperliquidChain: "Mainnet",
+          amount: floatToWire(amount),
+          toPerp,
+          nonce: BigInt(nonce),
+        },
+      });
+    } finally {
+      await restoreChain(walletClient, originalChainId);
+    }
 
     const r = signature.slice(0, 66);
     const s = `0x${signature.slice(66, 130)}`;
