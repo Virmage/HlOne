@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getUserPositions, type UserPosition, type UserAccount } from "@/lib/api";
+import { getUserPositions, getPortfolio, stopCopy, pauseCopy, type UserPosition, type UserAccount, type CopiedTrader } from "@/lib/api";
 import { useSafeAccount } from "@/hooks/use-safe-account";
+import { useSignMessage } from "wagmi";
 import { setAccountInfo } from "@/hooks/use-account-info";
 
 function friendlyError(msg: string | undefined): string {
@@ -19,7 +20,7 @@ interface PositionsPanelProps {
   onSelectToken?: (coin: string) => void;
 }
 
-type Tab = "positions" | "balances" | "orders" | "twap" | "tradeHistory" | "fundingHistory" | "orderHistory";
+type Tab = "positions" | "balances" | "orders" | "copies" | "twap" | "tradeHistory" | "fundingHistory" | "orderHistory";
 type TpSlMode = { coin: string; type: "tp" | "sl" } | null;
 
 interface OpenOrder {
@@ -52,12 +53,15 @@ interface FundingEntry {
 
 export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   const { address, isConnected } = useSafeAccount();
+  const { signMessageAsync } = useSignMessage();
   const [tab, setTab] = useState<Tab>("positions");
   const [positions, setPositions] = useState<UserPosition[]>([]);
   const [account, setAccount] = useState<UserAccount | null>(null);
   const [openOrders, setOpenOrders] = useState<OpenOrder[]>([]);
   const [fills, setFills] = useState<Fill[]>([]);
   const [funding, setFunding] = useState<FundingEntry[]>([]);
+  const [copiedTraders, setCopiedTraders] = useState<CopiedTrader[]>([]);
+  const [copyActionLoading, setCopyActionLoading] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState<string | null>(null);
@@ -180,11 +184,54 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
   // Fetch tab-specific data when tab changes
   const fillsFetched = useRef(false);
   const fundingFetched = useRef(false);
+
+  const fetchCopiedTraders = useCallback(async () => {
+    if (!address) return;
+    try {
+      const data = await getPortfolio(address);
+      setCopiedTraders(data.copiedTraders || []);
+    } catch (err) {
+      console.warn("[positions] fetch copies failed:", (err as Error).message);
+    }
+  }, [address]);
+
   useEffect(() => {
     if (!isConnected || !address) return;
     if (tab === "tradeHistory" && !fillsFetched.current) { fillsFetched.current = true; fetchFills(); }
     if (tab === "fundingHistory" && !fundingFetched.current) { fundingFetched.current = true; fetchFunding(); }
-  }, [tab, isConnected, address, fetchFills, fetchFunding]);
+    if (tab === "copies") fetchCopiedTraders();
+  }, [tab, isConnected, address, fetchFills, fetchFunding, fetchCopiedTraders]);
+
+  // Refetch copies on mount so tab count is accurate
+  useEffect(() => {
+    if (isConnected && address) fetchCopiedTraders();
+  }, [isConnected, address, fetchCopiedTraders]);
+
+  const handleStopCopy = useCallback(async (relationshipId: string, traderAddress: string | null) => {
+    if (!address || !traderAddress) return;
+    setCopyActionLoading(relationshipId);
+    try {
+      await stopCopy(address, traderAddress, signMessageAsync);
+      await fetchCopiedTraders();
+    } catch (err) {
+      setActionResult({ coin: "COPY", msg: `Stop failed: ${(err as Error).message}`, ok: false });
+    } finally {
+      setCopyActionLoading(null);
+    }
+  }, [address, signMessageAsync, fetchCopiedTraders]);
+
+  const handleTogglePauseCopy = useCallback(async (relationshipId: string, currentlyPaused: boolean) => {
+    if (!address) return;
+    setCopyActionLoading(relationshipId);
+    try {
+      await pauseCopy(address, relationshipId, !currentlyPaused, signMessageAsync);
+      await fetchCopiedTraders();
+    } catch (err) {
+      setActionResult({ coin: "COPY", msg: `Toggle failed: ${(err as Error).message}`, ok: false });
+    } finally {
+      setCopyActionLoading(null);
+    }
+  }, [address, signMessageAsync, fetchCopiedTraders]);
 
   useEffect(() => {
     if (!actionResult) return;
@@ -404,10 +451,12 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
 
   const totalPnl = positions.reduce((s, p) => s + p.unrealizedPnl, 0);
 
+  const activeCopies = copiedTraders.filter(t => t.isActive);
   const TABS: { key: Tab; label: string; shortLabel?: string; count?: number }[] = [
     { key: "positions", label: "Positions", shortLabel: "Pos", count: positions.length },
     { key: "balances", label: "Balances", shortLabel: "Bal" },
     { key: "orders", label: "Open Orders", shortLabel: "Orders", count: openOrders.length },
+    { key: "copies", label: "Copies", shortLabel: "Copy", count: activeCopies.length },
     { key: "twap", label: "TWAP" },
     { key: "tradeHistory", label: "Trade History", shortLabel: "Trades" },
     { key: "fundingHistory", label: "Funding History", shortLabel: "Funding" },
@@ -472,6 +521,7 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
         {tab === "positions" && <PositionsTab positions={positions} loading={loading} error={error} closing={closing} closingAll={closingAll} tpSlMode={tpSlMode} triggerPrice={triggerPrice} submitting={submitting} actionResult={actionResult} triggerOrders={triggerOrders} onSelectToken={onSelectToken} onClose={handleClose} onLimitClose={handleLimitClose} onReverse={handleReverse} onTpSlToggle={(coin, type) => { setTpSlMode(tpSlMode?.coin === coin && tpSlMode?.type === type ? null : { coin, type }); setTriggerPrice(""); }} onTriggerPriceChange={setTriggerPrice} onTpSlSubmit={handleTpSl} />}
         {tab === "balances" && <BalancesTab account={account} />}
         {tab === "orders" && <OpenOrdersTab orders={openOrders} onSelectToken={onSelectToken} />}
+        {tab === "copies" && <CopiesTab traders={copiedTraders} actionLoading={copyActionLoading} onStop={handleStopCopy} onTogglePause={handleTogglePauseCopy} />}
         {tab === "twap" && <EmptyTab label="No active TWAP orders" />}
         {tab === "tradeHistory" && <TradeHistoryTab fills={fills} onSelectToken={onSelectToken} />}
         {tab === "fundingHistory" && <FundingHistoryTab funding={funding} />}
@@ -951,4 +1001,72 @@ function FundingHistoryTab({ funding }: { funding: FundingEntry[] }) {
 
 function EmptyTab({ label }: { label: string }) {
   return <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">{label}</div>;
+}
+
+function CopiesTab({
+  traders,
+  actionLoading,
+  onStop,
+  onTogglePause,
+}: {
+  traders: CopiedTrader[];
+  actionLoading: string | null;
+  onStop: (relationshipId: string, traderAddress: string | null) => void;
+  onTogglePause: (relationshipId: string, currentlyPaused: boolean) => void;
+}) {
+  const active = traders.filter(t => t.isActive);
+  if (active.length === 0) {
+    return (
+      <div className="text-[11px] text-[var(--hl-muted)] text-center py-6">
+        Not copying any traders. Visit the Traders page to start copying.
+      </div>
+    );
+  }
+  return (
+    <div className="divide-y divide-[var(--hl-border)]">
+      {active.map(t => {
+        const short = t.traderAddress ? `${t.traderAddress.slice(0, 6)}...${t.traderAddress.slice(-4)}` : "—";
+        const loading = actionLoading === t.id;
+        const allocated = parseFloat(t.allocatedCapital ?? "0");
+        return (
+          <div key={t.id} className="flex items-center justify-between px-2 py-2 text-[11px] hover:bg-[var(--hl-surface-hover)]">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px] text-[var(--foreground)]">{short}</span>
+                {t.isPaused && (
+                  <span className="text-[8.5px] px-1 py-0.5 rounded bg-[#f5a524]/20 text-[#f5a524] font-medium">PAUSED</span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 text-[10px] text-[var(--hl-muted)] mt-0.5">
+                <span>Allocated: <span className="text-[var(--foreground)]">${allocated.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></span>
+                <span>Exposure: <span className="text-[var(--foreground)]">${t.currentExposure.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></span>
+                <span>Positions: <span className="text-[var(--foreground)]">{t.positionCount}</span></span>
+                <span>
+                  PnL: <span className={t.pnlContribution >= 0 ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}>
+                    {t.pnlContribution >= 0 ? "+" : ""}${t.pnlContribution.toFixed(2)}
+                  </span>
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => onTogglePause(t.id, t.isPaused)}
+                disabled={loading}
+                className="px-2 py-1 text-[9px] font-semibold rounded bg-[var(--hl-surface)] text-[var(--hl-muted)] hover:text-[var(--foreground)] border border-[var(--hl-border)] disabled:opacity-40 transition-colors"
+              >
+                {loading ? "..." : t.isPaused ? "Resume" : "Pause"}
+              </button>
+              <button
+                onClick={() => onStop(t.id, t.traderAddress)}
+                disabled={loading}
+                className="px-2 py-1 text-[9px] font-semibold rounded bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.3)] border border-[rgba(240,88,88,0.3)] disabled:opacity-40 transition-colors"
+              >
+                {loading ? "..." : "Stop"}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
