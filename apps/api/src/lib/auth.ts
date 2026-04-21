@@ -28,9 +28,15 @@
 import { verifyMessage } from "viem";
 import { createHash } from "crypto";
 
-const MAX_AGE_MS = 5 * 60 * 1000;      // 5 minutes old max
-const MAX_FUTURE_MS = 30 * 1000;       // 30s future skew allowed
-const NONCE_TTL_MS = 10 * 60 * 1000;   // 10 minutes
+const MAX_AGE_MS = 5 * 60 * 1000;          // 5 minutes — mutating actions (single-use)
+const MAX_AGE_READ_MS = 60 * 60 * 1000;    // 60 minutes — idempotent reads (reusable).
+                                           // Reads allowReuse=true and are identical to
+                                           // calling the HL API directly with the wallet's
+                                           // address, so a leaked read sig only exposes
+                                           // portfolio data the attacker could obtain
+                                           // anyway. Long window = no re-prompt pain.
+const MAX_FUTURE_MS = 30 * 1000;           // 30s future skew allowed
+const NONCE_TTL_MS = 10 * 60 * 1000;       // 10 minutes
 
 /**
  * In-memory nonce cache. Entries self-evict after NONCE_TTL_MS. Bounded at
@@ -148,13 +154,16 @@ export async function verifyWalletSignature(
     throw new Error("Invalid timestamp");
   }
 
-  // Timestamp window — reject future > 30s, reject past > 5min.
+  // Timestamp window — reject future > 30s. Past window depends on whether
+  // this is a reusable read signature (1 hour) or a single-use mutating one
+  // (5 minutes).
   const now = Date.now();
   if (timestamp > now + MAX_FUTURE_MS) {
     throw new Error("Signature timestamp is too far in the future. Check your clock.");
   }
-  if (now - timestamp > MAX_AGE_MS) {
-    throw new Error("Signature expired — must be within 5 minutes. Refresh and try again.");
+  const maxAge = opts.allowReuse ? MAX_AGE_READ_MS : MAX_AGE_MS;
+  if (now - timestamp > maxAge) {
+    throw new Error(`Signature expired — must be within ${Math.round(maxAge / 60_000)} minutes. Refresh and try again.`);
   }
 
   // Build the canonical message the client must have signed.

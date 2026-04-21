@@ -155,16 +155,19 @@ export interface PortfolioData {
 /** Build the `x-hlone-*` headers for a signed GET request. Used by portfolio
  * endpoints that expose wallet-scoped financial data.
  *
- * We cache the signed headers in LOCALstorage (per wallet+action) for
- * ~4.5 minutes — just under the server's 5-min validity window — so that
- * reloads and auto-refreshes reuse the same signature without prompting
- * the user. Signatures are per-wallet and the cache survives tab close.
+ * We cache the signed headers in localStorage (per wallet+action) for
+ * ~55 minutes — just under the server's 60-min read-signature window.
+ * Reads are idempotent and the server accepts signature reuse within this
+ * window, so reloading / switching tabs / coming back an hour later
+ * reuses the same signature without prompting the wallet.
  *
- * Server-side, read endpoints opt into signature reuse (`allowReuse: true`)
- * so the cached header passes verification on every request within the
- * window. Mutating endpoints still enforce one-shot replay protection.
+ * Security note: a leaked read signature can only fetch the same portfolio
+ * data already visible to anyone with the wallet address (via HL's own
+ * API), so the long reuse window has effectively zero blast radius.
+ * Mutating endpoints keep the strict 5-min one-shot window + per-body
+ * binding from auth.ts.
  */
-const SIG_CACHE_TTL_MS = 4 * 60 * 1000 + 30 * 1000; // 4m30s
+const SIG_CACHE_TTL_MS = 55 * 60 * 1000; // 55 minutes
 async function signReadHeaders(
   walletAddress: string,
   action: string,
