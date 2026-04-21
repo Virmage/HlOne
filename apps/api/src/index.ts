@@ -17,6 +17,7 @@ import { marketRoutes, setPrewarmPort } from "./routes/market.js";
 import { startBackgroundJobs } from "./services/background-jobs.js";
 import { initWhaleTrackerDb } from "./services/whale-tracker.js";
 import { initOITrackerDb } from "./services/oi-tracker.js";
+import { initSharpFlowTrackerDb } from "./services/smart-money.js";
 import { initTopTraderFillsDb, loadFillsFromDb } from "./services/top-trader-fills.js";
 import { initRedis } from "./services/cache.js";
 
@@ -85,6 +86,7 @@ async function main() {
   // Initialize DB-backed services
   initWhaleTrackerDb(db);
   initOITrackerDb(db);
+  initSharpFlowTrackerDb(db);
   initTopTraderFillsDb(db);
 
   // Register routes

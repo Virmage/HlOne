@@ -4,7 +4,7 @@
  */
 
 import { runWhaleCheck } from "./whale-tracker.js";
-import { getSmartMoneyData, loadSmartMoneyFromCache } from "./smart-money.js";
+import { getSmartMoneyData, loadSmartMoneyFromCache, cleanupOldSharpFlowSnapshots } from "./smart-money.js";
 import { getTokenScores } from "./scoring.js";
 import { getCachedMids, getCachedAssetCtxs } from "./market-data.js";
 import { getSignals } from "./signals.js";
@@ -142,6 +142,11 @@ export function startBackgroundJobs() {
     // Daily OI cleanup (remove snapshots older than 30 days)
     setInterval(async () => {
       try { await cleanupOldOISnapshots(); } catch {}
+    }, 24 * 60 * 60_000);
+
+    // Daily sharp-flow snapshot cleanup (remove snapshots older than 90 days)
+    setInterval(async () => {
+      try { await cleanupOldSharpFlowSnapshots(); } catch {}
     }, 24 * 60 * 60_000);
 
     // Refresh HIP-3 every 60s

@@ -6,6 +6,17 @@
 import { discoverActiveTraders, getClearinghouseState, type DiscoveredTrader, type HLPosition } from "./hyperliquid.js";
 import { getTraderDisplayName } from "./name-generator.js";
 import { cacheGet, cacheSet } from "./cache.js";
+import { getCachedMids, getCachedAssetCtxs } from "./market-data.js";
+import { sharpFlowSnapshots } from "@hl-copy/db";
+import { lte } from "drizzle-orm";
+
+// DB reference — set via initSharpFlowTrackerDb()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let db: any = null;
+
+export function initSharpFlowTrackerDb(dbInstance: unknown): void {
+  db = dbInstance;
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -562,7 +573,90 @@ async function doSmartMoneyRefresh(): Promise<SmartMoneyCache> {
   // Persist to Redis so next deploy has data immediately
   persistSmartMoney();
 
+  // Snapshot every coin's sharp-flow row to DB for backtesting. Fire-and-forget
+  // so a slow DB doesn't block the refresh cycle. Skipped entirely if DB isn't
+  // configured (local dev without DATABASE_URL).
+  persistSharpFlowSnapshots(flow).catch(err =>
+    console.error("[smart-money] snapshot persist failed:", (err as Error).message),
+  );
+
   return cache;
+}
+
+/**
+ * Write one row per coin to sharp_flow_snapshots. Called after each
+ * doSmartMoneyRefresh so we build a time-series we can later backtest.
+ * Price/change/volume/funding are pulled from the cached asset contexts.
+ */
+async function persistSharpFlowSnapshots(flow: SharpSquareFlow[]): Promise<void> {
+  if (!db || flow.length === 0) return;
+
+  // Look up price + change + volume + funding from cached asset ctxs. This
+  // is a shared cache refreshed on the ordinary mids/ctx cycle so it's cheap.
+  const [mids, ctxs] = await Promise.all([
+    getCachedMids().catch(() => ({}) as Record<string, number>),
+    getCachedAssetCtxs().catch(() => new Map()),
+  ]);
+
+  const now = new Date();
+  const rows = flow.map(f => {
+    const ctx = ctxs.get(f.coin);
+    const price = mids[f.coin] ?? (ctx ? parseFloat(ctx.midPx || "0") : 0);
+    const prevDay = ctx ? parseFloat(ctx.prevDayPx || "0") : 0;
+    const change24h = prevDay > 0 ? ((price - prevDay) / prevDay) * 100 : 0;
+
+    return {
+      coin: f.coin,
+      sharpLongCount: f.sharpLongCount,
+      sharpShortCount: f.sharpShortCount,
+      sharpNetSize: f.sharpNetSize.toFixed(2),
+      sharpDirection: f.sharpDirection,
+      sharpStrength: f.sharpStrength,
+      squareLongCount: f.squareLongCount,
+      squareShortCount: f.squareShortCount,
+      squareNetSize: f.squareNetSize.toFixed(2),
+      squareDirection: f.squareDirection,
+      squareStrength: f.squareStrength,
+      consensus: f.consensus,
+      divergence: f.divergence,
+      divergenceScore: f.divergenceScore,
+      hloneScore: null,   // scoring service is separate; left nullable
+      signal: null,
+      price: price.toFixed(8),
+      change24h,
+      volume24h: ctx ? (parseFloat(ctx.dayNtlVlm || "0")).toFixed(2) : "0",
+      fundingRate: ctx ? parseFloat(ctx.funding || "0") : 0,
+      snapshotAt: now,
+    };
+  });
+
+  // Only persist rows with real price data (dead tokens clutter the backtest).
+  const validRows = rows.filter(r => parseFloat(r.price) > 0);
+  if (validRows.length === 0) return;
+
+  // Chunk large inserts to stay under Postgres' 65535-parameter limit.
+  const CHUNK = 200;
+  for (let i = 0; i < validRows.length; i += CHUNK) {
+    const slice = validRows.slice(i, i + CHUNK);
+    await db.insert(sharpFlowSnapshots).values(slice).catch((err: Error) => {
+      console.error("[smart-money] snapshot chunk insert failed:", err.message);
+    });
+  }
+}
+
+/**
+ * Remove sharp-flow snapshots older than 90 days. Called daily from the
+ * background-jobs cleanup interval — keeps the table bounded.
+ */
+export async function cleanupOldSharpFlowSnapshots(): Promise<void> {
+  if (!db) return;
+  try {
+    const cutoff = new Date(Date.now() - 90 * 86400_000);
+    await db.delete(sharpFlowSnapshots).where(lte(sharpFlowSnapshots.snapshotAt, cutoff));
+    console.log("[smart-money] pruned sharp_flow_snapshots older than 90 days");
+  } catch (err) {
+    console.error("[smart-money] snapshot cleanup failed:", (err as Error).message);
+  }
 }
 
 /** Return cached data immediately, or null if not yet available. Never triggers a fetch. */

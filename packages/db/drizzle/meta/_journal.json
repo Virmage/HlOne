@@ -22,6 +22,13 @@
       "when": 1775721071984,
       "tag": "0002_regular_runaways",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776805345852,
+      "tag": "0003_blushing_leper_queen",
+      "breakpoints": true
     }
   ]
 }

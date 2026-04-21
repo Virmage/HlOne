@@ -23,7 +23,13 @@ export interface LargeTrade {
 
 // ─── Storage ────────────────────────────────────────────────────────────────
 
-const MAX_TRADES = 500;
+// Buffer sized for roughly a day of tape at typical market activity —
+// 500 was filling in ~6 minutes during active sessions, which meant the
+// panel scrolled out of usable history within a single trade setup.
+const MAX_TRADES = 5000;
+// Also prune anything older than 24h regardless of buffer size, so stale
+// fills from a quiet period don't stick around.
+const MAX_AGE_MS = 24 * 3600_000;
 const MIN_SIZE_MAJOR = 50_000;   // $50K+ for BTC, ETH, SOL
 const MIN_SIZE_ALT = 15_000;     // $15K+ for everything else
 const MAJOR_COINS = new Set(["BTC", "ETH", "SOL"]);
@@ -144,8 +150,10 @@ async function pollTrades(): Promise<void> {
       }
     }
 
-    // Sort by time descending and cap
+    // Sort by time descending, age-prune, then size-cap
     trades.sort((a, b) => b.time - a.time);
+    const cutoff = Date.now() - MAX_AGE_MS;
+    trades = trades.filter(t => t.time >= cutoff);
     if (trades.length > MAX_TRADES) {
       trades = trades.slice(0, MAX_TRADES);
     }

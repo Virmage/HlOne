@@ -316,6 +316,55 @@ export const oiSnapshots = pgTable(
   ]
 );
 
+// ─── Sharp Flow Snapshots (time-series for backtesting signal edge) ─────────
+// Every 5 minutes we snapshot the sharp/square conviction + divergence for
+// every coin in the smart-money flow. The backtest endpoint joins these
+// against future prices to compute "did sharps outperform squares over the
+// next 1h / 4h / 24h?". 90-day retention — older rows pruned by background job.
+
+export const sharpFlowSnapshots = pgTable(
+  "sharp_flow_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    coin: text("coin").notNull(),
+
+    // Sharps
+    sharpLongCount: integer("sharp_long_count").notNull().default(0),
+    sharpShortCount: integer("sharp_short_count").notNull().default(0),
+    sharpNetSize: numeric("sharp_net_size", { precision: 20, scale: 2 }),
+    sharpDirection: text("sharp_direction").notNull(),   // "long" | "short" | "neutral"
+    sharpStrength: integer("sharp_strength").notNull(),  // 0-100
+
+    // Squares
+    squareLongCount: integer("square_long_count").notNull().default(0),
+    squareShortCount: integer("square_short_count").notNull().default(0),
+    squareNetSize: numeric("square_net_size", { precision: 20, scale: 2 }),
+    squareDirection: text("square_direction").notNull(), // "long" | "short" | "neutral"
+    squareStrength: integer("square_strength").notNull(),// 0-100
+
+    // Derived
+    consensus: text("consensus").notNull(),              // "strong_long" | "long" | "neutral" | "short" | "strong_short"
+    divergence: boolean("divergence").notNull().default(false),
+    divergenceScore: integer("divergence_score").notNull().default(0),
+    hloneScore: integer("hlone_score"),                  // composite from scoring service (nullable)
+    signal: text("signal"),                              // "strong_buy" | "buy" | "neutral" | "sell" | "strong_sell"
+
+    // Price context — lets the backtest compute returns without joining another table
+    price: numeric("price", { precision: 20, scale: 8 }).notNull(),
+    change24h: real("change_24h"),
+    volume24h: numeric("volume_24h", { precision: 20, scale: 2 }),
+    fundingRate: real("funding_rate"),
+
+    snapshotAt: timestamp("snapshot_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_sharp_flow_snapshots_coin_time").on(table.coin, table.snapshotAt),
+    index("idx_sharp_flow_snapshots_time").on(table.snapshotAt),
+    // Speeds up `WHERE divergence = true` backtest queries
+    index("idx_sharp_flow_snapshots_divergence").on(table.divergence, table.snapshotAt),
+  ]
+);
+
 // ─── Top Trader Fills (persisted chart markers, survives server restarts) ───
 
 export const topTraderFills = pgTable(

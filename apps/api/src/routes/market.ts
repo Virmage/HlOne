@@ -29,6 +29,8 @@ import { getKoreanPremiumCached } from "../services/korean-premium.js";
 import { getEcosystemCached, fetchEcosystemData } from "../services/hyperliquid-ecosystem.js";
 import { logTrade, getTradeLog, getTradeStats } from "../services/trade-log.js";
 import { verifyReadSignature, verifyWalletSignature, hashRequestBody } from "../lib/auth.js";
+import { sharpFlowSnapshots } from "@hl-copy/db";
+import { and, gte, lte as le, eq as eqDrizzle } from "drizzle-orm";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { ethAddress, positiveNumber, nonNegativeNumber, coinName } from "../lib/validation.js";
@@ -339,7 +341,10 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // Large trades (cached, never blocks)
-    const largeTrades = getLargeTradesCached().slice(0, 10);
+    // 500 recent fills — previously sliced to 10, which meant the tape
+    // only ever showed ~6 minutes before scrolling off. 500 covers roughly
+    // a full session of activity without bloating the /terminal payload.
+    const largeTrades = getLargeTradesCached().slice(0, 500);
 
     // Macro data (cached, never blocks)
     const macro = getMacroDataCached();
@@ -751,7 +756,7 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: { limit?: string } }>(
     "/trades",
     async (req) => {
-      const limit = Math.min(Math.max(1, parseInt(req.query.limit || "50") || 50), 200);
+      const limit = Math.min(Math.max(1, parseInt(req.query.limit || "200") || 200), 2000);
       return {
         trades: getLargeTradesCached().slice(0, limit),
         timestamp: Date.now(),
@@ -815,6 +820,158 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       stats: getTradeStats(),
       recentTrades: getTradeLog(20),
       timestamp: Date.now(),
+    };
+  });
+
+  /**
+   * GET /api/market/sharp-flow/backtest
+   *
+   * Backtest the edge of sharp-flow signals. For every past snapshot where
+   * sharps were directionally confident (strength ≥ threshold), we look up
+   * the price N hours later (from a later snapshot of the same coin) and
+   * record whether the sharp direction was right.
+   *
+   * Query params:
+   *   horizon     - hours forward to measure return (default 24, options: 1, 4, 24, 72)
+   *   minStrength - minimum sharp strength to include (default 60)
+   *   divergenceOnly - if "1", only include rows where sharps disagreed with squares
+   *   since       - unix ms cutoff (default: oldest row)
+   *   coin        - optional filter to a single asset
+   *
+   * Returns:
+   *   { horizonHours, trades, wins, winRate, avgReturnPct, medianReturnPct,
+   *     perCoin: { [coin]: { trades, wins, winRate, avgReturn } } }
+   */
+  app.get<{
+    Querystring: { horizon?: string; minStrength?: string; divergenceOnly?: string; since?: string; coin?: string };
+  }>("/sharp-flow/backtest", async (req, reply) => {
+    const horizon = Math.max(1, Math.min(168, parseInt(req.query.horizon || "24", 10) || 24));
+    const minStrength = Math.max(0, Math.min(100, parseInt(req.query.minStrength || "60", 10) || 60));
+    const divergenceOnly = req.query.divergenceOnly === "1";
+    const coinFilter = req.query.coin;
+    const sinceMs = req.query.since ? parseInt(req.query.since, 10) : Date.now() - 90 * 86400_000;
+    const since = new Date(sinceMs);
+    // Don't include snapshots so recent we haven't yet had time to measure
+    // the horizon return.
+    const maxSnapshotAt = new Date(Date.now() - horizon * 3600_000);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = (app as any).db;
+    if (!db) {
+      reply.code(503);
+      return { error: "Backtest unavailable — DATABASE_URL not configured" };
+    }
+
+    const whereClauses = [
+      gte(sharpFlowSnapshots.snapshotAt, since),
+      le(sharpFlowSnapshots.snapshotAt, maxSnapshotAt),
+      gte(sharpFlowSnapshots.sharpStrength, minStrength),
+    ];
+    if (coinFilter) whereClauses.push(eqDrizzle(sharpFlowSnapshots.coin, coinFilter));
+    if (divergenceOnly) whereClauses.push(eqDrizzle(sharpFlowSnapshots.divergence, true));
+
+    const rows: Array<{
+      coin: string; sharpDirection: string; sharpStrength: number;
+      price: string; divergence: boolean; divergenceScore: number; snapshotAt: Date;
+    }> = await db.select({
+      coin: sharpFlowSnapshots.coin,
+      sharpDirection: sharpFlowSnapshots.sharpDirection,
+      sharpStrength: sharpFlowSnapshots.sharpStrength,
+      price: sharpFlowSnapshots.price,
+      divergence: sharpFlowSnapshots.divergence,
+      divergenceScore: sharpFlowSnapshots.divergenceScore,
+      snapshotAt: sharpFlowSnapshots.snapshotAt,
+    }).from(sharpFlowSnapshots).where(and(...whereClauses));
+
+    if (rows.length === 0) {
+      return {
+        horizonHours: horizon,
+        minStrength,
+        divergenceOnly,
+        trades: 0,
+        wins: 0,
+        winRate: null,
+        avgReturnPct: null,
+        medianReturnPct: null,
+        perCoin: {},
+        note: "No snapshots yet — signals start logging after the next 5-min smart-money refresh.",
+      };
+    }
+
+    // Index all rows by coin for fast horizon lookup.
+    const byCoin = new Map<string, typeof rows>();
+    for (const r of rows) {
+      const arr = byCoin.get(r.coin) || [];
+      arr.push(r);
+      byCoin.set(r.coin, arr);
+    }
+    for (const arr of byCoin.values()) arr.sort((a, b) => a.snapshotAt.getTime() - b.snapshotAt.getTime());
+
+    // Skip neutral signals (can't win or lose — direction is flat).
+    const directional = rows.filter(r => r.sharpDirection !== "neutral");
+    const trades: Array<{ coin: string; dir: string; returnPct: number; win: boolean }> = [];
+
+    for (const r of directional) {
+      const target = r.snapshotAt.getTime() + horizon * 3600_000;
+      const seriesForCoin = byCoin.get(r.coin) || [];
+      // Find the first snapshot at-or-after target (binary search would be
+      // nicer; linear is fine for the scale we deal with).
+      const future = seriesForCoin.find(s => s.snapshotAt.getTime() >= target);
+      if (!future) continue;
+      const entry = parseFloat(r.price);
+      const exit = parseFloat(future.price);
+      if (!(entry > 0) || !(exit > 0)) continue;
+
+      // If sharps were long, positive price move = win. If short, negative = win.
+      const rawReturn = (exit - entry) / entry;
+      const dirMult = r.sharpDirection === "long" ? 1 : -1;
+      const returnPct = rawReturn * dirMult * 100;
+      trades.push({ coin: r.coin, dir: r.sharpDirection, returnPct, win: returnPct > 0 });
+    }
+
+    if (trades.length === 0) {
+      return {
+        horizonHours: horizon,
+        minStrength,
+        divergenceOnly,
+        trades: 0,
+        wins: 0,
+        winRate: null,
+        avgReturnPct: null,
+        medianReturnPct: null,
+        perCoin: {},
+        note: "Snapshots exist but none have enough future data to measure return yet.",
+      };
+    }
+
+    const wins = trades.filter(t => t.win).length;
+    const avg = trades.reduce((s, t) => s + t.returnPct, 0) / trades.length;
+    const sortedReturns = [...trades].map(t => t.returnPct).sort((a, b) => a - b);
+    const median = sortedReturns[Math.floor(sortedReturns.length / 2)];
+
+    const perCoin: Record<string, { trades: number; wins: number; winRate: number; avgReturn: number }> = {};
+    for (const t of trades) {
+      if (!perCoin[t.coin]) perCoin[t.coin] = { trades: 0, wins: 0, winRate: 0, avgReturn: 0 };
+      perCoin[t.coin].trades++;
+      if (t.win) perCoin[t.coin].wins++;
+      perCoin[t.coin].avgReturn += t.returnPct;
+    }
+    for (const c of Object.keys(perCoin)) {
+      perCoin[c].avgReturn = perCoin[c].avgReturn / perCoin[c].trades;
+      perCoin[c].winRate = perCoin[c].wins / perCoin[c].trades;
+    }
+
+    return {
+      horizonHours: horizon,
+      minStrength,
+      divergenceOnly,
+      coinFilter: coinFilter ?? null,
+      trades: trades.length,
+      wins,
+      winRate: wins / trades.length,
+      avgReturnPct: avg,
+      medianReturnPct: median,
+      perCoin,
     };
   });
 
