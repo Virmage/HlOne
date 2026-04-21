@@ -358,6 +358,10 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
     setDrawings(prev => prev.filter(d => d.id !== id));
   }, []);
 
+  const updateDrawing = useCallback((id: string, changes: Partial<DrawingLine>) => {
+    setDrawings(prev => prev.map(d => (d.id === id ? { ...d, ...changes } : d)));
+  }, []);
+
   const clearDrawings = useCallback(() => {
     setDrawings([]);
     setPendingDrawing(null);
@@ -871,6 +875,7 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
               }
             }}
             onRemoveDrawing={removeDrawing}
+            onUpdateDrawing={updateDrawing}
           />
         )}
         </div>
@@ -895,7 +900,7 @@ interface TopTraderFillData {
   accountValue?: number;
 }
 
-function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], userFills = [], userPosition = null, liquidationBands, drawings = [], pendingDrawing, drawingTool = "none", magnetMode = false, enabledSMAs = new Set(), smaColors = {}, onDrawingClick, onDrawingHover, onRemoveDrawing }: {
+function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, currentPrice, whaleAlerts = [], topTraderFills = [], userFills = [], userPosition = null, liquidationBands, drawings = [], pendingDrawing, drawingTool = "none", magnetMode = false, enabledSMAs = new Set(), smaColors = {}, onDrawingClick, onDrawingHover, onRemoveDrawing, onUpdateDrawing }: {
   candles: CandleData[];
   oiCandles: { time: number; open: number; high: number; low: number; close: number; bullish: boolean }[];
   formatTime: (t: number) => string;
@@ -916,6 +921,7 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   onDrawingClick?: (time: number, price: number) => void;
   onDrawingHover?: (time: number, price: number) => void;
   onRemoveDrawing?: (id: string) => void;
+  onUpdateDrawing?: (id: string, changes: Partial<DrawingLine>) => void;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [mouseY, setMouseY] = useState<number | null>(null); // raw SVG Y for free crosshair
@@ -929,6 +935,15 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startY: number; startOffset: number; startPricePan: number } | null>(null);
   const yDragRef = useRef<{ startY: number; startZoom: number } | null>(null);
+  // Active drawing-handle drag: which point (p1 or p2, or hline's p1 mid).
+  // `override` holds the live position during the drag — committed to the
+  // parent on mouseup, so the line visibly follows the cursor in real time.
+  const [handleDrag, setHandleDrag] = useState<{
+    id: string;
+    which: "p1" | "p2";
+    mode: "point" | "hline";         // hline = drag updates price only
+    override: { time: number; price: number };
+  } | null>(null);
   const prevDomainRef = useRef({ min: 0, max: 0, dataLen: 0 });
   const [containerSize, setContainerSize] = useState({ w: 900, h: 400 });
 
@@ -1302,6 +1317,9 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
 
   // Handle drawing click on SVG
   const handleDrawingClick = useCallback((e: React.MouseEvent) => {
+    // If a handle drag just finished, the mouseup will bubble a click —
+    // swallow it so we don't also start a new drawing or delete something.
+    if (handleDrag) return;
     if (drawingTool === "none" || !onDrawingClick || !svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const svgX = ((e.clientX - rect.left) / rect.width) * W;
@@ -1310,7 +1328,83 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
     const price = yToPrice(svgY);
     const time = xToTime(svgX);
     onDrawingClick(time, price);
-  }, [drawingTool, onDrawingClick, W, H, MR, MT, priceH, yToPrice, xToTime]);
+  }, [drawingTool, onDrawingClick, W, H, MR, MT, priceH, yToPrice, xToTime, handleDrag]);
+
+  // Drag-to-reshape: while a handle is being dragged, track the mouse at the
+  // window level so the line keeps following the cursor even when the pointer
+  // leaves the SVG. On mouseup, commit the final position to the parent.
+  useEffect(() => {
+    if (!handleDrag || !svgRef.current) return;
+    const svgEl = svgRef.current;
+
+    const toDrawingCoords = (clientX: number, clientY: number) => {
+      const rect = svgEl.getBoundingClientRect();
+      const svgX = ((clientX - rect.left) / rect.width) * W;
+      const svgY = ((clientY - rect.top) / rect.height) * H;
+      // Clamp to the price area so handles don't fly into the volume pane.
+      const clampedY = Math.max(MT + 2, Math.min(MT + priceH - 2, svgY));
+      const clampedX = Math.max(ML + 2, Math.min(W - MR - 2, svgX));
+      let price = yToPrice(clampedY);
+      let time = xToTime(clampedX);
+      // Magnet snap: if enabled, snap price to nearest OHLC on the candle
+      // under the cursor (matches the behaviour of new-drawing magnet).
+      if (magnetMode && data.length > 0) {
+        let best = Infinity;
+        for (const c of data) {
+          for (const p of [c.open, c.high, c.low, c.close]) {
+            const d = Math.abs(p - price);
+            if (d < best) { best = d; price = p; }
+          }
+        }
+      }
+      return { time, price };
+    };
+
+    const onMove = (e: MouseEvent) => {
+      const { time, price } = toDrawingCoords(e.clientX, e.clientY);
+      setHandleDrag(prev => prev ? { ...prev, override: { time, price } } : prev);
+    };
+    const onUp = () => {
+      setHandleDrag(current => {
+        if (!current || !onUpdateDrawing) return null;
+        if (current.mode === "hline") {
+          // hline: keep time, only change price
+          onUpdateDrawing(current.id, { p1: { time: current.override.time, price: current.override.price } });
+        } else if (current.which === "p1") {
+          onUpdateDrawing(current.id, { p1: current.override });
+        } else {
+          onUpdateDrawing(current.id, { p2: current.override });
+        }
+        return null;
+      });
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [handleDrag, onUpdateDrawing, W, H, ML, MR, MT, priceH, yToPrice, xToTime, magnetMode, data]);
+
+  /**
+   * Mousedown on an endpoint handle — begin a drag. We prevent event
+   * bubbling so the chart doesn't also start a pan, and we set a sentinel
+   * in handleDrag that the window-level listeners above watch for.
+   */
+  const beginHandleDrag = useCallback((
+    e: React.MouseEvent,
+    drawing: DrawingLine,
+    which: "p1" | "p2",
+  ) => {
+    if (drawingTool !== "none") return; // creating a new drawing — don't hijack
+    if (!onUpdateDrawing) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const mode: "point" | "hline" = drawing.type === "hline" ? "hline" : "point";
+    const origin = which === "p1" ? drawing.p1 : (drawing.p2 || drawing.p1);
+    setHandleDrag({ id: drawing.id, which, mode, override: origin });
+  }, [drawingTool, onUpdateDrawing]);
 
   const volY = (v: number) => MT + priceH + volH - (maxVol > 0 ? (v / maxVol) * (volH - 4) : 0);
   const oiY = (val: number) => {
@@ -1630,32 +1724,45 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
             });
           })()}
 
-          {/* User drawings */}
+          {/* User drawings — endpoint circles are drag handles (grab-and-drop
+              to reshape). Midpoint × remains the delete button. */}
           {drawings.map(d => {
+            // Live drag override: swap in the cursor-following point so the
+            // line visibly follows while mouse is held down.
+            const dragging = handleDrag && handleDrag.id === d.id ? handleDrag : null;
+            const p1 = dragging && (dragging.which === "p1" || dragging.mode === "hline") ? dragging.override : d.p1;
+            const p2 = dragging && dragging.which === "p2" ? dragging.override : d.p2;
+
             if (d.type === "hline" || d.type === "hray") {
-              const y = priceY(d.p1.price);
+              const y = priceY(p1.price);
               if (y < MT || y > MT + priceH) return null;
-              const startX = d.type === "hray" ? timeToX(d.p1.time) : ML;
+              const startX = d.type === "hray" ? timeToX(p1.time) : ML;
+              const handleX = d.type === "hray" ? startX : ML + 20; // grab-handle spot for hline
               return (
                 <g key={d.id}>
                   <line x1={startX} y1={y} x2={W - MR} y2={y}
                     stroke={d.color} strokeWidth={1} strokeDasharray={d.type === "hline" ? "6 3" : "none"} />
                   <text x={W - MR + 4} y={y + 3} fill={d.color} fontSize={9} fontFamily="monospace">
-                    {formatPrice(d.p1.price)}
+                    {formatPrice(p1.price)}
                   </text>
-                  {d.type === "hray" && <circle cx={startX} cy={y} r={3} fill={d.color} opacity={0.7} />}
-                  {/* Delete button */}
-                  <circle cx={startX + 8} cy={y} r={5} fill="var(--hl-surface)" stroke={d.color} strokeWidth={0.8}
+                  {/* Visible endpoint + larger invisible hit zone for easy grab */}
+                  <circle cx={handleX} cy={y} r={3.5} fill={d.color} opacity={0.85} stroke="var(--background)" strokeWidth={1} />
+                  <circle cx={handleX} cy={y} r={9} fill="transparent"
+                    style={{ cursor: drawingTool === "none" ? "grab" : "default" }}
+                    onMouseDown={(e) => beginHandleDrag(e, d, "p1")}
+                  />
+                  {/* Delete button — offset from the grab handle */}
+                  <circle cx={handleX + 14} cy={y} r={5} fill="var(--hl-surface)" stroke={d.color} strokeWidth={0.8}
                     style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onRemoveDrawing?.(d.id); }} />
-                  <text x={startX + 5} y={y + 3} fill={d.color} fontSize={8} style={{ cursor: "pointer", pointerEvents: "none" }}>×</text>
+                  <text x={handleX + 11} y={y + 3} fill={d.color} fontSize={8} style={{ cursor: "pointer", pointerEvents: "none" }}>×</text>
                 </g>
               );
             }
-            if ((d.type === "trendline" || d.type === "ray") && d.p2) {
-              const x1 = timeToX(d.p1.time);
-              const y1 = priceY(d.p1.price);
-              const x2 = timeToX(d.p2.time);
-              const y2 = priceY(d.p2.price);
+            if ((d.type === "trendline" || d.type === "ray") && p2) {
+              const x1 = timeToX(p1.time);
+              const y1 = priceY(p1.price);
+              const x2 = timeToX(p2.time);
+              const y2 = priceY(p2.price);
               // For ray, extend to chart edge
               let ex2 = x2, ey2 = y2;
               if (d.type === "ray" && x2 !== x1) {
@@ -1667,9 +1774,19 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
                 <g key={d.id}>
                   <line x1={x1} y1={y1} x2={ex2} y2={ey2}
                     stroke={d.color} strokeWidth={1.2} />
-                  <circle cx={x1} cy={y1} r={3} fill={d.color} opacity={0.7} />
-                  <circle cx={x2} cy={y2} r={3} fill={d.color} opacity={0.7} />
-                  {/* Delete button at midpoint */}
+                  {/* Endpoint 1 — visible + larger hit zone */}
+                  <circle cx={x1} cy={y1} r={3.5} fill={d.color} opacity={0.85} stroke="var(--background)" strokeWidth={1} />
+                  <circle cx={x1} cy={y1} r={9} fill="transparent"
+                    style={{ cursor: drawingTool === "none" ? "grab" : "default" }}
+                    onMouseDown={(e) => beginHandleDrag(e, d, "p1")}
+                  />
+                  {/* Endpoint 2 — visible + larger hit zone */}
+                  <circle cx={x2} cy={y2} r={3.5} fill={d.color} opacity={0.85} stroke="var(--background)" strokeWidth={1} />
+                  <circle cx={x2} cy={y2} r={9} fill="transparent"
+                    style={{ cursor: drawingTool === "none" ? "grab" : "default" }}
+                    onMouseDown={(e) => beginHandleDrag(e, d, "p2")}
+                  />
+                  {/* Delete button at midpoint (between the user's two points, not the extended ray end) */}
                   <circle cx={(x1+x2)/2} cy={(y1+y2)/2} r={5} fill="var(--hl-surface)" stroke={d.color} strokeWidth={0.8}
                     style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onRemoveDrawing?.(d.id); }} />
                   <text x={(x1+x2)/2 - 3} y={(y1+y2)/2 + 3} fill={d.color} fontSize={8} style={{ cursor: "pointer", pointerEvents: "none" }}>×</text>
