@@ -411,6 +411,23 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
       list = list.filter(t => !t.isSpot && !t.dex);
     } else if (filter === "Spot") {
       list = list.filter(t => t.isSpot);
+      // When the user hasn't changed sorting (default: volume desc), pin
+      // canonical HL spot pairs to the top. HL's spot ctx API reports $0
+      // volume for them even when their L2 books are active, so a plain
+      // volume sort would bury HYPE/UBTC/UETH behind memecoins.
+      if (sortCol === "volume" && sortDir === "desc") {
+        const CANONICAL_SPOT_ORDER: Record<string, number> = {
+          "@107": 1, "@142": 2, "@151": 3, "@232": 4, "@234": 5, "@235": 6,
+          "@230": 7, "PURR/USDC": 8,
+        };
+        list.sort((a, b) => {
+          const ar = CANONICAL_SPOT_ORDER[a.coin] ?? Infinity;
+          const br = CANONICAL_SPOT_ORDER[b.coin] ?? Infinity;
+          if (ar !== Infinity || br !== Infinity) return ar - br;
+          return b.volume24h - a.volume24h;
+        });
+        return list;
+      }
     } else if (filter === "Tradfi") {
       list = list.filter(t => !!t.dex && t.category !== "crypto");
     } else if (filter === "Stocks") {

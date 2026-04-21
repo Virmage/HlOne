@@ -114,10 +114,16 @@ export async function getSpotMeta(): Promise<{
   return infoRequest({ type: "spotMeta" });
 }
 
-/** Get spot metadata + live asset contexts */
+/** Get spot metadata + live asset contexts.
+ *
+ * WARNING: the `ctxs` array is NOT index-aligned with `meta.universe`. HL
+ * returns ctxs in a different order (and at slightly different length) than
+ * the universe array. Each ctx carries a `coin` field (e.g. "@107" or
+ * "PURR/USDC") — ALWAYS match by that field, never by array position.
+ */
 export async function getSpotMetaAndAssetCtxs(): Promise<[
   { tokens: { index: number; name: string }[]; universe: { name: string; tokens: [number, number] }[] },
-  { dayNtlVlm: string; markPx: string; midPx: string; prevDayPx: string }[]
+  { coin: string; dayNtlVlm: string; markPx: string; midPx: string; prevDayPx: string }[]
 ]> {
   return infoRequest({ type: "spotMetaAndAssetCtxs" });
 }

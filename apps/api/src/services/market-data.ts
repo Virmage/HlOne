@@ -112,46 +112,87 @@ export async function getCachedAssetCtxs(): Promise<Map<string, AssetCtx & { coi
 
 // ─── Spot data ──────────────────────────────────────────────────────────────
 
+// Canonical HL spot pairs that should ALWAYS appear regardless of the
+// dayNtlVlm field (HL's spot ctx endpoint frequently reports $0 volume for
+// the major pairs even when L2 order books show real liquidity).
+const CANONICAL_SPOT_PAIRS = new Set([
+  "PURR/USDC",
+  "@107", // HYPE/USDC
+  "@142", // UBTC/USDC
+  "@151", // UETH/USDC
+  "@230", // USDH/USDC
+  "@232", // HYPE/USDH
+  "@234", // UBTC/USDH
+  "@235", // UETH/USDH
+]);
+
 export async function getCachedSpotTokens() {
   if (spotCache && Date.now() - spotCache.fetchedAt < SPOT_TTL) {
     return spotCache.data;
   }
   return dedupe("spot", async () => {
   try {
-    const [meta, ctxs] = await getSpotMetaAndAssetCtxs();
+    const [[meta, ctxs], mids] = await Promise.all([
+      getSpotMetaAndAssetCtxs(),
+      getCachedMids().catch(() => ({}) as Record<string, number>),
+    ]);
     const idxToName: Record<number, string> = {};
     for (const t of meta.tokens) {
       idxToName[t.index] = t.name;
     }
 
+    // CRITICAL: ctxs is NOT index-aligned with meta.universe (HL returns them
+    // in a different order, and ctxs often has MORE entries than universe).
+    // Each ctx has a `coin` field ("@107", "PURR/USDC") — match by that.
+    // Previously we used ctxs[i] which pulled the WRONG pair's price for
+    // every @N — e.g. @109 (WOW) got shown with @107 (HYPE)'s volume/price.
+    const ctxByCoin = new Map<string, typeof ctxs[0]>();
+    for (const c of ctxs) {
+      if (c && c.coin) ctxByCoin.set(c.coin, c);
+    }
+
     const results: { name: string; pair: string; price: number; prevDayPx: number; volume24h: number }[] = [];
-    for (let i = 0; i < meta.universe.length && i < ctxs.length; i++) {
-      const u = meta.universe[i];
-      const ctx = ctxs[i];
+    for (const u of meta.universe) {
       const pairName = u.name; // e.g. "PURR/USDC" or "@88"
+      const ctx = ctxByCoin.get(pairName);
       let displayName: string;
       if (pairName.startsWith("@")) {
-        // BUGFIX: @N refers to the UNIVERSE index (array position), not a token
+        // @N refers to the UNIVERSE index (array position), not a token
         // index. The base token's name lives at u.tokens[0] → idxToName[...].
-        // Previously we were parsing N from the name and looking it up as a
-        // token index, which only worked by coincidence when the two indexes
-        // matched. For pairs like @109 (WOW/USDC), token 109 happened to be
-        // "H" — so HLOne displayed "H" with WOW's price. Fixed to use the
-        // base token's actual index.
         const baseTokenIdx = u.tokens?.[0];
         displayName = (baseTokenIdx !== undefined && idxToName[baseTokenIdx]) || pairName;
       } else {
         displayName = pairName.split("/")[0];
       }
-      const price = parseFloat(ctx.midPx || "0");
-      const prevDayPx = parseFloat(ctx.prevDayPx || "0");
-      const volume = parseFloat(ctx.dayNtlVlm || "0");
-      // Min $1K daily volume to filter out dead/junk spot tokens
-      if (price > 0 && volume >= 1000) {
-        results.push({ name: displayName, pair: pairName, price, prevDayPx, volume24h: volume });
-      }
+
+      // Prefer allMids price (always fresh) over ctx.midPx (sometimes stale
+      // or broken for major pairs). Fall back to ctx.midPx if allMids is
+      // missing.
+      const midsPrice = mids[pairName];
+      const price = (midsPrice && midsPrice > 0) ? midsPrice : parseFloat(ctx?.midPx || "0");
+      const prevDayPx = parseFloat(ctx?.prevDayPx || "0");
+      const volume = parseFloat(ctx?.dayNtlVlm || "0");
+
+      if (price <= 0) continue;
+
+      // Always include canonical pairs (HYPE/USDC etc). Otherwise require
+      // >= $1K volume to filter out dead/junk spot tokens.
+      const isCanonical = CANONICAL_SPOT_PAIRS.has(pairName);
+      if (!isCanonical && volume < 1000) continue;
+
+      results.push({ name: displayName, pair: pairName, price, prevDayPx, volume24h: volume });
     }
-    results.sort((a, b) => b.volume24h - a.volume24h);
+
+    // Sort: canonical pairs first (in the order declared), then by volume desc.
+    const canonicalOrder = Array.from(CANONICAL_SPOT_PAIRS);
+    results.sort((a, b) => {
+      const aRank = canonicalOrder.indexOf(a.pair);
+      const bRank = canonicalOrder.indexOf(b.pair);
+      if (aRank !== -1 && bRank !== -1) return aRank - bRank;
+      if (aRank !== -1) return -1;
+      if (bRank !== -1) return 1;
+      return b.volume24h - a.volume24h;
+    });
     spotCache = { data: results, fetchedAt: Date.now() };
     return results;
   } catch {
@@ -357,10 +398,12 @@ export async function getTokenOverviews(): Promise<TokenOverview[]> {
     });
   }
 
-  // Spot — add top spot tokens (by volume, skip duplicates with perps)
-  const perpCoins = new Set(results.map(r => r.coin));
-  for (const st of spotTokens.slice(0, 50)) {
-    if (perpCoins.has(st.name)) continue; // skip if perp already exists
+  // Spot — add top spot tokens. We do NOT skip when a perp with the same
+  // display name exists: the spot pair has a distinct `coin` (@107 etc.) so
+  // it doesn't collide, and users want both "HYPE perp" and "HYPE spot"
+  // visible in the Spot filter. Previously we were dropping every canonical
+  // spot (HYPE, BTC, ETH, ...) because their display names matched perps.
+  for (const st of spotTokens.slice(0, 60)) {
     const change24h = st.prevDayPx > 0 ? ((st.price - st.prevDayPx) / st.prevDayPx) * 100 : 0;
     results.push({
       coin: st.pair, // use pair name (@88, PURR/USDC) for API calls
