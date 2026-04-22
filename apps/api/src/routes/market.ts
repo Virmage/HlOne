@@ -842,6 +842,54 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
    *   { horizonHours, trades, wins, winRate, avgReturnPct, medianReturnPct,
    *     perCoin: { [coin]: { trades, wins, winRate, avgReturn } } }
    */
+  /**
+   * GET /api/market/sharp-flow/status
+   * Quick diagnostic — confirms snapshot logging is actually running.
+   * Returns total snapshot count, first/last snapshot timestamps, and a
+   * per-coin count for the last 24h. Public because it's aggregate-only.
+   */
+  app.get("/sharp-flow/status", async (_req, reply) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = (app as any).db;
+    if (!db) {
+      reply.code(503);
+      return { error: "DATABASE_URL not configured" };
+    }
+    try {
+      const all = await db.select({
+        snapshotAt: sharpFlowSnapshots.snapshotAt,
+        coin: sharpFlowSnapshots.coin,
+      }).from(sharpFlowSnapshots);
+      if (all.length === 0) {
+        return {
+          total: 0,
+          note: "Table exists but is empty — next 5-min smart-money refresh will write the first rows.",
+        };
+      }
+      const times = (all as { snapshotAt: Date }[]).map(r => r.snapshotAt.getTime());
+      const first = new Date(Math.min(...times));
+      const last = new Date(Math.max(...times));
+      const hoursCovered = (Math.max(...times) - Math.min(...times)) / 3600_000;
+      const perCoin: Record<string, number> = {};
+      const oneDayAgo = Date.now() - 86400_000;
+      for (const r of all as { coin: string; snapshotAt: Date }[]) {
+        if (r.snapshotAt.getTime() < oneDayAgo) continue;
+        perCoin[r.coin] = (perCoin[r.coin] || 0) + 1;
+      }
+      return {
+        total: all.length,
+        firstSnapshot: first.toISOString(),
+        lastSnapshot: last.toISOString(),
+        hoursCovered: +hoursCovered.toFixed(2),
+        coinsSeenLast24h: Object.keys(perCoin).length,
+        topCoinsLast24h: Object.entries(perCoin).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      };
+    } catch (err) {
+      reply.code(500);
+      return { error: "status query failed", detail: (err as Error).message };
+    }
+  });
+
   app.get<{
     Querystring: { horizon?: string; minStrength?: string; divergenceOnly?: string; since?: string; coin?: string };
   }>("/sharp-flow/backtest", async (req, reply) => {
@@ -862,26 +910,27 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       return { error: "Backtest unavailable — DATABASE_URL not configured" };
     }
 
-    const whereClauses = [
-      gte(sharpFlowSnapshots.snapshotAt, since),
-      le(sharpFlowSnapshots.snapshotAt, maxSnapshotAt),
-      gte(sharpFlowSnapshots.sharpStrength, minStrength),
-    ];
-    if (coinFilter) whereClauses.push(eqDrizzle(sharpFlowSnapshots.coin, coinFilter));
-    if (divergenceOnly) whereClauses.push(eqDrizzle(sharpFlowSnapshots.divergence, true));
+    try {
+      const whereClauses = [
+        gte(sharpFlowSnapshots.snapshotAt, since),
+        le(sharpFlowSnapshots.snapshotAt, maxSnapshotAt),
+        gte(sharpFlowSnapshots.sharpStrength, minStrength),
+      ];
+      if (coinFilter) whereClauses.push(eqDrizzle(sharpFlowSnapshots.coin, coinFilter));
+      if (divergenceOnly) whereClauses.push(eqDrizzle(sharpFlowSnapshots.divergence, true));
 
-    const rows: Array<{
-      coin: string; sharpDirection: string; sharpStrength: number;
-      price: string; divergence: boolean; divergenceScore: number; snapshotAt: Date;
-    }> = await db.select({
-      coin: sharpFlowSnapshots.coin,
-      sharpDirection: sharpFlowSnapshots.sharpDirection,
-      sharpStrength: sharpFlowSnapshots.sharpStrength,
-      price: sharpFlowSnapshots.price,
-      divergence: sharpFlowSnapshots.divergence,
-      divergenceScore: sharpFlowSnapshots.divergenceScore,
-      snapshotAt: sharpFlowSnapshots.snapshotAt,
-    }).from(sharpFlowSnapshots).where(and(...whereClauses));
+      const rows: Array<{
+        coin: string; sharpDirection: string; sharpStrength: number;
+        price: string; divergence: boolean; divergenceScore: number; snapshotAt: Date;
+      }> = await db.select({
+        coin: sharpFlowSnapshots.coin,
+        sharpDirection: sharpFlowSnapshots.sharpDirection,
+        sharpStrength: sharpFlowSnapshots.sharpStrength,
+        price: sharpFlowSnapshots.price,
+        divergence: sharpFlowSnapshots.divergence,
+        divergenceScore: sharpFlowSnapshots.divergenceScore,
+        snapshotAt: sharpFlowSnapshots.snapshotAt,
+      }).from(sharpFlowSnapshots).where(and(...whereClauses));
 
     if (rows.length === 0) {
       return {
@@ -961,18 +1010,23 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       perCoin[c].winRate = perCoin[c].wins / perCoin[c].trades;
     }
 
-    return {
-      horizonHours: horizon,
-      minStrength,
-      divergenceOnly,
-      coinFilter: coinFilter ?? null,
-      trades: trades.length,
-      wins,
-      winRate: wins / trades.length,
-      avgReturnPct: avg,
-      medianReturnPct: median,
-      perCoin,
-    };
+      return {
+        horizonHours: horizon,
+        minStrength,
+        divergenceOnly,
+        coinFilter: coinFilter ?? null,
+        trades: trades.length,
+        wins,
+        winRate: wins / trades.length,
+        avgReturnPct: avg,
+        medianReturnPct: median,
+        perCoin,
+      };
+    } catch (err) {
+      console.error("[sharp-flow/backtest] query failed:", err);
+      reply.code(500);
+      return { error: "backtest query failed", detail: (err as Error).message };
+    }
   });
 
   /**
