@@ -4,8 +4,21 @@ const API_URL = typeof window !== "undefined" && process.env.NODE_ENV === "produ
   ? ""  // Relative — proxied via next.config rewrites
   : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001");
 
+/**
+ * Fetch wrapper with carefully scoped retries.
+ *
+ * Retry rules:
+ *   - GET / HEAD: retry on network errors AND 5xx responses (idempotent)
+ *   - POST / PUT / PATCH / DELETE: retry ONLY on network errors (where the
+ *     request clearly never reached the server). Never retry on 4xx/5xx
+ *     HTTP responses — the server may have processed the request successfully
+ *     and the response was just lost. Retrying would burn single-use
+ *     signatures ("Signature already used"), double-spend, or duplicate state.
+ */
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const maxRetries = 2;
+  const method = (options?.method || "GET").toUpperCase();
+  const isIdempotent = method === "GET" || method === "HEAD";
+  const maxRetries = isIdempotent ? 2 : 0;
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -21,11 +34,23 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         const msg = body?.error || res.statusText;
-        throw new Error(msg);
+        const err = new Error(msg) as Error & { status?: number; httpError?: boolean };
+        err.status = res.status;
+        err.httpError = true;
+        throw err;
       }
       return await res.json();
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      const httpError = (lastError as Error & { httpError?: boolean }).httpError === true;
+      const status = (lastError as Error & { status?: number }).status;
+      // For non-idempotent methods, only retry on TRUE network errors
+      // (no response / fetch threw). Never retry an HTTP response — the
+      // server may have processed the request and the response was lost.
+      if (!isIdempotent && httpError) break;
+      // For idempotent methods, don't retry on 4xx (client error, not
+      // going to succeed on retry). Do retry on 5xx and network errors.
+      if (isIdempotent && httpError && status && status >= 400 && status < 500) break;
       if (attempt < maxRetries) continue;
     }
   }
