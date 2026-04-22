@@ -152,162 +152,48 @@ export interface PortfolioData {
   suggestions: string[];
 }
 
-/** Build the `x-hlone-*` headers for a signed GET request. Used by portfolio
- * endpoints that expose wallet-scoped financial data.
- *
- * We cache the signed headers in localStorage (per wallet+action) for
- * ~55 minutes — just under the server's 60-min read-signature window.
- * Reads are idempotent and the server accepts signature reuse within this
- * window, so reloading / switching tabs / coming back an hour later
- * reuses the same signature without prompting the wallet.
- *
- * Security note: a leaked read signature can only fetch the same portfolio
- * data already visible to anyone with the wallet address (via HL's own
- * API), so the long reuse window has effectively zero blast radius.
- * Mutating endpoints keep the strict 5-min one-shot window + per-body
- * binding from auth.ts.
- */
-const SIG_CACHE_TTL_MS = 55 * 60 * 1000; // 55 minutes
-
-/** Module-level memory cache — belt-and-braces when localStorage is blocked
- * (incognito mode) or replaced by the in-memory polyfill in layout.tsx.
- * Survives for the lifetime of the page session. */
-const memSigCache = new Map<string, { signature: string; timestamp: number }>();
-
-/** Dedup in-flight sign requests. If usePortfolio and positions-panel both
- * mount and both call getPortfolio in parallel, we'd normally show TWO
- * wallet prompts. With this, the second caller awaits the first's result. */
-const inFlightSigns = new Map<string, Promise<Record<string, string>>>();
-
-/** Cookie-based fallback. Cookies work in stricter privacy modes than
- * localStorage (and survive the layout.tsx in-memory polyfill that wipes
- * localStorage-replacement on every reload). Stored as a compact
- * `<sig>|<timestamp>` string. Cookie is NOT HttpOnly — it's only used
- * by the client as a persistence layer. The server doesn't read it.
- */
-function readCookie(name: string): string | null {
-  if (typeof document === "undefined") return null;
-  const prefix = `${name}=`;
-  const parts = document.cookie.split(";");
-  for (const p of parts) {
-    const t = p.trim();
-    if (t.startsWith(prefix)) return decodeURIComponent(t.slice(prefix.length));
-  }
-  return null;
-}
-function writeCookie(name: string, value: string, maxAgeSec: number): void {
-  if (typeof document === "undefined") return;
-  const secure = location.protocol === "https:" ? "; Secure" : "";
-  // SameSite=Lax so it isn't stripped from nav reloads
-  document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${maxAgeSec}; Path=/; SameSite=Lax${secure}`;
-}
-
-function readCached(cacheKey: string): { signature: string; timestamp: number } | null {
-  // Memory first (fastest + works when storage is blocked)
-  const mem = memSigCache.get(cacheKey);
-  if (mem && Date.now() - mem.timestamp < SIG_CACHE_TTL_MS) return mem;
-
-  // localStorage second
-  if (typeof localStorage !== "undefined") {
-    try {
-      const raw = localStorage.getItem(cacheKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as { signature: string; timestamp: number };
-        if (Date.now() - parsed.timestamp < SIG_CACHE_TTL_MS) {
-          memSigCache.set(cacheKey, parsed); // warm mem cache too
-          return parsed;
-        }
-      }
-    } catch { /* ignore */ }
-  }
-
-  // Cookie as final fallback — reliable in private/strict modes
-  const cookieRaw = readCookie(cacheKey);
-  if (cookieRaw) {
-    const pipe = cookieRaw.lastIndexOf("|");
-    if (pipe > 0) {
-      const signature = cookieRaw.slice(0, pipe);
-      const timestamp = parseInt(cookieRaw.slice(pipe + 1), 10);
-      if (Number.isFinite(timestamp) && Date.now() - timestamp < SIG_CACHE_TTL_MS && signature.startsWith("0x")) {
-        const entry = { signature, timestamp };
-        memSigCache.set(cacheKey, entry); // warm mem cache
-        return entry;
-      }
+// Portfolio reads are unauthenticated — the data is identical to what HL's
+// public info API exposes for the same wallet address. Previously we gated
+// these behind a wallet-signature, but the wallet prompt was firing on
+// nearly every page load (localStorage blocking, cookie partitioning, etc.)
+// and the signature provided zero privacy benefit since the underlying data
+// is already public. Removed entirely.
+//
+// Also opportunistically wipes any leftover cached-sig cookies/localStorage
+// from the old flow so they don't sit around indefinitely.
+if (typeof window !== "undefined") {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("hlone-readsig-")) localStorage.removeItem(k);
     }
-  }
-  return null;
-}
-
-function writeCached(cacheKey: string, signature: string, timestamp: number): void {
-  memSigCache.set(cacheKey, { signature, timestamp });
-  if (typeof localStorage !== "undefined") {
-    try { localStorage.setItem(cacheKey, JSON.stringify({ signature, timestamp })); } catch { /* quota / private mode */ }
-  }
-  // Mirror to cookie so the cache survives when localStorage is blocked or
-  // replaced by the in-memory polyfill on each reload.
-  try {
-    writeCookie(cacheKey, `${signature}|${timestamp}`, Math.floor(SIG_CACHE_TTL_MS / 1000));
-  } catch { /* ignore cookie failures */ }
-}
-
-async function signReadHeaders(
-  walletAddress: string,
-  action: string,
-  signMessage: (args: { message: string }) => Promise<string>,
-): Promise<Record<string, string>> {
-  const cacheKey = `hlone-readsig-${action}-${walletAddress.toLowerCase()}`;
-
-  const cached = readCached(cacheKey);
-  if (cached) {
-    return {
-      "x-hlone-signature": cached.signature,
-      "x-hlone-timestamp": String(cached.timestamp),
-      "x-hlone-wallet": walletAddress,
-    };
-  }
-
-  // Dedup parallel sign requests — only one wallet prompt for the same
-  // cache key, even if several fetchers race to mount.
-  const existing = inFlightSigns.get(cacheKey);
-  if (existing) return existing;
-
-  const promise = (async () => {
-    const timestamp = Date.now();
-    const message = `HLOne v1:${action}:${walletAddress.toLowerCase()}:${timestamp}`;
-    const signature = await signMessage({ message });
-    writeCached(cacheKey, signature, timestamp);
-    return {
-      "x-hlone-signature": signature,
-      "x-hlone-timestamp": String(timestamp),
-      "x-hlone-wallet": walletAddress,
-    };
-  })();
-
-  inFlightSigns.set(cacheKey, promise);
-  try {
-    return await promise;
-  } finally {
-    inFlightSigns.delete(cacheKey);
-  }
+    document.cookie.split(";").forEach(c => {
+      const k = c.split("=")[0].trim();
+      if (k.startsWith("hlone-readsig-")) {
+        document.cookie = `${k}=; Max-Age=0; Path=/`;
+      }
+    });
+  } catch { /* ignore */ }
 }
 
 export async function getPortfolio(
   walletAddress: string,
-  signMessage?: (args: { message: string }) => Promise<string>,
+  // signMessage is kept on the signature for call-site compatibility but is
+  // no longer used — the /api/portfolio endpoint is now unauthenticated.
+  // Data is identical to what HL's public info API returns for the same
+  // address, so sig-auth was all UX cost with no privacy benefit.
+  _signMessage?: (args: { message: string }) => Promise<string>,
 ) {
-  const headers = signMessage ? await signReadHeaders(walletAddress, "portfolio-read", signMessage) : undefined;
-  return apiFetch<PortfolioData>(`/api/portfolio/${walletAddress}`, { headers });
+  return apiFetch<PortfolioData>(`/api/portfolio/${walletAddress}`);
 }
 
 export async function getPortfolioHistory(
   walletAddress: string,
   days = 30,
-  signMessage?: (args: { message: string }) => Promise<string>,
+  _signMessage?: (args: { message: string }) => Promise<string>,
 ) {
-  const headers = signMessage ? await signReadHeaders(walletAddress, "portfolio-read", signMessage) : undefined;
   return apiFetch<{ snapshots: Record<string, unknown>[] }>(
     `/api/portfolio/${walletAddress}/history?days=${days}`,
-    { headers },
   );
 }
 
