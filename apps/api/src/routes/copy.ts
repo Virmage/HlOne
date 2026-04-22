@@ -113,11 +113,17 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
     if (!EFFECTIVE_BUILDER) {
       return { error: "Builder not configured", builder: null, fee: 0 };
     }
+    // BUILDER_FEE is in tenths-of-bps. 15 = 1.5 bps = 0.015%.
+    // 1 bps = 0.01%, so bps → % is divide by 100 (NOT multiply).
+    // Previous math did `(bps/100)*100` which double-converted and
+    // displayed 1.50% instead of the correct 0.015%.
+    const feeBps = BUILDER_FEE / 10;          // 1.5
+    const feePct = feeBps / 100;              // 0.015  (percent value)
     return {
       builder: EFFECTIVE_BUILDER,
       fee: BUILDER_FEE,
-      feePercent: (BUILDER_FEE / 10 / 100).toFixed(4),
-      feeDisplay: `${(BUILDER_FEE / 10).toFixed(1)} bps (${((BUILDER_FEE / 10) / 100 * 100).toFixed(2)}%)`,
+      feePercent: feePct.toFixed(4),           // "0.0150"
+      feeDisplay: `${feeBps.toFixed(1)} bps (${feePct.toFixed(3)}%)`, // "1.5 bps (0.015%)"
     };
   });
 
