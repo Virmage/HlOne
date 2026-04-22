@@ -179,12 +179,35 @@ const memSigCache = new Map<string, { signature: string; timestamp: number }>();
  * wallet prompts. With this, the second caller awaits the first's result. */
 const inFlightSigns = new Map<string, Promise<Record<string, string>>>();
 
+/** Cookie-based fallback. Cookies work in stricter privacy modes than
+ * localStorage (and survive the layout.tsx in-memory polyfill that wipes
+ * localStorage-replacement on every reload). Stored as a compact
+ * `<sig>|<timestamp>` string. Cookie is NOT HttpOnly — it's only used
+ * by the client as a persistence layer. The server doesn't read it.
+ */
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const prefix = `${name}=`;
+  const parts = document.cookie.split(";");
+  for (const p of parts) {
+    const t = p.trim();
+    if (t.startsWith(prefix)) return decodeURIComponent(t.slice(prefix.length));
+  }
+  return null;
+}
+function writeCookie(name: string, value: string, maxAgeSec: number): void {
+  if (typeof document === "undefined") return;
+  const secure = location.protocol === "https:" ? "; Secure" : "";
+  // SameSite=Lax so it isn't stripped from nav reloads
+  document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${maxAgeSec}; Path=/; SameSite=Lax${secure}`;
+}
+
 function readCached(cacheKey: string): { signature: string; timestamp: number } | null {
   // Memory first (fastest + works when storage is blocked)
   const mem = memSigCache.get(cacheKey);
   if (mem && Date.now() - mem.timestamp < SIG_CACHE_TTL_MS) return mem;
 
-  // Then localStorage
+  // localStorage second
   if (typeof localStorage !== "undefined") {
     try {
       const raw = localStorage.getItem(cacheKey);
@@ -197,6 +220,21 @@ function readCached(cacheKey: string): { signature: string; timestamp: number } 
       }
     } catch { /* ignore */ }
   }
+
+  // Cookie as final fallback — reliable in private/strict modes
+  const cookieRaw = readCookie(cacheKey);
+  if (cookieRaw) {
+    const pipe = cookieRaw.lastIndexOf("|");
+    if (pipe > 0) {
+      const signature = cookieRaw.slice(0, pipe);
+      const timestamp = parseInt(cookieRaw.slice(pipe + 1), 10);
+      if (Number.isFinite(timestamp) && Date.now() - timestamp < SIG_CACHE_TTL_MS && signature.startsWith("0x")) {
+        const entry = { signature, timestamp };
+        memSigCache.set(cacheKey, entry); // warm mem cache
+        return entry;
+      }
+    }
+  }
   return null;
 }
 
@@ -205,6 +243,11 @@ function writeCached(cacheKey: string, signature: string, timestamp: number): vo
   if (typeof localStorage !== "undefined") {
     try { localStorage.setItem(cacheKey, JSON.stringify({ signature, timestamp })); } catch { /* quota / private mode */ }
   }
+  // Mirror to cookie so the cache survives when localStorage is blocked or
+  // replaced by the in-memory polyfill on each reload.
+  try {
+    writeCookie(cacheKey, `${signature}|${timestamp}`, Math.floor(SIG_CACHE_TTL_MS / 1000));
+  } catch { /* ignore cookie failures */ }
 }
 
 async function signReadHeaders(
