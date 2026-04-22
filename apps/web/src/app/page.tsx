@@ -525,15 +525,14 @@ export default function HomePage() {
             ))}
           </div>
 
-          {/* Sub-tab content — tighter padding so the table actually breathes */}
+          {/* Sub-tab content — panels render their own titles, so we don't
+              add a separate h3 above them (was producing doubled headlines). */}
           {mobileDataSubTab === "signals" && (
             <div>
               <div className="p-2 border-b border-[var(--hl-border)]">
-                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Sharp Flow</h3>
                 <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
               </div>
               <div className="p-2 border-b border-[var(--hl-border)]">
-                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Position Concentration</h3>
                 <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
               </div>
             </div>
@@ -542,11 +541,9 @@ export default function HomePage() {
           {mobileDataSubTab === "whales" && (
             <div>
               <div className="p-2 border-b border-[var(--hl-border)]">
-                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Whale Feed</h3>
                 <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
               </div>
               <div className="p-2 border-b border-[var(--hl-border)]">
-                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Large Trades</h3>
                 <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
               </div>
             </div>
@@ -555,11 +552,9 @@ export default function HomePage() {
           {mobileDataSubTab === "flows" && (
             <div>
               <div className="p-2 border-b border-[var(--hl-border)]">
-                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Funding Leaders</h3>
                 <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
               </div>
               <div className="p-2 border-b border-[var(--hl-border)]">
-                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Lending Rates</h3>
                 <LendingRatesPanel />
               </div>
             </div>
@@ -568,11 +563,9 @@ export default function HomePage() {
           {mobileDataSubTab === "news" && (
             <div>
               <div className="p-2 border-b border-[var(--hl-border)]">
-                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">News</h3>
                 <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
               </div>
               <div className="p-2 border-b border-[var(--hl-border)]">
-                <h3 className="text-[10px] font-medium text-[var(--hl-accent)] uppercase tracking-wider mb-1.5 px-1">Social</h3>
                 <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
               </div>
             </div>
