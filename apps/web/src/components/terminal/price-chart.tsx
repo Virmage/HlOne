@@ -822,15 +822,20 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
             smaColors={SMA_COLORS}
             onDrawingClick={(time, rawPrice) => {
               if (drawingTool === "none") return;
-              // Magnet mode: snap price to nearest candle OHLC
+              // Magnet mode: snap price to nearest OHLC of the candle under
+              // the cursor (not the globally-nearest OHLC — that locks Y).
               let price = rawPrice;
               if (magnetMode && chartData.length > 0) {
-                let bestDist = Infinity;
+                let target = chartData[0];
+                let bestDt = Math.abs(time - target.time);
                 for (const c of chartData) {
-                  for (const p of [c.open, c.high, c.low, c.close]) {
-                    const dist = Math.abs(p - rawPrice);
-                    if (dist < bestDist) { bestDist = dist; price = p; }
-                  }
+                  const dt = Math.abs(time - c.time);
+                  if (dt < bestDt) { bestDt = dt; target = c; }
+                }
+                let bestDp = Infinity;
+                for (const p of [target.open, target.high, target.low, target.close]) {
+                  const dp = Math.abs(p - rawPrice);
+                  if (dp < bestDp) { bestDp = dp; price = p; }
                 }
               }
               if (drawingTool === "hline" || drawingTool === "hray") {
@@ -863,12 +868,16 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
               if (pendingDrawing && pendingDrawing.p1) {
                 let price = rawPrice;
                 if (magnetMode && chartData.length > 0) {
-                  let bestDist = Infinity;
+                  let target = chartData[0];
+                  let bestDt = Math.abs(time - target.time);
                   for (const c of chartData) {
-                    for (const p of [c.open, c.high, c.low, c.close]) {
-                      const dist = Math.abs(p - rawPrice);
-                      if (dist < bestDist) { bestDist = dist; price = p; }
-                    }
+                    const dt = Math.abs(time - c.time);
+                    if (dt < bestDt) { bestDt = dt; target = c; }
+                  }
+                  let bestDp = Infinity;
+                  for (const p of [target.open, target.high, target.low, target.close]) {
+                    const dp = Math.abs(p - rawPrice);
+                    if (dp < bestDp) { bestDp = dp; price = p; }
                   }
                 }
                 setPendingDrawing(prev => prev ? { ...prev, p2: { time, price } } : null);
@@ -1368,14 +1377,26 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
       const clampedY = Math.max(c.MT + 2, Math.min(c.MT + c.priceH - 2, svgY));
       const clampedX = Math.max(c.ML + 2, Math.min(c.W - c.MR - 2, svgX));
       let price = c.yToPrice(clampedY);
-      let time = c.xToTime(clampedX);
+      const time = c.xToTime(clampedX);
+      // Magnet snap: pick the OHLC of the CANDLE UNDER THE CURSOR, not the
+      // globally-nearest OHLC across all candles. The global version makes
+      // price appear stuck on one axis while dragging — as you move Y, the
+      // single best-matching candle OHLC often stays the same because many
+      // candles share similar extremes. Snapping to the cursor's candle
+      // makes the drag walk through OHLC values naturally.
       if (c.magnetMode && c.data.length > 0) {
-        let best = Infinity;
+        // Find the candle whose time range contains the cursor.
+        let targetCandle = c.data[0];
+        let bestDt = Math.abs(time - targetCandle.time);
         for (const cd of c.data) {
-          for (const p of [cd.open, cd.high, cd.low, cd.close]) {
-            const dist = Math.abs(p - price);
-            if (dist < best) { best = dist; price = p; }
-          }
+          const dt = Math.abs(time - cd.time);
+          if (dt < bestDt) { bestDt = dt; targetCandle = cd; }
+        }
+        // Within that candle, snap to the nearest of the four OHLC prices.
+        let bestDp = Infinity;
+        for (const p of [targetCandle.open, targetCandle.high, targetCandle.low, targetCandle.close]) {
+          const dp = Math.abs(p - price);
+          if (dp < bestDp) { bestDp = dp; price = p; }
         }
       }
       return { time, price };
