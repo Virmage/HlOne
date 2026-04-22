@@ -1030,6 +1030,73 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
+   * POST /api/market/sharp-flow/init
+   *
+   * One-shot recovery for when the automatic drizzle migration didn't apply
+   * the sharp_flow_snapshots table (happens occasionally on Railway if the
+   * migration race with startup). Runs CREATE TABLE IF NOT EXISTS.
+   *
+   * Protected by ADMIN_SECRET header — hit from the browser with
+   * `x-admin-secret: <secret>` to re-create the table on demand.
+   */
+  app.post("/sharp-flow/init", async (req, reply) => {
+    const adminSecret = process.env.ADMIN_SECRET;
+    const provided = req.headers["x-admin-secret"];
+    if (!adminSecret || adminSecret.length < 16) {
+      reply.code(403);
+      return { error: "ADMIN_SECRET not configured" };
+    }
+    if (typeof provided !== "string" || provided !== adminSecret) {
+      reply.code(403);
+      return { error: "Forbidden" };
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = (app as any).db;
+    if (!db) {
+      reply.code(503);
+      return { error: "DB not configured" };
+    }
+    try {
+      // Idempotent: CREATE TABLE IF NOT EXISTS + CREATE INDEX IF NOT EXISTS.
+      // This duplicates the drizzle migration 0003 so we can run it directly.
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS "sharp_flow_snapshots" (
+          "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+          "coin" text NOT NULL,
+          "sharp_long_count" integer DEFAULT 0 NOT NULL,
+          "sharp_short_count" integer DEFAULT 0 NOT NULL,
+          "sharp_net_size" numeric(20, 2),
+          "sharp_direction" text NOT NULL,
+          "sharp_strength" integer NOT NULL,
+          "square_long_count" integer DEFAULT 0 NOT NULL,
+          "square_short_count" integer DEFAULT 0 NOT NULL,
+          "square_net_size" numeric(20, 2),
+          "square_direction" text NOT NULL,
+          "square_strength" integer NOT NULL,
+          "consensus" text NOT NULL,
+          "divergence" boolean DEFAULT false NOT NULL,
+          "divergence_score" integer DEFAULT 0 NOT NULL,
+          "hlone_score" integer,
+          "signal" text,
+          "price" numeric(20, 8) NOT NULL,
+          "change_24h" real,
+          "volume_24h" numeric(20, 2),
+          "funding_rate" real,
+          "snapshot_at" timestamp DEFAULT now() NOT NULL
+        )
+      `);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sharp_flow_snapshots_coin_time" ON "sharp_flow_snapshots" ("coin", "snapshot_at")`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sharp_flow_snapshots_time" ON "sharp_flow_snapshots" ("snapshot_at")`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sharp_flow_snapshots_divergence" ON "sharp_flow_snapshots" ("divergence", "snapshot_at")`);
+      return { ok: true, message: "sharp_flow_snapshots table ready. Next 5-min smart-money refresh will start writing." };
+    } catch (err) {
+      reply.code(500);
+      return { error: "init failed", detail: (err as Error).message };
+    }
+  });
+
+  /**
    * GET /api/market/positions/:address
    * User's open Hyperliquid positions + account overview.
    */
