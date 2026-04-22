@@ -177,106 +177,120 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
       return { error: "Copy trading is not available — builder address not configured on server" };
     }
 
-    const {
-      walletAddress,
-      traderAddress,
-      allocatedCapital,
-      maxLeverage,
-      maxPositionSizePercent,
-      minOrderSize,
-    } = parsed.data;
+    // Wrap the DB work in try/catch so transient DB issues surface as a
+    // real error message rather than a generic 500 "Internal server error".
+    try {
+      const {
+        walletAddress,
+        traderAddress,
+        allocatedCapital,
+        maxLeverage,
+        maxPositionSizePercent,
+        minOrderSize,
+      } = parsed.data;
 
-    const addr = walletAddress.toLowerCase();
-    const traderAddr = traderAddress.toLowerCase();
+      const addr = walletAddress.toLowerCase();
+      const traderAddr = traderAddress.toLowerCase();
 
-    // Get or create user
-    let [user] = await app.db
-      .select()
-      .from(users)
-      .where(eq(users.walletAddress, addr))
-      .limit(1);
-
-    if (!user) {
-      [user] = await app.db
-        .insert(users)
-        .values({ walletAddress: addr })
-        .returning();
-    }
-
-    // Get or create trader profile
-    let [trader] = await app.db
-      .select()
-      .from(traderProfiles)
-      .where(eq(traderProfiles.address, traderAddr))
-      .limit(1);
-
-    if (!trader) {
-      [trader] = await app.db
-        .insert(traderProfiles)
-        .values({ address: traderAddr })
-        .returning();
-    }
-
-    // Check for existing relationship
-    const [existing] = await app.db
-      .select()
-      .from(copyRelationships)
-      .where(
-        and(
-          eq(copyRelationships.userId, user.id),
-          eq(copyRelationships.traderProfileId, trader.id),
-        ),
-      )
-      .limit(1);
-
-    if (existing) {
-      if (!existing.isActive) {
-        await app.db
-          .update(copyRelationships)
-          .set({ isActive: true, isPaused: false, updatedAt: new Date() })
-          .where(eq(copyRelationships.id, existing.id));
+      if (!app.db) {
+        reply.code(503);
+        return { error: "Database unavailable" };
       }
 
-      await app.db
-        .insert(copyAllocations)
-        .values({
-          copyRelationshipId: existing.id,
-          allocatedCapital: allocatedCapital.toString(),
-          maxLeverage,
-          maxPositionSizePercent,
-          minOrderSize: minOrderSize.toString(),
-        })
-        .onConflictDoUpdate({
-          target: copyAllocations.copyRelationshipId,
-          set: {
+      // Get or create user
+      let [user] = await app.db
+        .select()
+        .from(users)
+        .where(eq(users.walletAddress, addr))
+        .limit(1);
+
+      if (!user) {
+        [user] = await app.db
+          .insert(users)
+          .values({ walletAddress: addr })
+          .returning();
+      }
+
+      // Get or create trader profile
+      let [trader] = await app.db
+        .select()
+        .from(traderProfiles)
+        .where(eq(traderProfiles.address, traderAddr))
+        .limit(1);
+
+      if (!trader) {
+        [trader] = await app.db
+          .insert(traderProfiles)
+          .values({ address: traderAddr })
+          .returning();
+      }
+
+      // Check for existing relationship
+      const [existing] = await app.db
+        .select()
+        .from(copyRelationships)
+        .where(
+          and(
+            eq(copyRelationships.userId, user.id),
+            eq(copyRelationships.traderProfileId, trader.id),
+          ),
+        )
+        .limit(1);
+
+      if (existing) {
+        if (!existing.isActive) {
+          await app.db
+            .update(copyRelationships)
+            .set({ isActive: true, isPaused: false, updatedAt: new Date() })
+            .where(eq(copyRelationships.id, existing.id));
+        }
+
+        await app.db
+          .insert(copyAllocations)
+          .values({
+            copyRelationshipId: existing.id,
             allocatedCapital: allocatedCapital.toString(),
             maxLeverage,
             maxPositionSizePercent,
             minOrderSize: minOrderSize.toString(),
-            updatedAt: new Date(),
-          },
-        });
+          })
+          .onConflictDoUpdate({
+            target: copyAllocations.copyRelationshipId,
+            set: {
+              allocatedCapital: allocatedCapital.toString(),
+              maxLeverage,
+              maxPositionSizePercent,
+              minOrderSize: minOrderSize.toString(),
+              updatedAt: new Date(),
+            },
+          });
 
-      return { id: existing.id, status: "reactivated" };
+        return { id: existing.id, status: "reactivated" };
+      }
+
+      const [rel] = await app.db
+        .insert(copyRelationships)
+        .values({
+          userId: user.id,
+          traderProfileId: trader.id,
+        })
+        .returning();
+
+      await app.db.insert(copyAllocations).values({
+        copyRelationshipId: rel.id,
+        allocatedCapital: allocatedCapital.toString(),
+        maxLeverage,
+        maxPositionSizePercent,
+        minOrderSize: minOrderSize.toString(),
+      });
+
+      return { id: rel.id, status: "created" };
+    } catch (err) {
+      const msg = (err as Error).message || "unknown error";
+      app.log.error({ err }, "[copy/start] DB error");
+      reply.code(500);
+      return { error: "Failed to start copy trading", detail: msg };
     }
-
-    const [rel] = await app.db
-      .insert(copyRelationships)
-      .values({
-        userId: user.id,
-        traderProfileId: trader.id,
-      })
-      .returning();
-
-    await app.db.insert(copyAllocations).values({
-      copyRelationshipId: rel.id,
-      allocatedCapital: allocatedCapital.toString(),
-      maxLeverage,
-      maxPositionSizePercent,
-      minOrderSize: minOrderSize.toString(),
-    });
-
-    return { id: rel.id, status: "created" };
   });
 
   /**
