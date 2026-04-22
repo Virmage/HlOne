@@ -286,8 +286,33 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
 
       return { id: rel.id, status: "created" };
     } catch (err) {
-      const msg = (err as Error).message || "unknown error";
-      app.log.error({ err }, "[copy/start] DB error");
+      // Drizzle wraps Postgres errors — the real reason is on `cause` or
+      // the underlying driver's `code`/`hint` fields. Pull them all out so
+      // the client sees something actionable.
+      const e = err as Error & {
+        cause?: unknown;
+        code?: string;
+        detail?: string;
+        hint?: string;
+        constraint?: string;
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cause = (e.cause as any);
+      const pieces = [
+        e.message,
+        cause?.message,
+        e.code && `code=${e.code}`,
+        cause?.code && `code=${cause.code}`,
+        e.detail,
+        cause?.detail,
+        e.hint,
+        cause?.hint,
+        e.constraint && `constraint=${e.constraint}`,
+      ].filter(Boolean);
+      const msg = pieces.join(" | ") || "unknown error";
+      app.log.error({ err, cause }, "[copy/start] DB error");
+      console.error("[copy/start] raw error:", err);
+      console.error("[copy/start] cause:", cause);
       reply.code(500);
       return { error: "Failed to start copy trading", detail: msg };
     }
