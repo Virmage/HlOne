@@ -168,40 +168,84 @@ export interface PortfolioData {
  * binding from auth.ts.
  */
 const SIG_CACHE_TTL_MS = 55 * 60 * 1000; // 55 minutes
+
+/** Module-level memory cache — belt-and-braces when localStorage is blocked
+ * (incognito mode) or replaced by the in-memory polyfill in layout.tsx.
+ * Survives for the lifetime of the page session. */
+const memSigCache = new Map<string, { signature: string; timestamp: number }>();
+
+/** Dedup in-flight sign requests. If usePortfolio and positions-panel both
+ * mount and both call getPortfolio in parallel, we'd normally show TWO
+ * wallet prompts. With this, the second caller awaits the first's result. */
+const inFlightSigns = new Map<string, Promise<Record<string, string>>>();
+
+function readCached(cacheKey: string): { signature: string; timestamp: number } | null {
+  // Memory first (fastest + works when storage is blocked)
+  const mem = memSigCache.get(cacheKey);
+  if (mem && Date.now() - mem.timestamp < SIG_CACHE_TTL_MS) return mem;
+
+  // Then localStorage
+  if (typeof localStorage !== "undefined") {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { signature: string; timestamp: number };
+        if (Date.now() - parsed.timestamp < SIG_CACHE_TTL_MS) {
+          memSigCache.set(cacheKey, parsed); // warm mem cache too
+          return parsed;
+        }
+      }
+    } catch { /* ignore */ }
+  }
+  return null;
+}
+
+function writeCached(cacheKey: string, signature: string, timestamp: number): void {
+  memSigCache.set(cacheKey, { signature, timestamp });
+  if (typeof localStorage !== "undefined") {
+    try { localStorage.setItem(cacheKey, JSON.stringify({ signature, timestamp })); } catch { /* quota / private mode */ }
+  }
+}
+
 async function signReadHeaders(
   walletAddress: string,
   action: string,
   signMessage: (args: { message: string }) => Promise<string>,
 ): Promise<Record<string, string>> {
   const cacheKey = `hlone-readsig-${action}-${walletAddress.toLowerCase()}`;
-  // localStorage (not sessionStorage) so the signature survives full tab
-  // close — users don't re-sign just because they opened a new tab.
-  if (typeof localStorage !== "undefined") {
-    try {
-      const raw = localStorage.getItem(cacheKey);
-      if (raw) {
-        const cached = JSON.parse(raw) as { signature: string; timestamp: number };
-        if (Date.now() - cached.timestamp < SIG_CACHE_TTL_MS) {
-          return {
-            "x-hlone-signature": cached.signature,
-            "x-hlone-timestamp": String(cached.timestamp),
-            "x-hlone-wallet": walletAddress,
-          };
-        }
-      }
-    } catch { /* ignore cache parse errors */ }
+
+  const cached = readCached(cacheKey);
+  if (cached) {
+    return {
+      "x-hlone-signature": cached.signature,
+      "x-hlone-timestamp": String(cached.timestamp),
+      "x-hlone-wallet": walletAddress,
+    };
   }
-  const timestamp = Date.now();
-  const message = `HLOne v1:${action}:${walletAddress.toLowerCase()}:${timestamp}`;
-  const signature = await signMessage({ message });
-  if (typeof localStorage !== "undefined") {
-    try { localStorage.setItem(cacheKey, JSON.stringify({ signature, timestamp })); } catch { /* quota */ }
+
+  // Dedup parallel sign requests — only one wallet prompt for the same
+  // cache key, even if several fetchers race to mount.
+  const existing = inFlightSigns.get(cacheKey);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const timestamp = Date.now();
+    const message = `HLOne v1:${action}:${walletAddress.toLowerCase()}:${timestamp}`;
+    const signature = await signMessage({ message });
+    writeCached(cacheKey, signature, timestamp);
+    return {
+      "x-hlone-signature": signature,
+      "x-hlone-timestamp": String(timestamp),
+      "x-hlone-wallet": walletAddress,
+    };
+  })();
+
+  inFlightSigns.set(cacheKey, promise);
+  try {
+    return await promise;
+  } finally {
+    inFlightSigns.delete(cacheKey);
   }
-  return {
-    "x-hlone-signature": signature,
-    "x-hlone-timestamp": String(timestamp),
-    "x-hlone-wallet": walletAddress,
-  };
 }
 
 export async function getPortfolio(
