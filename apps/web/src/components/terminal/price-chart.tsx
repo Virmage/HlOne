@@ -1089,14 +1089,23 @@ function CandlestickChart({ candles, oiCandles, formatTime, formatPrice, walls, 
         ));
         setVisibleCount(newVisible);
       } else if (e.touches.length === 1) {
-        // Pan
+        // Single-finger pan — both axes. Previously only X was applied,
+        // so mobile users couldn't move the chart up/down at all.
         const rect = el.getBoundingClientRect();
         const pxPerCandle = rect.width / visibleCount;
         const dx = e.touches[0].clientX - touchRef.current.startX;
+        const dy = e.touches[0].clientY - touchRef.current.startY;
+
+        // X: candle offset — time pan
         const candleDelta = Math.round(dx / pxPerCandle);
         const maxOff = Math.max(0, totalCandles - 2);
         const minOff = -visibleCount + 2;
         setOffset(Math.max(minOff, Math.min(maxOff, touchRef.current.startOffset + candleDelta)));
+
+        // Y: price pan — same math as desktop drag (dy / (65% of chart height))
+        const pricePxRatio = rect.height * 0.65;
+        const priceDelta = pricePxRatio > 0 ? dy / pricePxRatio : 0;
+        setPricePanOffset(touchRef.current.startPricePan + priceDelta);
       }
     };
 
