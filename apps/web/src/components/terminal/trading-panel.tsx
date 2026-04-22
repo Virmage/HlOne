@@ -1120,39 +1120,40 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
               Connect Wallet
             </button>
           ) : !deriveConnected ? (
-            /* ─── Not connected to Derive yet: prompt to connect ─── */
-            <div className="space-y-2">
-              <button
-                onClick={connectDerive}
-                disabled={setupStep === "connecting"}
-                className="w-full py-2.5 rounded font-semibold text-[12px] text-center transition-colors bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 disabled:opacity-50"
-              >
-                {setupStep === "connecting" ? "Connecting..." : "Connect to Derive"}
-              </button>
-              <p className="text-[9px] text-[var(--hl-muted)] text-center">One-time setup: import a session key from derive.xyz</p>
+            /* ─── Options trading: Coming Soon ─────────────────────────
+                Browsing the chain + seeing IV / max-pain / greeks is open
+                to everyone. Execution via Derive is temporarily gated —
+                we're polishing the session-key flow. Users who already
+                connected in a previous session still trade normally via
+                the branch below. */
+            <div className="rounded-lg border border-purple-500/30 bg-purple-500/10 p-4 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[14px]">🚧</span>
+                <h3 className="text-[12px] font-semibold text-purple-400">Options execution — Coming Soon</h3>
+              </div>
+              <p className="text-[11px] text-[var(--foreground)] leading-relaxed">
+                Browsing the full Derive options chain, live greeks, and IV data is open to everyone now.
+              </p>
+              <p className="text-[10px] text-[var(--hl-muted)] leading-relaxed">
+                Buying / selling via HLOne opens shortly — we&apos;re finalizing the session-key import flow. You can still trade directly on{" "}
+                <a href="https://derive.xyz" target="_blank" rel="noopener noreferrer" className="text-purple-400 underline">
+                  derive.xyz
+                </a>{" "}in the meantime.
+              </p>
             </div>
           ) : deriveSubaccount === null ? (
-            /* ─── Connected but no Derive account: link to onboard ─── */
-            <div className="space-y-3">
-              <div className="text-center">
-                <div className="text-[11px] text-[var(--hl-muted)] mb-2">No Derive account found for this wallet</div>
-                <a
-                  href="https://derive.xyz/options/ETH"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block w-full py-2.5 rounded font-semibold text-[12px] text-center transition-colors bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30"
-                >
-                  Set Up on Derive
-                </a>
-                <p className="text-[9px] text-[var(--hl-muted)] mt-2">Create your account and deposit USDC on derive.xyz, then return here to trade</p>
+            /* ─── Connected but no Derive account: also Coming Soon ─── */
+            <div className="rounded-lg border border-purple-500/30 bg-purple-500/10 p-4 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[14px]">🚧</span>
+                <h3 className="text-[12px] font-semibold text-purple-400">Options execution — Coming Soon</h3>
               </div>
-              <button
-                onClick={connectDerive}
-                disabled={setupStep === "connecting"}
-                className="w-full py-1.5 rounded text-[10px] text-center transition-colors text-[var(--hl-muted)] hover:text-[var(--foreground)] border border-[var(--hl-border)] hover:border-[var(--hl-accent)]"
-              >
-                {setupStep === "connecting" ? "Checking..." : "Re-check Account"}
-              </button>
+              <p className="text-[11px] text-[var(--foreground)] leading-relaxed">
+                Account onboarding for HLOne options is temporarily held. Trade directly on{" "}
+                <a href="https://derive.xyz" target="_blank" rel="noopener noreferrer" className="text-purple-400 underline">
+                  derive.xyz
+                </a>{" "}for now — we&apos;ll announce when it&apos;s live here.
+              </p>
             </div>
           ) : (
             /* ─── Has account: show balance + trade or deposit ─── */

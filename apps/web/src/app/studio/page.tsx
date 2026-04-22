@@ -794,101 +794,55 @@ function DeployStep({
         </div>
       )}
 
-      {/* GitHub connection (required for real deploys) */}
-      {!isPreviewMode && (
-        <section>
-          <h3 className="text-[12px] font-semibold text-[var(--hl-accent)] uppercase tracking-wider mb-3">GitHub</h3>
-          {githubStatus.connected ? (
-            <div className="rounded border border-[var(--hl-green)]/30 bg-[var(--hl-green)]/5 px-3 py-2.5 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[var(--hl-green)]" />
-                <span className="text-[12px] text-[var(--foreground)]">
-                  Connected as <span className="font-mono font-medium">{githubStatus.login ?? "user"}</span>
-                </span>
-              </div>
-              <button
-                onClick={onDisconnectGithub}
-                className="text-[10px] text-[var(--hl-muted)] hover:text-[var(--foreground)] underline"
-              >
-                Disconnect
-              </button>
-            </div>
-          ) : (
-            <>
-              <a
-                href="/api/studio/github-auth?next=/studio"
-                className="block w-full py-2.5 rounded text-[13px] font-semibold bg-[#24292e] text-white hover:brightness-110 transition-all text-center"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path fillRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-                  </svg>
-                  Connect GitHub to deploy
-                </span>
-              </a>
-              <p className="text-[10px] text-[var(--hl-muted)] mt-2 leading-relaxed">
-                HLOne Studio creates a public repo in your GitHub account containing your build's code + config. Only the <span className="font-mono">public_repo</span> scope is requested — we can't read private data.
-              </p>
-            </>
-          )}
-        </section>
-      )}
-
-      {/* Deploy options */}
+      {/* ─── Coming Soon ────────────────────────────────────────────────
+          Studio lets users explore templates, tweak widgets, and preview
+          the result live — but deploys are held until we're ready to
+          operate the fork+Vercel pipeline at scale. Users can export
+          their config JSON now and restore it when deploy goes live.
+      */}
       <section>
-        <h3 className="text-[12px] font-semibold text-[var(--hl-accent)] uppercase tracking-wider mb-3">Deploy</h3>
-        <button
-          onClick={onDeploy}
-          disabled={
-            !validation.ok ||
-            deployStatus === "paying" ||
-            deployStatus === "deploying" ||
-            !walletConnected ||
-            (!isPreviewMode && !githubStatus.connected)
-          }
-          className="w-full py-3 rounded text-[13px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-        >
-          {!walletConnected
-            ? "Connect wallet to deploy"
-            : !isPreviewMode && !githubStatus.connected
-            ? "Connect GitHub to deploy"
-            : deployStatus === "paying"
-            ? "Confirm payment in wallet..."
-            : deployStatus === "deploying"
-            ? "Forking + deploying..."
-            : isPreviewMode
-            ? "Run preview (no payment, no deploy)"
-            : "Deploy — Pay 50 USDC on Arbitrum"}
-        </button>
-        {isPreviewMode ? (
-          <p className="text-[9px] text-[#f5a524] mt-2 leading-relaxed">
-            Preview mode — running this will validate your config and show what would happen. No wallet popup, no payment, no real deploy.
+        <div className="rounded-lg border border-[var(--hl-accent)]/30 bg-[var(--hl-accent)]/5 p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[18px]">🛠️</span>
+            <h3 className="text-[14px] font-semibold text-[var(--hl-accent)]">Deploy — Coming Soon</h3>
+          </div>
+          <p className="text-[12px] text-[var(--foreground)] leading-relaxed">
+            Your config is ready. Full self-serve deploy (fork → Vercel → live build) is launching shortly — we&apos;re polishing the payment + provisioning flow.
           </p>
-        ) : (
-          <p className="text-[9px] text-[var(--hl-muted)] mt-2 leading-relaxed">
-            Pay once with USDC on Arbitrum (same network you use to deposit to HL). Covers API key + rate limits for ~12 months. Takes ~90 seconds total.
+          <p className="text-[11px] text-[var(--hl-muted)] leading-relaxed">
+            In the meantime, download your <span className="font-mono text-[var(--foreground)]">studio.config.json</span> below. When deploy opens you&apos;ll be able to upload it in one click and your build goes live in under 90 seconds.
           </p>
-        )}
-      </section>
-
-      {/* Alt: download JSON */}
-      <section>
-        <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wide mb-2">Or export manually</div>
-        <div className="flex gap-2">
-          <button
-            onClick={copyJson}
-            className="flex-1 py-2 rounded text-[11px] text-[var(--foreground)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] border border-[var(--hl-border)]"
-          >
-            Copy JSON
-          </button>
-          <button
-            onClick={downloadJson}
-            className="flex-1 py-2 rounded text-[11px] text-[var(--foreground)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] border border-[var(--hl-border)]"
-          >
-            Download JSON
-          </button>
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={copyJson}
+              className="flex-1 py-2 rounded text-[11px] text-[var(--foreground)] bg-[var(--hl-surface)] hover:bg-[var(--hl-surface-hover)] border border-[var(--hl-border)]"
+            >
+              Copy JSON
+            </button>
+            <button
+              onClick={downloadJson}
+              className="flex-1 py-2 rounded text-[11px] font-semibold bg-[var(--hl-accent)] text-[var(--background)] hover:brightness-110"
+            >
+              Download config
+            </button>
+          </div>
+          <div className="pt-2 border-t border-[var(--hl-accent)]/20">
+            <p className="text-[10px] text-[var(--hl-muted)] leading-relaxed">
+              Want to be notified when deploy opens? Follow{" "}
+              <a href="https://x.com/hlonexyz" target="_blank" rel="noopener noreferrer" className="text-[var(--hl-accent)] underline">
+                @hlonexyz
+              </a>{" "}on X.
+            </p>
+          </div>
         </div>
       </section>
+
+      {/* Suppress unused-prop warnings while deploy is disabled */}
+      {(() => {
+        void deployStatus; void walletConnected; void isPreviewMode;
+        void githubStatus; void onDeploy; void onDisconnectGithub;
+        return null;
+      })()}
 
       <button
         onClick={onBack}
