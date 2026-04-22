@@ -33,17 +33,27 @@ export function middleware(request: NextRequest) {
     "img-src 'self' data: blob: https://api.hyperliquid.xyz https://imagedelivery.net https://avatars.githubusercontent.com",
     [
       "connect-src 'self'",
-      "https://api.hyperliquid.xyz wss://api.hyperliquid.xyz",
+      // Hyperliquid — main API + leaderboard + any subdomain (stats-data, app, etc.)
+      "https://*.hyperliquid.xyz wss://*.hyperliquid.xyz",
+      // Derive / Lyra — options data + trading
       "https://api.lyra.finance wss://api.lyra.finance",
       "https://rpc.lyra.finance https://rpc.derive.xyz",
       "https://derive-proxy.hlone.workers.dev wss://derive-proxy.hlone.workers.dev",
+      // WalletConnect relays
       "https://*.walletconnect.com wss://*.walletconnect.com",
       "https://*.walletconnect.org wss://*.walletconnect.org",
+      // Arbitrum RPCs (HL signing chain + checkout payments verify)
       "https://arb1.arbitrum.io https://arbitrum.llamarpc.com",
-      // Railway backend is on up.railway.app BUT only trust the specific host.
-      // If you change hosts, update this allowlist.
+      // Railway backend
       "https://*.up.railway.app",
+      // Geo check
       "https://ipapi.co",
+      // Lending rates — Felix via Morpho's blue-api
+      "https://blue-api.morpho.org",
+      // Lending rates — HyperLend via DefiLlama Yields
+      "https://yields.llama.fi",
+      // Landing-page contact form
+      "https://formspree.io",
     ].join(" "),
     "frame-src 'self' https://*.walletconnect.com https://*.walletconnect.org",
     "object-src 'none'",
