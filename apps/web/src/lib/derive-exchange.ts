@@ -303,11 +303,12 @@ function getAssetAddress(instrument: {
 // ─── Sign order ─────────────────────────────────────────────────────────────
 
 /**
- * Sign a Derive order using the session key (no MetaMask popup) or EOA as fallback.
- * Returns the signature hex string and the signer address used.
+ * Sign a Derive order using the stored session key. Throws
+ * DeriveSessionKeyMissingError if no session key is available so the UI
+ * can prompt the user to import one from derive.xyz.
  */
 async function signOrder(
-  walletClient: WalletClient,
+  _walletClient: WalletClient,
   address: `0x${string}`,
   params: {
     subaccountId: number;
@@ -328,22 +329,25 @@ async function signOrder(
   const amountWei = toWei(params.amount);
   const maxFeeWei = toWei(params.maxFee);
 
-  // Determine signer: use session key if available (no popup), otherwise EOA (MetaMask popup)
+  // Derive orders MUST be signed with a session key registered against the
+  // subaccount on derive.xyz. EOA signatures are rejected by Derive's
+  // validator as "signature invalid" — the EOA isn't on the signer list.
+  // We used to silently fall back to EOA signing here, which produced that
+  // exact confusing error. Now we throw a typed error so the UI can prompt
+  // the user to (re-)import their session key from derive.xyz.
   const storedSessionKey = getStoredSessionKey(address);
-  let signerAddress: `0x${string}`;
-  let signFn: (hash: Hex) => Promise<Hex>;
-
-  if (storedSessionKey) {
-    const { privateKeyToAccount } = await import("viem/accounts");
-    const sessionAccount = privateKeyToAccount(storedSessionKey);
-    signerAddress = sessionAccount.address as `0x${string}`;
-    signFn = async (hash: Hex) => sessionAccount.signMessage({ message: { raw: hash } });
-    dlog(`[derive] Signing order with session key: ${signerAddress}`);
-  } else {
-    signerAddress = address;
-    signFn = async (hash: Hex) => walletClient.signMessage({ account: address, message: { raw: hash } });
-    dlog(`[derive] Signing order with EOA (no session key): ${signerAddress}`);
+  if (!storedSessionKey) {
+    // Distinguish "no key at all" from "encrypted but locked".
+    if (isSessionKeyEncrypted(address)) {
+      throw new Error("Session key is locked. Open Security to unlock, then retry.");
+    }
+    throw new DeriveSessionKeyMissingError();
   }
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const sessionAccount = privateKeyToAccount(storedSessionKey);
+  const signerAddress = sessionAccount.address as `0x${string}`;
+  const signFn = async (hash: Hex) => sessionAccount.signMessage({ message: { raw: hash } });
+  dlog(`[derive] Signing order with session key: ${signerAddress}`);
 
   // Encode trade module data and hash it
   const encodedModuleData = encodeTradeModuleData({
@@ -946,6 +950,9 @@ export async function placeOrder(
       rawResponse: result,
     };
   } catch (err) {
+    // Re-throw the missing-session-key sentinel so the UI can open the
+    // import modal instead of just showing a generic failure string.
+    if (err instanceof DeriveSessionKeyMissingError) throw err;
     return {
       success: false,
       error: err instanceof Error ? err.message : "Unknown error",

@@ -1301,7 +1301,15 @@ function OptionsOrderPanel({ coin, selectedOption, onClearOption, isConnected }:
                       msg: result.success ? `Order placed${result.orderId ? ` #${result.orderId}` : ""}` : (result.error || "Order failed"),
                     });
                   } catch (err) {
-                    setOrderResult({ ok: false, msg: (err as Error).message || "Unknown error" });
+                    // Missing session key → open the import flow instead of
+                    // showing a raw error. The user probably hasn't pasted
+                    // their derive.xyz session key yet.
+                    if ((err as Error).name === "DeriveSessionKeyMissingError") {
+                      setShowImportKeyModal(true);
+                      setOrderResult(null);
+                    } else {
+                      setOrderResult({ ok: false, msg: (err as Error).message || "Unknown error" });
+                    }
                   } finally {
                     setSubmitting(false);
                   }
