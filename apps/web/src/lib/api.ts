@@ -33,7 +33,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        const msg = body?.error || res.statusText;
+        // Include `detail` when present — routes use it to surface the real
+        // underlying error (e.g. DB constraint violation) behind a friendly
+        // top-line `error` string. Without this, users see generic messages.
+        const topLine = body?.error || res.statusText;
+        const detail = body?.detail ? ` — ${body.detail}` : "";
+        const msg = `${topLine}${detail}`;
         const err = new Error(msg) as Error & { status?: number; httpError?: boolean };
         err.status = res.status;
         err.httpError = true;
