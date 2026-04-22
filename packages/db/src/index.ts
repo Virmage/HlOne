@@ -11,7 +11,25 @@ import { dirname, resolve } from "path";
 const { Pool } = pg;
 
 export function createDb(connectionString: string) {
-  const pool = new Pool({ connectionString });
+  // Neon free tier auto-suspends idle Postgres instances — first request
+  // after an idle window often hits ECONNREFUSED while the compute warms
+  // back up (300-800ms). Conservative pool bounds + a short connect timeout
+  // keep us from piling onto a cold DB and failing loudly.
+  const pool = new Pool({
+    connectionString,
+    // Max 10 simultaneous clients — below Neon free's ~100 and well below
+    // most paid plans. Prevents connection-exhaustion cascades.
+    max: 10,
+    // Give Neon up to 15s to wake from cold start before we give up.
+    connectionTimeoutMillis: 15_000,
+    // Release idle clients aggressively — with serverless-ish API containers
+    // it's better to close than hold.
+    idleTimeoutMillis: 10_000,
+    // Don't let a stuck query hang a client forever.
+    statement_timeout: 30_000,
+  });
+  // Emit warnings when the pool has trouble — shows up in Railway logs.
+  pool.on("error", (err) => console.error("[db-pool] idle client error:", err.message));
   return drizzle(pool, { schema });
 }
 

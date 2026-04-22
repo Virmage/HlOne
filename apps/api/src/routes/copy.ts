@@ -10,6 +10,7 @@ import {
 } from "@hl-copy/db";
 import { ethAddress, positiveNumber, nonNegativeNumber } from "../lib/validation.js";
 import { verifyWalletSignature, hashRequestBody } from "../lib/auth.js";
+import { withDbRetry } from "../lib/db-retry.js";
 
 const BUILDER_ADDRESS = process.env.BUILDER_ADDRESS;
 if (!BUILDER_ADDRESS || !/^0x[a-fA-F0-9]{40}$/.test(BUILDER_ADDRESS)) {
@@ -197,45 +198,42 @@ export const copyRoutes: FastifyPluginAsync = async (app) => {
         return { error: "Database unavailable" };
       }
 
-      // Get or create user
-      let [user] = await app.db
-        .select()
-        .from(users)
-        .where(eq(users.walletAddress, addr))
-        .limit(1);
+      // Get or create user — retry on transient connection errors (Neon cold-start)
+      let [user] = await withDbRetry(
+        () => app.db.select().from(users).where(eq(users.walletAddress, addr)).limit(1),
+        { label: "copy-start/select-user" },
+      );
 
       if (!user) {
-        [user] = await app.db
-          .insert(users)
-          .values({ walletAddress: addr })
-          .returning();
+        [user] = await withDbRetry(
+          () => app.db.insert(users).values({ walletAddress: addr }).returning(),
+          { label: "copy-start/insert-user" },
+        );
       }
 
       // Get or create trader profile
-      let [trader] = await app.db
-        .select()
-        .from(traderProfiles)
-        .where(eq(traderProfiles.address, traderAddr))
-        .limit(1);
+      let [trader] = await withDbRetry(
+        () => app.db.select().from(traderProfiles).where(eq(traderProfiles.address, traderAddr)).limit(1),
+        { label: "copy-start/select-trader" },
+      );
 
       if (!trader) {
-        [trader] = await app.db
-          .insert(traderProfiles)
-          .values({ address: traderAddr })
-          .returning();
+        [trader] = await withDbRetry(
+          () => app.db.insert(traderProfiles).values({ address: traderAddr }).returning(),
+          { label: "copy-start/insert-trader" },
+        );
       }
 
       // Check for existing relationship
-      const [existing] = await app.db
-        .select()
-        .from(copyRelationships)
-        .where(
+      const [existing] = await withDbRetry(
+        () => app.db.select().from(copyRelationships).where(
           and(
             eq(copyRelationships.userId, user.id),
             eq(copyRelationships.traderProfileId, trader.id),
           ),
-        )
-        .limit(1);
+        ).limit(1),
+        { label: "copy-start/select-rel" },
+      );
 
       if (existing) {
         if (!existing.isActive) {
