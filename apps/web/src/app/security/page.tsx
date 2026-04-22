@@ -158,7 +158,7 @@ export default function SecurityPage() {
             <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>HLOne never has custody of your funds. You sign every trade with your own wallet or locally-stored session keys.</span></li>
             <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>Keys are stored only in your browser — never sent to our servers.</span></li>
             <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>With password protection enabled, stored keys are AES-GCM encrypted with PBKDF2 (100k iterations).</span></li>
-            <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>Open source — <a href="https://github.com/Virmage/hl-copy-trading" target="_blank" rel="noopener noreferrer" className="text-[var(--hl-accent)] underline">inspect the code on GitHub</a>.</span></li>
+            <li className="flex gap-2"><span className="text-[var(--hl-accent)] shrink-0">✓</span><span>Open source — <a href="https://github.com/Virmage/HlOne" target="_blank" rel="noopener noreferrer" className="text-[var(--hl-accent)] underline">inspect the code on GitHub</a>.</span></li>
             <li className="flex gap-2"><span className="text-[#f5a524] shrink-0">!</span><span>Vibe coded, unaudited. <button onClick={() => setShowDisclaimerModal(true)} className="text-[var(--hl-accent)] underline hover:brightness-110">View full disclaimer</button>.</span></li>
           </ul>
         </section>

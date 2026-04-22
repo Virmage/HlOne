@@ -9,7 +9,7 @@ HLOne is a self-custodial trading terminal for HyperLiquid. This document explai
 - **We never touch your funds.** You keep custody. HLOne only helps you sign transactions and send them to HyperLiquid.
 - **Your keys stay in your browser.** Nothing is sent to our servers.
 - **Optional password encryption** for stored keys — protects against XSS and malicious browser extensions.
-- **Open source** — verify everything at [github.com/Virmage/hl-copy-trading](https://github.com/Virmage/hl-copy-trading).
+- **Open source** — verify everything at [github.com/Virmage/HlOne](https://github.com/Virmage/HlOne).
 - **Vibe coded, unaudited.** Use at your own risk. See the on-site disclaimer.
 
 ---
@@ -180,4 +180,4 @@ On-chain revocation is the real safety net. Clearing browser storage alone doesn
 
 - **v1 (launch):** initial security model, optional AES-GCM password encryption, `/security` settings page.
 
-Updates to this document are tracked in git history at [SECURITY.md on GitHub](https://github.com/Virmage/hl-copy-trading/blob/main/SECURITY.md).
+Updates to this document are tracked in git history at [SECURITY.md on GitHub](https://github.com/Virmage/HlOne/blob/main/SECURITY.md).
