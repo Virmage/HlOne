@@ -27,10 +27,10 @@ export interface OICandle {
 // ─── Storage ────────────────────────────────────────────────────────────────
 
 // In-memory cache (fast access for candle building), loaded from DB on startup
-// 7 days at 15s intervals = 40,320. We cap at 20k per coin in memory which
-// is ~5 days at the full sample rate — more than enough for any OI chart.
-// Previously this was 172,800 (30d) and the boot-load caused OOM at 2GB.
-const MAX_SNAPSHOTS = 20_000;
+// Aggressively capped at 5,000 per coin in memory (~20 hours at 15s rate).
+// Charts requesting longer windows re-query the DB on demand via
+// /api/market/oi-candles. Previously was 172,800 (30d) which caused OOM.
+const MAX_SNAPSHOTS = 5_000;
 const snapshots = new Map<string, OISnapshot[]>();
 
 // Track which coins to monitor (top 30 by volume)
@@ -52,14 +52,11 @@ export async function loadOIFromDb(): Promise<void> {
     return;
   }
   try {
-    // Only load the last 7 days on boot (was 30 days). 30 days × 51 coins ×
-    // 4 snaps/min = ~950k rows in RAM on boot = ~1GB and we OOMed at 2GB.
-    // 7 days is more than enough for any OI chart the user actually displays;
-    // the DB still has 30 days, we just don't preload it all into memory.
-    const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000);
-    // Further cap per-coin to MAX_SNAPSHOTS_ON_BOOT so even the top coins
-    // don't blow the heap.
-    const MAX_SNAPSHOTS_ON_BOOT = 20_000;
+    // Minimal boot load — only the last 24h at 15s rate = ~5,760 rows/coin.
+    // Charts requesting more history re-query the DB on demand.
+    // Previous loads caused OOM at 2GB; aggressive cut keeps us well under.
+    const oneDayAgo = new Date(Date.now() - 86400_000);
+    const MAX_SNAPSHOTS_ON_BOOT = 5_000;
     const rows = await db
       .select({
         coin: oiSnapshots.coin,
@@ -68,7 +65,7 @@ export async function loadOIFromDb(): Promise<void> {
         snapshotAt: oiSnapshots.snapshotAt,
       })
       .from(oiSnapshots)
-      .where(gte(oiSnapshots.snapshotAt, sevenDaysAgo))
+      .where(gte(oiSnapshots.snapshotAt, oneDayAgo))
       .orderBy(oiSnapshots.snapshotAt);
 
     let loaded = 0;
@@ -85,7 +82,7 @@ export async function loadOIFromDb(): Promise<void> {
       });
       loaded++;
     }
-    console.log(`[oi-tracker] Loaded ${loaded} snapshots (7d) across ${snapshots.size} coins${skipped ? `, skipped ${skipped} over per-coin cap` : ""}`);
+    console.log(`[oi-tracker] Loaded ${loaded} snapshots (24h) across ${snapshots.size} coins${skipped ? `, skipped ${skipped} over per-coin cap` : ""}`);
   } catch (err) {
     console.error("[oi-tracker] Failed to load from DB:", (err as Error).message);
   }
