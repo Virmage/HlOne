@@ -13,55 +13,9 @@ import { lte } from "drizzle-orm";
 // DB reference — set via initSharpFlowTrackerDb()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let db: any = null;
-let tableEnsured = false;
 
 export function initSharpFlowTrackerDb(dbInstance: unknown): void {
   db = dbInstance;
-}
-
-/**
- * Idempotent self-heal: create the sharp_flow_snapshots table if the
- * drizzle migration didn't run (happens when the DB is paused at boot).
- * Called once before the first snapshot insert; cached after success.
- */
-async function ensureSnapshotTable(): Promise<void> {
-  if (tableEnsured || !db) return;
-  try {
-    const { sql } = await import("drizzle-orm");
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS "sharp_flow_snapshots" (
-        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-        "coin" text NOT NULL,
-        "sharp_long_count" integer DEFAULT 0 NOT NULL,
-        "sharp_short_count" integer DEFAULT 0 NOT NULL,
-        "sharp_net_size" numeric(20, 2),
-        "sharp_direction" text NOT NULL,
-        "sharp_strength" integer NOT NULL,
-        "square_long_count" integer DEFAULT 0 NOT NULL,
-        "square_short_count" integer DEFAULT 0 NOT NULL,
-        "square_net_size" numeric(20, 2),
-        "square_direction" text NOT NULL,
-        "square_strength" integer NOT NULL,
-        "consensus" text NOT NULL,
-        "divergence" boolean DEFAULT false NOT NULL,
-        "divergence_score" integer DEFAULT 0 NOT NULL,
-        "hlone_score" integer,
-        "signal" text,
-        "price" numeric(20, 8) NOT NULL,
-        "change_24h" real,
-        "volume_24h" numeric(20, 2),
-        "funding_rate" real,
-        "snapshot_at" timestamp DEFAULT now() NOT NULL
-      )
-    `);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sharp_flow_snapshots_coin_time" ON "sharp_flow_snapshots" ("coin", "snapshot_at")`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sharp_flow_snapshots_time" ON "sharp_flow_snapshots" ("snapshot_at")`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sharp_flow_snapshots_divergence" ON "sharp_flow_snapshots" ("divergence", "snapshot_at")`);
-    tableEnsured = true;
-    console.log("[smart-money] sharp_flow_snapshots table ready");
-  } catch (err) {
-    console.error("[smart-money] ensureSnapshotTable failed:", (err as Error).message);
-  }
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -636,9 +590,6 @@ async function doSmartMoneyRefresh(): Promise<SmartMoneyCache> {
  */
 async function persistSharpFlowSnapshots(flow: SharpSquareFlow[]): Promise<void> {
   if (!db || flow.length === 0) return;
-  // Self-heal: guarantee the table exists before first write. Idempotent
-  // CREATE TABLE IF NOT EXISTS + indexes.
-  await ensureSnapshotTable();
 
   // Look up price + change + volume + funding from cached asset ctxs. This
   // is a shared cache refreshed on the ordinary mids/ctx cycle so it's cheap.
