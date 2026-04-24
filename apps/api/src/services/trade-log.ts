@@ -41,10 +41,6 @@ const stats = {
   startedAt: Date.now(),
   // Per-hour buckets for rate tracking (last 24h)
   hourlyBuckets: new Map<number, { trades: number; volume: number; fees: number }>(),
-  // Unique users ever seen (lowercased addresses). Populated from HL's
-  // onchain builder-code fills on next query to keep cross-restart state.
-  uniqueUsers: new Set<string>(),
-  uniqueUsers24h: new Map<string, number>(), // address → last-seen timestamp
 };
 
 function getHourBucket(ts: number): number {
@@ -82,11 +78,6 @@ export function logTrade(entry: Omit<TradeLogEntry, "id" | "timestamp">): void {
     stats.failedTrades++;
   }
 
-  // Track unique users — both all-time (until restart) and rolling 24h
-  const userLower = entry.userAddress.toLowerCase();
-  stats.uniqueUsers.add(userLower);
-  stats.uniqueUsers24h.set(userLower, Date.now());
-
   // Hourly bucket
   const hour = getHourBucket(Date.now());
   const bucket = stats.hourlyBuckets.get(hour) || { trades: 0, volume: 0, fees: 0 };
@@ -123,12 +114,6 @@ export function getTradeStats() {
   const uptimeMs = now - stats.startedAt;
   const uptimeHours = uptimeMs / (60 * 60 * 1000);
 
-  // Prune 24h unique-user map
-  const dayAgo = now - 24 * 60 * 60 * 1000;
-  for (const [addr, ts] of stats.uniqueUsers24h) {
-    if (ts < dayAgo) stats.uniqueUsers24h.delete(addr);
-  }
-
   return {
     total: stats.totalTrades,
     successful: stats.successfulTrades,
@@ -141,9 +126,6 @@ export function getTradeStats() {
     avgFeesPerHour: uptimeHours > 0
       ? Math.round((stats.totalFeesEstimatedUsd / uptimeHours) * 100) / 100
       : 0,
-    // NEW: unique-user counts
-    uniqueUsers: stats.uniqueUsers.size,
-    uniqueUsers24h: stats.uniqueUsers24h.size,
     last1h: stats.hourlyBuckets.get(last1h) || { trades: 0, volume: 0, fees: 0 },
     last24h: {
       trades: last24h.reduce((s, b) => s + b.trades, 0),
@@ -152,10 +134,5 @@ export function getTradeStats() {
     },
     uptimeHours: Math.round(uptimeHours * 10) / 10,
     startedAt: stats.startedAt,
-    // Disclaimer: these counts reset on API restart. For onchain-verified
-    // cumulative numbers, query HL's /info endpoint directly with type
-    // 'userFees' or similar for the builder address 0xbB0f7533... — every
-    // fill that pays our builder code is fully public onchain.
-    note: "Counters reset on API restart. For permanent onchain history, query HL's public API for builder-code fills.",
   };
 }
