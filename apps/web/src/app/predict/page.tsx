@@ -104,7 +104,15 @@ interface CompareData {
   };
   polymarket: {
     available: boolean;
-    sample?: Array<{ question: string; yesPrice: number; endDate: string; volume24h: number; slug: string }>;
+    matchedStrike?: number;
+    requestedStrike: number;
+    yesPrice?: number;
+    eventTitle?: string;
+    marketQuestion?: string;
+    eventEndDate?: string;
+    eventSlug?: string;
+    marketSlug?: string;
+    eventVolume24h?: number;
     error?: string;
   };
   fetchedAt: number;
@@ -338,6 +346,8 @@ export default function PredictPage() {
             setConvictionPct={setConvictionPct}
             kalshiCents={compare?.kalshi.available && compare.kalshi.last != null ? Math.round(compare.kalshi.last * 100) : null}
             kalshiStrike={compare?.kalshi.matchedStrike ?? null}
+            polyCents={compare?.polymarket.available && compare.polymarket.yesPrice != null ? Math.round(compare.polymarket.yesPrice * 100) : null}
+            polyStrike={compare?.polymarket.matchedStrike ?? null}
           />
           <SyntheticOrderBook yesCents={yesCents} btcMark={btcMark} />
         </div>
@@ -398,6 +408,8 @@ function RiverChart({
   setConvictionPct,
   kalshiCents,
   kalshiStrike,
+  polyCents,
+  polyStrike,
 }: {
   probSeries: { x: number; p: number }[];
   settleTs: number;
@@ -406,6 +418,8 @@ function RiverChart({
   setConvictionPct: (n: number | null) => void;
   kalshiCents: number | null;
   kalshiStrike: number | null;
+  polyCents: number | null;
+  polyStrike: number | null;
 }) {
   // map prob series to viewbox 0..800 × 0..360 (top=100¢, bottom=0¢)
   const W = 800;
@@ -433,6 +447,7 @@ function RiverChart({
   const endY = H - (yesCents / 100) * H;
   const userY = H - (userPrice / 100) * H;
   const kalshiY = kalshiCents != null ? H - (kalshiCents / 100) * H : null;
+  const polyY = polyCents != null ? H - (polyCents / 100) * H : null;
 
   // click anywhere on the right edge area to set conviction
   const onChartClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -468,11 +483,13 @@ function RiverChart({
             {points && <path d={areaPath} fill="url(#rgrad)" />}
             {points && <polyline fill="none" stroke="#4ade80" strokeWidth="2.2" points={points} />}
 
-            {/* Kalshi reference line (orange dashed) — last trade price for closest strike */}
+            {/* Kalshi reference line (yellow dashed) — last trade price for closest strike */}
             {kalshiY != null && (
-              <>
-                <line x1="0" y1={kalshiY} x2={W} y2={kalshiY} stroke="#f5a524" strokeWidth="1.4" strokeDasharray="6,4" opacity="0.7" />
-              </>
+              <line x1="0" y1={kalshiY} x2={W} y2={kalshiY} stroke="#f5a524" strokeWidth="1.4" strokeDasharray="6,4" opacity="0.7" />
+            )}
+            {/* Polymarket reference line (purple dashed) — YES outcome price */}
+            {polyY != null && (
+              <line x1="0" y1={polyY} x2={W} y2={polyY} stroke="#a371f7" strokeWidth="1.4" strokeDasharray="6,4" opacity="0.7" />
             )}
           </svg>
 
@@ -541,6 +558,22 @@ function RiverChart({
               title={kalshiStrike ? `Kalshi @ $${kalshiStrike.toLocaleString()} strike` : "Kalshi"}
             >
               KALSHI {kalshiCents}¢
+            </div>
+          )}
+
+          {/* Polymarket label on the right edge */}
+          {polyCents != null && polyY != null && (
+            <div
+              className="absolute mono"
+              style={{
+                right: 0, top: `${(polyY / H) * 100}%`,
+                padding: "2px 6px", background: "var(--hl-purple)", color: "white",
+                fontSize: 9, fontWeight: 700, borderRadius: 2,
+                transform: "translateY(-50%)", whiteSpace: "nowrap", pointerEvents: "none", zIndex: 4,
+              }}
+              title={polyStrike ? `Polymarket @ $${polyStrike.toLocaleString()} strike` : "Polymarket"}
+            >
+              POLY {polyCents}¢
             </div>
           )}
         </div>
@@ -790,8 +823,16 @@ function CompareStrip({
   const kalshiCents = k?.available && k.last != null ? Math.round(k.last * 100) : null;
   const kalshiBid = k?.yesBid != null ? Math.round(k.yesBid * 100) : null;
   const kalshiAsk = k?.yesAsk != null ? Math.round(k.yesAsk * 100) : null;
-  const divergence = kalshiCents != null ? yesCents - kalshiCents : null;
-  const isEdge = divergence != null && Math.abs(divergence) >= 3;
+
+  const p = compare?.polymarket;
+  const polyCents = p?.available && p.yesPrice != null ? Math.round(p.yesPrice * 100) : null;
+
+  // 3-way max divergence: pick the largest gap from HLOne to either venue
+  const gaps: number[] = [];
+  if (kalshiCents != null) gaps.push(yesCents - kalshiCents);
+  if (polyCents != null) gaps.push(yesCents - polyCents);
+  const maxAbs = gaps.reduce((m, g) => (Math.abs(g) > Math.abs(m) ? g : m), 0);
+  const isEdge = Math.abs(maxAbs) >= 3 && gaps.length > 0;
 
   return (
     <div
@@ -817,7 +858,7 @@ function CompareStrip({
 
       {/* Kalshi */}
       <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
-        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Kalshi BTC daily</span>
+        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Kalshi</span>
         {kalshiCents != null ? (
           <>
             <span className="mono font-bold" style={{ color: "var(--hl-yellow)", fontSize: 14 }}>{kalshiCents}¢</span>
@@ -836,40 +877,49 @@ function CompareStrip({
       {/* Polymarket */}
       <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
         <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Polymarket</span>
-        {compare?.polymarket.available && compare.polymarket.sample && compare.polymarket.sample.length > 0 ? (
+        {polyCents != null ? (
           <>
-            <span className="mono font-bold" style={{ color: "var(--hl-purple)", fontSize: 13 }}>
-              {Math.round(compare.polymarket.sample[0].yesPrice * 100)}¢
-            </span>
-            <span style={{ color: "var(--hl-muted)", fontSize: 10 }} title={compare.polymarket.sample[0].question}>
-              {compare.polymarket.sample[0].question.length > 40
-                ? compare.polymarket.sample[0].question.slice(0, 40) + "…"
-                : compare.polymarket.sample[0].question}
-            </span>
+            <span className="mono font-bold" style={{ color: "var(--hl-purple)", fontSize: 14 }}>{polyCents}¢</span>
+            {p?.matchedStrike && (
+              <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>@ ${p.matchedStrike.toLocaleString()}</span>
+            )}
+            {p?.eventVolume24h && p.eventVolume24h > 0 && (
+              <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>vol ${(p.eventVolume24h / 1000).toFixed(0)}K</span>
+            )}
+            {p?.eventSlug && (
+              <a
+                href={`https://polymarket.com/event/${p.eventSlug}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "var(--hl-muted)", fontSize: 10, textDecoration: "underline" }}
+              >
+                ↗
+              </a>
+            )}
           </>
         ) : (
-          <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>no daily binary live</span>
+          <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>{p?.error ? "unavailable" : "loading…"}</span>
         )}
       </div>
 
-      {/* Divergence flag */}
+      {/* Divergence flag — max gap across venues */}
       <div className="flex items-center gap-2 px-2">
-        {divergence != null ? (
+        {gaps.length > 0 ? (
           <>
-            <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Δ HLOne−Kalshi</span>
+            <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>max Δ</span>
             <span
               className="mono font-bold"
               style={{
                 color: isEdge
-                  ? divergence > 0
+                  ? maxAbs > 0
                     ? "var(--hl-green)"
                     : "var(--hl-red)"
                   : "var(--hl-muted)",
                 fontSize: 14,
               }}
             >
-              {divergence >= 0 ? "+" : ""}
-              {divergence}¢
+              {maxAbs >= 0 ? "+" : ""}
+              {maxAbs}¢
             </span>
             {isEdge && (
               <span
@@ -883,7 +933,7 @@ function CompareStrip({
                   fontWeight: 700,
                   letterSpacing: 0.5,
                 }}
-                title="Mispricing > 3¢ vs Kalshi"
+                title="Mispricing > 3¢ vs at least one venue"
               >
                 EDGE
               </span>
