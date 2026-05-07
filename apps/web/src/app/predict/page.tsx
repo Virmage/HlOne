@@ -87,6 +87,29 @@ interface Candle {
   v: string;
 }
 
+interface CompareData {
+  kalshi: {
+    available: boolean;
+    matchedStrike?: number;
+    requestedStrike: number;
+    yesBid?: number;
+    yesAsk?: number;
+    yesMid?: number;
+    last?: number;
+    openInterest?: number;
+    closeTime?: string;
+    ticker?: string;
+    eventTicker?: string;
+    error?: string;
+  };
+  polymarket: {
+    available: boolean;
+    sample?: Array<{ question: string; yesPrice: number; endDate: string; volume24h: number; slug: string }>;
+    error?: string;
+  };
+  fetchedAt: number;
+}
+
 // ─── component ─────────────────────────────────────────────────────────────
 export default function PredictPage() {
   const params = useSearchParams();
@@ -101,6 +124,7 @@ export default function PredictPage() {
 
   // strike chosen above current mark; updated once first mark loads
   const [strike, setStrike] = useState<number | null>(null);
+  const [compare, setCompare] = useState<CompareData | null>(null);
 
   // poll live BTC mark
   useEffect(() => {
@@ -168,6 +192,28 @@ export default function PredictPage() {
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
+
+  // poll Kalshi + Polymarket comparison every 8s once strike is known
+  useEffect(() => {
+    if (strike == null) return;
+    let cancelled = false;
+    const fetchCompare = async () => {
+      try {
+        const res = await fetch(`/api/predict/compare?strike=${strike}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as CompareData;
+        if (!cancelled) setCompare(data);
+      } catch {
+        /* ignore */
+      }
+    };
+    fetchCompare();
+    const id = setInterval(fetchCompare, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [strike]);
 
   // settle ts derived from `now` — stable once `now` is non-zero (post-mount)
   const settleTs = useMemo(() => (now > 0 ? nextSettleUtc() : 0), [now]);
@@ -276,12 +322,23 @@ export default function PredictPage() {
             Implied prob: <b className="mono" style={{ color: "var(--hl-green)" }}>{(yesProb * 100).toFixed(1)}%</b> · σ·√t at 65% annual vol
           </span>
         </div>
+
+        {/* Compare strip — HLOne implied vs Kalshi vs Polymarket */}
+        <CompareStrip yesCents={yesCents} compare={compare} strike={strike} />
       </div>
 
       {/* main grid */}
       <main className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3" style={{ gridTemplateColumns: "1fr 320px", alignItems: "start" }}>
         <div className="flex flex-col gap-3 min-w-0">
-          <RiverChart probSeries={probSeries} settleTs={settleTs} userPrice={userPrice} yesCents={yesCents} setConvictionPct={setConvictionPct} />
+          <RiverChart
+            probSeries={probSeries}
+            settleTs={settleTs}
+            userPrice={userPrice}
+            yesCents={yesCents}
+            setConvictionPct={setConvictionPct}
+            kalshiCents={compare?.kalshi.available && compare.kalshi.last != null ? Math.round(compare.kalshi.last * 100) : null}
+            kalshiStrike={compare?.kalshi.matchedStrike ?? null}
+          />
           <SyntheticOrderBook yesCents={yesCents} btcMark={btcMark} />
         </div>
 
@@ -339,12 +396,16 @@ function RiverChart({
   userPrice,
   yesCents,
   setConvictionPct,
+  kalshiCents,
+  kalshiStrike,
 }: {
   probSeries: { x: number; p: number }[];
   settleTs: number;
   userPrice: number;
   yesCents: number;
   setConvictionPct: (n: number | null) => void;
+  kalshiCents: number | null;
+  kalshiStrike: number | null;
 }) {
   // map prob series to viewbox 0..800 × 0..360 (top=100¢, bottom=0¢)
   const W = 800;
@@ -371,6 +432,7 @@ function RiverChart({
   // current end of line position for the dashed projection
   const endY = H - (yesCents / 100) * H;
   const userY = H - (userPrice / 100) * H;
+  const kalshiY = kalshiCents != null ? H - (kalshiCents / 100) * H : null;
 
   // click anywhere on the right edge area to set conviction
   const onChartClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -405,6 +467,13 @@ function RiverChart({
             <line x1="0" y1={H} x2={W} y2={H} stroke="#1a2428" />
             {points && <path d={areaPath} fill="url(#rgrad)" />}
             {points && <polyline fill="none" stroke="#4ade80" strokeWidth="2.2" points={points} />}
+
+            {/* Kalshi reference line (orange dashed) — last trade price for closest strike */}
+            {kalshiY != null && (
+              <>
+                <line x1="0" y1={kalshiY} x2={W} y2={kalshiY} stroke="#f5a524" strokeWidth="1.4" strokeDasharray="6,4" opacity="0.7" />
+              </>
+            )}
           </svg>
 
           {/* y-axis */}
@@ -458,6 +527,22 @@ function RiverChart({
           >
             YOU {userPrice}¢
           </div>
+
+          {/* Kalshi label on the right edge */}
+          {kalshiCents != null && kalshiY != null && (
+            <div
+              className="absolute mono"
+              style={{
+                right: 0, top: `${(kalshiY / H) * 100}%`,
+                padding: "2px 6px", background: "var(--hl-yellow)", color: "var(--background)",
+                fontSize: 9, fontWeight: 700, borderRadius: 2,
+                transform: "translateY(-50%)", whiteSpace: "nowrap", pointerEvents: "none", zIndex: 4,
+              }}
+              title={kalshiStrike ? `Kalshi @ $${kalshiStrike.toLocaleString()} strike` : "Kalshi"}
+            >
+              KALSHI {kalshiCents}¢
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-3 mt-2 pt-2 text-[10px]" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
@@ -687,6 +772,126 @@ function TradePanel({
         <div className="text-[9px] text-center tracking-wide" style={{ color: "var(--hl-muted)" }}>
           Synthetic · settles 23:59 UTC · execution disabled
         </div>
+      </div>
+    </div>
+  );
+}
+
+function CompareStrip({
+  yesCents,
+  compare,
+  strike,
+}: {
+  yesCents: number;
+  compare: CompareData | null;
+  strike: number | null;
+}) {
+  const k = compare?.kalshi;
+  const kalshiCents = k?.available && k.last != null ? Math.round(k.last * 100) : null;
+  const kalshiBid = k?.yesBid != null ? Math.round(k.yesBid * 100) : null;
+  const kalshiAsk = k?.yesAsk != null ? Math.round(k.yesAsk * 100) : null;
+  const divergence = kalshiCents != null ? yesCents - kalshiCents : null;
+  const isEdge = divergence != null && Math.abs(divergence) >= 3;
+
+  return (
+    <div
+      className="mt-2 px-3 py-2 grid gap-3 text-[11px]"
+      style={{
+        background: "rgba(0,240,255,0.04)",
+        border: "1px solid rgba(0,240,255,0.18)",
+        borderRadius: 4,
+        gridTemplateColumns: "auto 1fr 1fr 1fr auto",
+        alignItems: "center",
+      }}
+    >
+      <span className="cellL" style={{ color: "var(--hl-accent)", fontWeight: 600, letterSpacing: 0.6 }}>
+        Cross-venue
+      </span>
+
+      {/* HLOne */}
+      <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
+        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>HLOne implied</span>
+        <span className="mono font-bold" style={{ color: "var(--hl-green)", fontSize: 14 }}>{yesCents}¢</span>
+        {strike && <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>@ ${strike.toLocaleString()}</span>}
+      </div>
+
+      {/* Kalshi */}
+      <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
+        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Kalshi BTC daily</span>
+        {kalshiCents != null ? (
+          <>
+            <span className="mono font-bold" style={{ color: "var(--hl-yellow)", fontSize: 14 }}>{kalshiCents}¢</span>
+            {kalshiBid != null && kalshiAsk != null && (
+              <span className="mono" style={{ color: "var(--hl-muted)", fontSize: 10 }}>{kalshiBid}/{kalshiAsk}</span>
+            )}
+            {k?.matchedStrike && (
+              <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>@ ${k.matchedStrike.toLocaleString()}</span>
+            )}
+          </>
+        ) : (
+          <span style={{ color: "var(--hl-muted)", fontSize: 11 }}>{k?.error ? "unavailable" : "loading…"}</span>
+        )}
+      </div>
+
+      {/* Polymarket */}
+      <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
+        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Polymarket</span>
+        {compare?.polymarket.available && compare.polymarket.sample && compare.polymarket.sample.length > 0 ? (
+          <>
+            <span className="mono font-bold" style={{ color: "var(--hl-purple)", fontSize: 13 }}>
+              {Math.round(compare.polymarket.sample[0].yesPrice * 100)}¢
+            </span>
+            <span style={{ color: "var(--hl-muted)", fontSize: 10 }} title={compare.polymarket.sample[0].question}>
+              {compare.polymarket.sample[0].question.length > 40
+                ? compare.polymarket.sample[0].question.slice(0, 40) + "…"
+                : compare.polymarket.sample[0].question}
+            </span>
+          </>
+        ) : (
+          <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>no daily binary live</span>
+        )}
+      </div>
+
+      {/* Divergence flag */}
+      <div className="flex items-center gap-2 px-2">
+        {divergence != null ? (
+          <>
+            <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Δ HLOne−Kalshi</span>
+            <span
+              className="mono font-bold"
+              style={{
+                color: isEdge
+                  ? divergence > 0
+                    ? "var(--hl-green)"
+                    : "var(--hl-red)"
+                  : "var(--hl-muted)",
+                fontSize: 14,
+              }}
+            >
+              {divergence >= 0 ? "+" : ""}
+              {divergence}¢
+            </span>
+            {isEdge && (
+              <span
+                className="mono"
+                style={{
+                  fontSize: 9,
+                  padding: "1px 6px",
+                  borderRadius: 2,
+                  background: "rgba(245,165,36,0.15)",
+                  color: "var(--hl-yellow)",
+                  fontWeight: 700,
+                  letterSpacing: 0.5,
+                }}
+                title="Mispricing > 3¢ vs Kalshi"
+              >
+                EDGE
+              </span>
+            )}
+          </>
+        ) : (
+          <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>—</span>
+        )}
       </div>
     </div>
   );
