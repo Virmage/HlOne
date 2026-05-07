@@ -25,6 +25,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 const HL_INFO = "https://api.hyperliquid.xyz/info";
+const HL_TESTNET_INFO = "https://api.hyperliquid-testnet.xyz/info";
+const HL_TESTNET_WS = "wss://api.hyperliquid-testnet.xyz/ws";
+
+// HyperOdd's HIP-3 prediction perp on testnet — closest thing to live HL-native
+// outcome markets right now.
+const HYPERODD_COIN = "ho:BTCDAILY";
 
 // ─── synthetic-market math ──────────────────────────────────────────────────
 // GBM implied prob that mark crosses strike by time T given annualised vol σ.
@@ -87,6 +93,28 @@ interface Candle {
   v: string;
 }
 
+interface BookLevel {
+  px: string;
+  sz: string;
+  n: number;
+}
+interface HyperOddTrade {
+  px: string;
+  sz: string;
+  side: string;
+  time: number;
+}
+interface HyperOddState {
+  mark: number | null;
+  prevDayMark: number | null;
+  openInterest: number;
+  dayVol: number;
+  bids: BookLevel[];
+  asks: BookLevel[];
+  trades: HyperOddTrade[];
+  wsConnected: boolean;
+}
+
 interface CompareData {
   kalshi: {
     available: boolean;
@@ -133,6 +161,16 @@ export default function PredictPage() {
   // strike chosen above current mark; updated once first mark loads
   const [strike, setStrike] = useState<number | null>(null);
   const [compare, setCompare] = useState<CompareData | null>(null);
+  const [hyperodd, setHyperodd] = useState<HyperOddState>({
+    mark: null,
+    prevDayMark: null,
+    openInterest: 0,
+    dayVol: 0,
+    bids: [],
+    asks: [],
+    trades: [],
+    wsConnected: false,
+  });
 
   // poll live BTC mark
   useEffect(() => {
@@ -199,6 +237,108 @@ export default function PredictPage() {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
+  }, []);
+
+  // ── HyperOdd testnet — REAL HL-native prediction perp data ──────
+  // Polls mark/OI/trades via REST, subscribes to L2 book via WS for live updates.
+  useEffect(() => {
+    let cancelled = false;
+    let ws: WebSocket | null = null;
+
+    const fetchMeta = async () => {
+      try {
+        const res = await fetch(HL_TESTNET_INFO, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "metaAndAssetCtxs", dex: "ho" }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as [
+          { universe: { name: string }[] },
+          { markPx: string; openInterest: string; dayNtlVlm: string; prevDayPx: string }[],
+        ];
+        const universe = data[0]?.universe ?? [];
+        const ctxs = data[1] ?? [];
+        const idx = universe.findIndex((u) => u.name === HYPERODD_COIN);
+        if (idx < 0 || cancelled) return;
+        const ctx = ctxs[idx];
+        setHyperodd((s) => ({
+          ...s,
+          mark: parseFloat(ctx.markPx),
+          prevDayMark: parseFloat(ctx.prevDayPx),
+          openInterest: parseFloat(ctx.openInterest),
+          dayVol: parseFloat(ctx.dayNtlVlm),
+        }));
+      } catch { /* ignore */ }
+    };
+
+    const fetchTrades = async () => {
+      try {
+        const res = await fetch(HL_TESTNET_INFO, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "recentTrades", coin: HYPERODD_COIN }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as HyperOddTrade[];
+        if (cancelled || !Array.isArray(data)) return;
+        setHyperodd((s) => ({ ...s, trades: data.slice(0, 20) }));
+      } catch { /* ignore */ }
+    };
+
+    // Initial REST fetch + interval
+    fetchMeta();
+    fetchTrades();
+    const metaId = setInterval(fetchMeta, 5000);
+    const tradeId = setInterval(fetchTrades, 8000);
+
+    // WS for live L2 book updates
+    const connectWs = () => {
+      if (cancelled) return;
+      try {
+        ws = new WebSocket(HL_TESTNET_WS);
+        ws.onopen = () => {
+          ws?.send(
+            JSON.stringify({
+              method: "subscribe",
+              subscription: { type: "l2Book", coin: HYPERODD_COIN },
+            }),
+          );
+          if (!cancelled) setHyperodd((s) => ({ ...s, wsConnected: true }));
+        };
+        ws.onmessage = (ev) => {
+          if (cancelled) return;
+          try {
+            const msg = JSON.parse(ev.data);
+            if (msg.channel === "l2Book" && msg.data?.coin === HYPERODD_COIN) {
+              const levels = msg.data.levels ?? [[], []];
+              setHyperodd((s) => ({
+                ...s,
+                bids: (levels[0] as BookLevel[]) ?? [],
+                asks: (levels[1] as BookLevel[]) ?? [],
+              }));
+            }
+          } catch { /* ignore */ }
+        };
+        ws.onclose = () => {
+          if (!cancelled) {
+            setHyperodd((s) => ({ ...s, wsConnected: false }));
+            setTimeout(connectWs, 3000);
+          }
+        };
+        ws.onerror = () => ws?.close();
+      } catch {
+        if (!cancelled) setTimeout(connectWs, 3000);
+      }
+    };
+    connectWs();
+
+    return () => {
+      cancelled = true;
+      clearInterval(metaId);
+      clearInterval(tradeId);
+      if (ws) ws.close();
+    };
   }, []);
 
   // poll Kalshi + Polymarket comparison every 8s once strike is known
@@ -288,12 +428,36 @@ export default function PredictPage() {
         .badge-d { padding: 2px 7px; border-radius: 3px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(245,165,36,0.12); color: var(--hl-yellow); }
       `}</style>
 
+      {/* TESTNET banner */}
+      <div
+        className="max-w-[1440px] mx-auto px-4 py-1.5 flex items-center gap-3 text-[11px]"
+        style={{ background: "rgba(245,165,36,0.08)", borderBottom: "1px solid rgba(245,165,36,0.2)" }}
+      >
+        <span
+          className="mono font-bold"
+          style={{ color: "var(--hl-yellow)", letterSpacing: 0.6, fontSize: 10 }}
+        >
+          ⚠ TESTNET
+        </span>
+        <span style={{ color: "var(--hl-text)" }}>
+          Order book + trades pulled live from <b>HL testnet</b> (HyperOdd <code className="mono">ho:BTCDAILY</code>) — the
+          closest real HL-native prediction-perp data while HIP-4 outcome markets aren&apos;t yet on mainnet. BTC mark + chart
+          are mainnet. Trade execution disabled.
+        </span>
+        <span
+          className="ml-auto mono text-[10px]"
+          style={{ color: hyperodd.wsConnected ? "var(--hl-green)" : "var(--hl-muted)" }}
+        >
+          {hyperodd.wsConnected ? "● ws live" : "○ ws connecting…"}
+        </span>
+      </div>
+
       {/* market strip */}
       <div className="max-w-[1440px] mx-auto px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
         <div className="flex items-center gap-3 mb-2 flex-wrap">
           <span className="badge-c">Crypto · Binary · Daily</span>
           {btcMark ? <span className="badge-l">Live</span> : <span className="badge-d">Loading mark…</span>}
-          <span className="badge-d">Prototype · synthetic book</span>
+          <span className="badge-d">Testnet · live HL book</span>
           <h1 className="text-[17px] font-semibold tracking-tight">
             Will BTC close above ${strike?.toLocaleString() ?? "…"} today?
           </h1>
@@ -331,8 +495,8 @@ export default function PredictPage() {
           </span>
         </div>
 
-        {/* Compare strip — HLOne implied vs Kalshi vs Polymarket */}
-        <CompareStrip yesCents={yesCents} compare={compare} strike={strike} />
+        {/* Compare strip — HLOne implied vs HL testnet (HyperOdd) vs Kalshi vs Polymarket */}
+        <CompareStrip yesCents={yesCents} compare={compare} strike={strike} hyperodd={hyperodd} />
       </div>
 
       {/* main grid */}
@@ -348,8 +512,9 @@ export default function PredictPage() {
             kalshiStrike={compare?.kalshi.matchedStrike ?? null}
             polyCents={compare?.polymarket.available && compare.polymarket.yesPrice != null ? Math.round(compare.polymarket.yesPrice * 100) : null}
             polyStrike={compare?.polymarket.matchedStrike ?? null}
+            hyperoddCents={hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : null}
           />
-          <SyntheticOrderBook yesCents={yesCents} btcMark={btcMark} />
+          <LiveOrderBook hyperodd={hyperodd} yesCents={yesCents} now={now} />
         </div>
 
         <div className="flex flex-col gap-3 min-w-0">
@@ -381,7 +546,15 @@ export default function PredictPage() {
               <span className="ptitle">Disclosure</span>
             </div>
             <div className="p-3 text-[11px] leading-relaxed" style={{ color: "var(--hl-muted)" }}>
-              HIP-4 outcome markets aren&apos;t live on the public API yet. <b style={{ color: "var(--foreground)" }}>BTC mark and chart are real</b>; YES probability is computed live from mark vs strike. <b style={{ color: "var(--foreground)" }}>Order book and trade panel are synthetic</b> for layout review only.
+              <b style={{ color: "var(--foreground)" }}>HIP-4 outcome markets aren&apos;t on mainnet yet.</b> Closest thing
+              live: HyperOdd&apos;s prediction-perp <code className="mono">{HYPERODD_COIN}</code> on HL testnet — that&apos;s
+              the order book + trades + mark you&apos;re seeing.
+              <br /><br />
+              <b style={{ color: "var(--foreground)" }}>Real:</b> mainnet BTC mark, mainnet 24h candles, testnet HL book/trades/mark, Kalshi BTC daily, Polymarket strike-ladder.
+              <br />
+              <b style={{ color: "var(--foreground)" }}>Computed:</b> HLOne implied (BTC mark vs strike via σ√t at 65% annual vol).
+              <br />
+              <b style={{ color: "var(--foreground)" }}>Disabled:</b> trade execution.
             </div>
           </div>
         </div>
@@ -410,6 +583,7 @@ function RiverChart({
   kalshiStrike,
   polyCents,
   polyStrike,
+  hyperoddCents,
 }: {
   probSeries: { x: number; p: number }[];
   settleTs: number;
@@ -420,6 +594,7 @@ function RiverChart({
   kalshiStrike: number | null;
   polyCents: number | null;
   polyStrike: number | null;
+  hyperoddCents: number | null;
 }) {
   // map prob series to viewbox 0..800 × 0..360 (top=100¢, bottom=0¢)
   const W = 800;
@@ -448,6 +623,7 @@ function RiverChart({
   const userY = H - (userPrice / 100) * H;
   const kalshiY = kalshiCents != null ? H - (kalshiCents / 100) * H : null;
   const polyY = polyCents != null ? H - (polyCents / 100) * H : null;
+  const hyperoddY = hyperoddCents != null ? H - (hyperoddCents / 100) * H : null;
 
   // click anywhere on the right edge area to set conviction
   const onChartClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -490,6 +666,10 @@ function RiverChart({
             {/* Polymarket reference line (purple dashed) — YES outcome price */}
             {polyY != null && (
               <line x1="0" y1={polyY} x2={W} y2={polyY} stroke="#a371f7" strokeWidth="1.4" strokeDasharray="6,4" opacity="0.7" />
+            )}
+            {/* HyperOdd testnet reference line (cyan solid) — actual HL prediction-perp mark */}
+            {hyperoddY != null && (
+              <line x1="0" y1={hyperoddY} x2={W} y2={hyperoddY} stroke="#00f0ff" strokeWidth="1.6" strokeDasharray="2,3" opacity="0.85" />
             )}
           </svg>
 
@@ -576,6 +756,22 @@ function RiverChart({
               POLY {polyCents}¢
             </div>
           )}
+
+          {/* HyperOdd testnet label */}
+          {hyperoddCents != null && hyperoddY != null && (
+            <div
+              className="absolute mono"
+              style={{
+                right: 0, top: `${(hyperoddY / H) * 100}%`,
+                padding: "2px 6px", background: "var(--hl-accent)", color: "var(--background)",
+                fontSize: 9, fontWeight: 700, borderRadius: 2,
+                transform: "translateY(-50%)", whiteSpace: "nowrap", pointerEvents: "none", zIndex: 4,
+              }}
+              title="HL testnet · HyperOdd ho:BTCDAILY mark"
+            >
+              HL {hyperoddCents}¢
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-3 mt-2 pt-2 text-[10px]" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
@@ -589,50 +785,152 @@ function RiverChart({
   );
 }
 
-function SyntheticOrderBook({ yesCents, btcMark }: { yesCents: number; btcMark: number | null }) {
-  // generate 14 bids + 14 asks centered around yesCents
-  const tick = 0.5;
-  const bids = Array.from({ length: 14 }, (_, i) => {
-    const px = yesCents - tick * (i + 1);
-    const sizeBase = 1000 + Math.abs(Math.sin(i * 1.3)) * 4500;
-    const size = Math.round(sizeBase);
-    return { px, size };
-  });
-  const asks = Array.from({ length: 14 }, (_, i) => {
-    const px = yesCents + tick * (i + 1);
-    const sizeBase = 800 + Math.abs(Math.cos(i * 1.1)) * 4000;
-    const size = Math.round(sizeBase);
-    return { px, size };
-  });
-  const maxSize = Math.max(...bids.map((b) => b.size), ...asks.map((a) => a.size));
-  const bidDepthUsd = bids.slice(0, 10).reduce((s, b) => s + (b.size * b.px) / 100, 0);
-  const askDepthUsd = asks.slice(0, 10).reduce((s, a) => s + (a.size * a.px) / 100, 0);
+function LiveOrderBook({ hyperodd, yesCents, now }: { hyperodd: HyperOddState; yesCents: number; now: number }) {
+  const hasBook = hyperodd.bids.length > 0 || hyperodd.asks.length > 0;
+  const markCents = hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : null;
+  const bestBid = hyperodd.bids[0] ? parseFloat(hyperodd.bids[0].px) : null;
+  const bestAsk = hyperodd.asks[0] ? parseFloat(hyperodd.asks[0].px) : null;
+  const spread = bestBid != null && bestAsk != null ? bestAsk - bestBid : null;
+
+  const allLevels = [...hyperodd.bids.slice(0, 10), ...hyperodd.asks.slice(0, 10)];
+  const maxSize = allLevels.reduce((m, l) => Math.max(m, parseFloat(l.sz)), 0.001);
 
   return (
     <div className="panel">
       <div className="px-3 py-2 flex items-center gap-3" style={{ borderBottom: "1px solid var(--hl-border)" }}>
         <span className="ptitle">Order book</span>
-        <span className="psub">YES side · 0.5¢ ticks · synthetic [will swap to HIP-4 L2]</span>
+        <span className="psub">
+          live · <span className="mono">{HYPERODD_COIN}</span> · HL testnet
+        </span>
         <div className="ml-auto flex gap-3 text-[10px]" style={{ color: "var(--hl-muted)" }}>
-          <span>Bid depth ≤5¢ <b className="mono" style={{ color: "var(--hl-green)" }}>${(bidDepthUsd / 1000).toFixed(1)}K</b></span>
-          <span>Ask depth ≤5¢ <b className="mono" style={{ color: "var(--hl-red)" }}>${(askDepthUsd / 1000).toFixed(1)}K</b></span>
+          {markCents != null && (
+            <span>
+              Mark <b className="mono" style={{ color: "var(--hl-green)" }}>{markCents}¢</b>
+            </span>
+          )}
+          {hyperodd.openInterest > 0 && (
+            <span>
+              OI <b className="mono">{hyperodd.openInterest.toFixed(2)}</b>
+            </span>
+          )}
+          {hyperodd.dayVol > 0 && (
+            <span>
+              24h vol <b className="mono">${hyperodd.dayVol.toFixed(0)}</b>
+            </span>
+          )}
         </div>
       </div>
-      <div className="grid" style={{ gridTemplateColumns: "1fr 80px 1fr" }}>
-        <ObSide rows={bids} side="bid" maxSize={maxSize} />
-        <div className="flex flex-col items-center justify-center py-2 mono" style={{ background: "var(--hl-surface-hover)", borderLeft: "1px solid var(--hl-border)", borderRight: "1px solid var(--hl-border)" }}>
-          <span style={{ fontSize: 18, fontWeight: 700 }}>{yesCents.toFixed(1)}¢</span>
-          <span className="cellL" style={{ marginTop: 2 }}>last</span>
-          <span style={{ fontSize: 11, color: "var(--hl-yellow)", marginTop: 4 }}>spread 1¢</span>
-          {btcMark && <span className="cellL" style={{ marginTop: 6 }}>BTC ${btcMark.toFixed(0)}</span>}
+
+      {!hasBook ? (
+        <div className="grid" style={{ gridTemplateColumns: "1fr 80px 1fr" }}>
+          <div
+            className="flex items-center justify-center p-6 text-[11px] text-center"
+            style={{ color: "var(--hl-muted)", borderRight: "1px solid var(--hl-border)", minHeight: 200 }}
+          >
+            <div>
+              <div style={{ marginBottom: 6 }}>No bids resting</div>
+              <div style={{ fontSize: 10 }}>
+                Real testnet book is empty. <br />
+                Last trades + mark below.
+              </div>
+            </div>
+          </div>
+          <div
+            className="flex flex-col items-center justify-center py-2 mono"
+            style={{
+              background: "var(--hl-surface-hover)",
+              borderLeft: "1px solid var(--hl-border)",
+              borderRight: "1px solid var(--hl-border)",
+            }}
+          >
+            <span style={{ fontSize: 18, fontWeight: 700 }}>{markCents != null ? `${markCents}¢` : "—"}</span>
+            <span className="cellL" style={{ marginTop: 2 }}>mark</span>
+            {hyperodd.prevDayMark != null && (
+              <span className="cellL" style={{ marginTop: 6 }}>prev {Math.round(hyperodd.prevDayMark * 100)}¢</span>
+            )}
+            <span className="cellL" style={{ marginTop: 4, color: "var(--hl-yellow)" }}>HL implied {yesCents}¢</span>
+          </div>
+          <div
+            className="flex items-center justify-center p-6 text-[11px] text-center"
+            style={{ color: "var(--hl-muted)", borderLeft: "1px solid var(--hl-border)" }}
+          >
+            <div>
+              <div style={{ marginBottom: 6 }}>No asks resting</div>
+              <div style={{ fontSize: 10 }}>
+                When HIP-4 ships to mainnet,
+                <br />
+                this populates immediately.
+              </div>
+            </div>
+          </div>
+          {/* trades tape */}
+          <div style={{ gridColumn: "1 / -1", borderTop: "1px solid var(--hl-border)" }}>
+            <div className="px-3 py-1.5 cellL" style={{ borderBottom: "1px solid var(--hl-border)" }}>
+              Recent trades · live testnet
+            </div>
+            {hyperodd.trades.length === 0 ? (
+              <div className="px-3 py-3 text-[11px]" style={{ color: "var(--hl-muted)" }}>
+                No trades yet. (Last 24h: 0)
+              </div>
+            ) : (
+              <div>
+                {hyperodd.trades.slice(0, 6).map((t, i) => {
+                  const isBuy = t.side === "B" || t.side === "buy";
+                  const px = parseFloat(t.px);
+                  const sz = parseFloat(t.sz);
+                  const ago = Math.max(0, Math.floor((now - t.time) / 1000));
+                  const agoStr =
+                    ago < 60 ? `${ago}s` : ago < 3600 ? `${Math.floor(ago / 60)}m` : `${Math.floor(ago / 3600)}h`;
+                  return (
+                    <div
+                      key={t.time + "-" + i}
+                      className="grid items-center px-3 py-1 mono text-[11px]"
+                      style={{ gridTemplateColumns: "60px 60px 1fr 60px", borderBottom: "1px solid var(--hl-border)" }}
+                    >
+                      <span style={{ color: isBuy ? "var(--hl-green)" : "var(--hl-red)", fontWeight: 600 }}>
+                        {isBuy ? "BUY" : "SELL"}
+                      </span>
+                      <span style={{ color: isBuy ? "var(--hl-green)" : "var(--hl-red)" }}>
+                        {(px * 100).toFixed(1)}¢
+                      </span>
+                      <span style={{ color: "var(--hl-text)" }}>{sz.toFixed(2)}</span>
+                      <span className="text-right" style={{ color: "var(--hl-muted)" }}>
+                        {agoStr} ago
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
-        <ObSide rows={asks} side="ask" maxSize={maxSize} />
-      </div>
+      ) : (
+        <div className="grid" style={{ gridTemplateColumns: "1fr 80px 1fr" }}>
+          <LiveObSide rows={hyperodd.bids.slice(0, 10).map((l) => ({ px: parseFloat(l.px), size: parseFloat(l.sz) }))} side="bid" maxSize={maxSize} />
+          <div
+            className="flex flex-col items-center justify-center py-2 mono"
+            style={{
+              background: "var(--hl-surface-hover)",
+              borderLeft: "1px solid var(--hl-border)",
+              borderRight: "1px solid var(--hl-border)",
+            }}
+          >
+            <span style={{ fontSize: 18, fontWeight: 700 }}>{markCents != null ? `${markCents}¢` : "—"}</span>
+            <span className="cellL" style={{ marginTop: 2 }}>mark</span>
+            {spread != null && (
+              <span style={{ fontSize: 11, color: "var(--hl-yellow)", marginTop: 4 }}>
+                spread {(spread * 100).toFixed(2)}¢
+              </span>
+            )}
+          </div>
+          <LiveObSide rows={hyperodd.asks.slice(0, 10).map((l) => ({ px: parseFloat(l.px), size: parseFloat(l.sz) }))} side="ask" maxSize={maxSize} />
+        </div>
+      )}
     </div>
   );
 }
 
-function ObSide({
+function LiveObSide({
   rows,
   side,
   maxSize,
@@ -649,12 +947,12 @@ function ObSide({
       >
         <span>{side === "bid" ? "Bid (¢)" : "Ask (¢)"}</span>
         <span className="text-right">Size</span>
-        <span className="text-right">Total $</span>
+        <span className="text-right">Total</span>
         <span>Depth</span>
       </div>
       {rows.map((r, i) => {
         const pct = (r.size / maxSize) * 100;
-        const totalUsd = (r.size * r.px) / 100;
+        const totalUsd = r.size * r.px;
         return (
           <div
             key={i}
@@ -663,13 +961,18 @@ function ObSide({
           >
             <span
               className="absolute top-0 right-0 h-full"
-              style={{ width: `${pct}%`, background: side === "bid" ? "var(--hl-green)" : "var(--hl-red)", opacity: 0.05, zIndex: 1 }}
+              style={{
+                width: `${pct}%`,
+                background: side === "bid" ? "var(--hl-green)" : "var(--hl-red)",
+                opacity: 0.05,
+                zIndex: 1,
+              }}
             />
             <span className="relative z-10 font-semibold" style={{ color: side === "bid" ? "var(--hl-green)" : "var(--hl-red)" }}>
-              {r.px.toFixed(1)}
+              {(r.px * 100).toFixed(1)}
             </span>
-            <span className="relative z-10 text-right">{r.size.toLocaleString()}</span>
-            <span className="relative z-10 text-right" style={{ color: "var(--hl-text)" }}>${totalUsd.toFixed(0)}</span>
+            <span className="relative z-10 text-right">{r.size.toFixed(2)}</span>
+            <span className="relative z-10 text-right" style={{ color: "var(--hl-text)" }}>${totalUsd.toFixed(2)}</span>
             <div className="relative z-10" style={{ height: 6, background: "rgba(122,154,164,0.06)", borderRadius: 1, overflow: "hidden" }}>
               <div
                 style={{
@@ -687,6 +990,8 @@ function ObSide({
     </div>
   );
 }
+
+// Synthetic order book + ObSide removed — replaced by LiveOrderBook + LiveObSide which read real testnet data.
 
 function TradePanel({
   yesCents,
@@ -814,10 +1119,12 @@ function CompareStrip({
   yesCents,
   compare,
   strike,
+  hyperodd,
 }: {
   yesCents: number;
   compare: CompareData | null;
   strike: number | null;
+  hyperodd: HyperOddState;
 }) {
   const k = compare?.kalshi;
   const kalshiCents = k?.available && k.last != null ? Math.round(k.last * 100) : null;
@@ -827,10 +1134,13 @@ function CompareStrip({
   const p = compare?.polymarket;
   const polyCents = p?.available && p.yesPrice != null ? Math.round(p.yesPrice * 100) : null;
 
-  // 3-way max divergence: pick the largest gap from HLOne to either venue
+  const hyperoddCents = hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : null;
+
+  // max divergence across all venues
   const gaps: number[] = [];
   if (kalshiCents != null) gaps.push(yesCents - kalshiCents);
   if (polyCents != null) gaps.push(yesCents - polyCents);
+  if (hyperoddCents != null) gaps.push(yesCents - hyperoddCents);
   const maxAbs = gaps.reduce((m, g) => (Math.abs(g) > Math.abs(m) ? g : m), 0);
   const isEdge = Math.abs(maxAbs) >= 3 && gaps.length > 0;
 
@@ -841,7 +1151,7 @@ function CompareStrip({
         background: "rgba(0,240,255,0.04)",
         border: "1px solid rgba(0,240,255,0.18)",
         borderRadius: 4,
-        gridTemplateColumns: "auto 1fr 1fr 1fr auto",
+        gridTemplateColumns: "auto 1fr 1fr 1fr 1fr auto",
         alignItems: "center",
       }}
     >
@@ -849,11 +1159,29 @@ function CompareStrip({
         Cross-venue
       </span>
 
-      {/* HLOne */}
+      {/* HLOne implied */}
       <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
         <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>HLOne implied</span>
         <span className="mono font-bold" style={{ color: "var(--hl-green)", fontSize: 14 }}>{yesCents}¢</span>
         {strike && <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>@ ${strike.toLocaleString()}</span>}
+      </div>
+
+      {/* HL testnet (HyperOdd) — actual HL-native data */}
+      <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
+        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>HL testnet</span>
+        {hyperoddCents != null ? (
+          <>
+            <span className="mono font-bold" style={{ color: "var(--hl-accent)", fontSize: 14 }}>{hyperoddCents}¢</span>
+            <span style={{ color: "var(--hl-muted)", fontSize: 10 }} title={HYPERODD_COIN}>
+              {HYPERODD_COIN}
+            </span>
+            {hyperodd.openInterest > 0 && (
+              <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>OI {hyperodd.openInterest.toFixed(1)}</span>
+            )}
+          </>
+        ) : (
+          <span style={{ color: "var(--hl-muted)", fontSize: 11 }}>loading…</span>
+        )}
       </div>
 
       {/* Kalshi */}
