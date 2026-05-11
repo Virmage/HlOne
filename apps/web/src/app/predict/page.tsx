@@ -623,7 +623,11 @@ export default function PredictPage() {
         <div className="flex flex-col gap-3 min-w-0">
           <RiverChart
             probSeries={probSeries}
+            btcCandles={candles}
+            btcMark={btcMark}
+            strike={strike}
             settleTs={settleTs}
+            now={now}
             userPrice={userPrice}
             yesCents={yesCents}
             setConvictionPct={setConvictionPct}
@@ -695,7 +699,11 @@ function Stat({ label, value, cls }: { label: string; value: string; cls: string
 
 function RiverChart({
   probSeries,
+  btcCandles,
+  btcMark,
+  strike,
   settleTs,
+  now,
   userPrice,
   yesCents,
   setConvictionPct,
@@ -706,7 +714,11 @@ function RiverChart({
   hyperoddCents,
 }: {
   probSeries: { x: number; p: number }[];
+  btcCandles: Candle[];
+  btcMark: number | null;
+  strike: number | null;
   settleTs: number;
+  now: number;
   userPrice: number;
   yesCents: number;
   setConvictionPct: (n: number | null) => void;
@@ -716,13 +728,26 @@ function RiverChart({
   polyStrike: number | null;
   hyperoddCents: number | null;
 }) {
-  // map prob series to viewbox 0..800 × 0..360 (top=100¢, bottom=0¢)
   const W = 800;
   const H = 360;
+
+  // X-axis spans the contract's actual lifetime: 24h ending at settleTs.
+  // This way the chart reads as "open → settle" and an in-progress market
+  // shows a clear NOW marker, not a half-empty canvas.
+  const tMin = settleTs - 24 * 60 * 60 * 1000;
+  const tMax = settleTs;
+
+  // BTC y-axis: centered on strike, ±$1500 — covers ~2% daily moves cleanly.
+  const btcRange = 1500;
+  const btcYMin = strike != null ? strike - btcRange : 80000;
+  const btcYMax = strike != null ? strike + btcRange : 82000;
+  const btcToY = (price: number) => {
+    const t = (price - btcYMin) / (btcYMax - btcYMin);
+    return H - Math.max(0, Math.min(1, t)) * H;
+  };
+
   const points = useMemo(() => {
-    if (!probSeries.length) return "";
-    const tMin = probSeries[0].x;
-    const tMax = settleTs - 15 * 60 * 1000; // right edge ≈ now
+    if (!probSeries.length || !Number.isFinite(tMin) || tMax <= tMin) return "";
     return probSeries
       .map((d) => {
         const x = ((d.x - tMin) / (tMax - tMin)) * W;
@@ -730,15 +755,32 @@ function RiverChart({
         return `${x.toFixed(1)},${y.toFixed(1)}`;
       })
       .join(" ");
-  }, [probSeries, settleTs]);
+  }, [probSeries, tMin, tMax]);
+
+  const btcPoints = useMemo(() => {
+    if (!btcCandles.length || strike == null) return "";
+    return btcCandles
+      .filter((c) => c.t >= tMin && c.t <= tMax)
+      .map((c) => {
+        const x = ((c.t - tMin) / (tMax - tMin)) * W;
+        const y = btcToY(parseFloat(c.c));
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [btcCandles, strike, tMin, tMax]);
 
   const areaPath = useMemo(() => {
     if (!points) return "";
     const pts = points.split(" ");
-    return `M ${pts[0]} L ${pts.slice(1).join(" L ")} L ${W},${H} L 0,${H} Z`;
+    return `M ${pts[0]} L ${pts.slice(1).join(" L ")} L ${pts[pts.length - 1].split(",")[0]},${H} L ${pts[0].split(",")[0]},${H} Z`;
   }, [points]);
 
-  // current end of line position for the dashed projection
+  // Where "now" lands on the chart
+  const nowX = now > 0 ? ((now - tMin) / (tMax - tMin)) * W : null;
+  // strike line in BTC scale → at exactly the middle of the chart (y = H/2 by construction)
+  const strikeY = H / 2;
+
   const endY = H - (yesCents / 100) * H;
   const userY = H - (userPrice / 100) * H;
   const kalshiY = kalshiCents != null ? H - (kalshiCents / 100) * H : null;
@@ -776,37 +818,158 @@ function RiverChart({
             <line x1="0" y1={H * 0.5} x2={W} y2={H * 0.5} stroke="#1a2428" strokeDasharray="2,4" />
             <line x1="0" y1={H * 0.75} x2={W} y2={H * 0.75} stroke="#1a2428" strokeDasharray="2,4" />
             <line x1="0" y1={H} x2={W} y2={H} stroke="#1a2428" />
+            {/* BTC price line — drawn first so it sits behind the probability river */}
+            {btcPoints && (
+              <polyline
+                fill="none"
+                stroke="#f5a524"
+                strokeWidth="1.4"
+                strokeDasharray="0"
+                opacity="0.5"
+                points={btcPoints}
+              />
+            )}
+
+            {/* Strike reference (horizontal line at strike on BTC scale = middle of chart) */}
+            {strike != null && (
+              <>
+                <line
+                  x1="0"
+                  y1={strikeY}
+                  x2={W}
+                  y2={strikeY}
+                  stroke="#f5a524"
+                  strokeWidth="1"
+                  strokeDasharray="4,4"
+                  opacity="0.35"
+                />
+              </>
+            )}
+
             {points && <path d={areaPath} fill="url(#rgrad)" />}
-            {points && <polyline fill="none" stroke="#4ade80" strokeWidth="2.2" points={points} />}
+            {points && <polyline fill="none" stroke="#4ade80" strokeWidth="2.4" points={points} />}
+
+            {/* NOW vertical line */}
+            {nowX != null && nowX > 0 && nowX < W && (
+              <>
+                <line
+                  x1={nowX}
+                  y1="0"
+                  x2={nowX}
+                  y2={H}
+                  stroke="#e4f0f4"
+                  strokeWidth="1"
+                  strokeDasharray="3,3"
+                  opacity="0.35"
+                />
+              </>
+            )}
 
             {/* Kalshi reference line (yellow dashed) — last trade price for closest strike */}
             {kalshiY != null && (
-              <line x1="0" y1={kalshiY} x2={W} y2={kalshiY} stroke="#f5a524" strokeWidth="1.4" strokeDasharray="6,4" opacity="0.7" />
+              <line x1="0" y1={kalshiY} x2={W} y2={kalshiY} stroke="#f5a524" strokeWidth="1.2" strokeDasharray="6,4" opacity="0.55" />
             )}
-            {/* Polymarket reference line (purple dashed) — YES outcome price */}
+            {/* Polymarket reference line (purple dashed) */}
             {polyY != null && (
-              <line x1="0" y1={polyY} x2={W} y2={polyY} stroke="#a371f7" strokeWidth="1.4" strokeDasharray="6,4" opacity="0.7" />
+              <line x1="0" y1={polyY} x2={W} y2={polyY} stroke="#a371f7" strokeWidth="1.2" strokeDasharray="6,4" opacity="0.55" />
             )}
-            {/* HyperOdd testnet reference line (cyan solid) — actual HL prediction-perp mark */}
+            {/* HIP-4 live mark (cyan dotted) */}
             {hyperoddY != null && (
               <line x1="0" y1={hyperoddY} x2={W} y2={hyperoddY} stroke="#00f0ff" strokeWidth="1.6" strokeDasharray="2,3" opacity="0.85" />
             )}
           </svg>
 
-          {/* y-axis */}
+          {/* RIGHT y-axis — probability (green) */}
           <div
             className="absolute right-0 top-0 bottom-4 flex flex-col justify-between items-end mono"
             style={{ width: 32, fontSize: 10, color: "var(--hl-muted)", padding: "2px 6px", pointerEvents: "none" }}
           >
-            <span>100¢</span><span>75¢</span><span>50¢</span><span>25¢</span><span>0¢</span>
+            <span style={{ color: "var(--hl-green)" }}>100¢</span>
+            <span>75¢</span>
+            <span>50¢</span>
+            <span>25¢</span>
+            <span style={{ color: "var(--hl-green)" }}>0¢</span>
           </div>
 
-          {/* x-axis */}
+          {/* LEFT y-axis — BTC price (orange) — labelled at strike ±$1500 */}
+          {strike != null && (
+            <div
+              className="absolute left-0 top-0 bottom-4 flex flex-col justify-between mono"
+              style={{ width: 60, fontSize: 9, color: "var(--hl-yellow)", padding: "2px 4px", pointerEvents: "none", opacity: 0.7 }}
+            >
+              <span>${(strike + 1500).toLocaleString()}</span>
+              <span>${(strike + 750).toLocaleString()}</span>
+              <span style={{ color: "var(--hl-yellow)", fontWeight: 700 }}>${strike.toLocaleString()} ◀ strike</span>
+              <span>${(strike - 750).toLocaleString()}</span>
+              <span>${(strike - 1500).toLocaleString()}</span>
+            </div>
+          )}
+
+          {/* NOW label above the vertical line */}
+          {nowX != null && nowX > 30 && nowX < W - 30 && (
+            <div
+              className="absolute mono"
+              style={{
+                left: `${(nowX / W) * 100}%`,
+                top: 4,
+                transform: "translateX(-50%)",
+                fontSize: 9,
+                color: "var(--foreground)",
+                background: "var(--hl-surface)",
+                padding: "1px 6px",
+                borderRadius: 2,
+                border: "1px solid var(--hl-border)",
+                pointerEvents: "none",
+                letterSpacing: 0.4,
+              }}
+            >
+              NOW
+            </div>
+          )}
+
+          {/* BTC mark callout — current price at the right edge of where data ends */}
+          {btcMark != null && (
+            <div
+              className="absolute mono"
+              style={{
+                left: nowX != null ? `${(nowX / W) * 100}%` : "auto",
+                right: nowX != null ? "auto" : 64,
+                top: `${(btcToY(btcMark) / H) * 100}%`,
+                transform: "translate(-100%, -50%)",
+                marginLeft: -6,
+                background: "var(--hl-yellow)",
+                color: "var(--background)",
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: 2,
+                whiteSpace: "nowrap",
+                pointerEvents: "none",
+                zIndex: 4,
+              }}
+            >
+              BTC ${btcMark.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </div>
+          )}
+
+          {/* x-axis — contract lifetime: open → settle */}
           <div
-            className="absolute left-0 bottom-0 flex justify-between mono"
-            style={{ right: 32, height: 16, fontSize: 9, color: "var(--hl-muted)", paddingTop: 4, borderTop: "1px solid var(--hl-border)" }}
+            className="absolute bottom-0 flex justify-between mono"
+            style={{
+              left: strike != null ? 60 : 0,
+              right: 32,
+              height: 16,
+              fontSize: 9,
+              color: "var(--hl-muted)",
+              paddingTop: 4,
+              borderTop: "1px solid var(--hl-border)",
+            }}
           >
-            <span>−24h</span><span>−18h</span><span>−12h</span><span>−6h</span><span>now ▶</span>
+            <span>open · 06:00 UTC</span>
+            <span>−18h</span>
+            <span>−12h</span>
+            <span>−6h</span>
+            <span>settle ▶</span>
           </div>
 
           {/* dashed forward arc from line end → user thumb */}
@@ -894,10 +1057,25 @@ function RiverChart({
           )}
         </div>
 
-        <div className="flex flex-wrap gap-3 mt-2 pt-2 text-[10px]" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
-          <span>Click chart to set conviction · cyan dot = your YES price</span>
+        <div className="flex flex-wrap gap-3 mt-2 pt-2 text-[10px] items-center" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
+          <span className="inline-flex items-center gap-1">
+            <span style={{ width: 14, height: 2, background: "var(--hl-green)", display: "inline-block" }}></span>
+            YES probability (#250 mark)
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span style={{ width: 14, height: 2, background: "var(--hl-yellow)", display: "inline-block", opacity: 0.6 }}></span>
+            BTC mark
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span style={{ width: 14, height: 1, borderTop: "1.5px dashed var(--hl-yellow)", display: "inline-block", opacity: 0.5 }}></span>
+            strike
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span style={{ width: 14, height: 0, borderTop: "1.5px dashed var(--foreground)", display: "inline-block", opacity: 0.5 }}></span>
+            now
+          </span>
           <span style={{ marginLeft: "auto", color: "var(--hl-text)" }}>
-            line = implied YES probability over last 24h based on actual BTC closes vs strike
+            Drag the cyan dot to set your conviction · BTC drives the river
           </span>
         </div>
       </div>
