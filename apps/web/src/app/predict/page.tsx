@@ -343,7 +343,9 @@ export default function PredictPage() {
         if (!res.ok) return;
         const data = (await res.json()) as HyperOddTrade[];
         if (cancelled || !Array.isArray(data)) return;
-        setHyperodd((s) => ({ ...s, trades: data.slice(0, 20) }));
+        // Keep up to 100 — we'll filter to the chart window + pick biggest
+        // notionals for the whale icons.
+        setHyperodd((s) => ({ ...s, trades: data.slice(0, 100) }));
       } catch { /* ignore */ }
     };
 
@@ -636,6 +638,7 @@ export default function PredictPage() {
             polyCents={compare?.polymarket.available && compare.polymarket.yesPrice != null ? Math.round(compare.polymarket.yesPrice * 100) : null}
             polyStrike={compare?.polymarket.matchedStrike ?? null}
             hyperoddCents={hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : null}
+            trades={hyperodd.trades}
           />
           <LiveOrderBook hyperodd={hyperodd} yesCents={yesCents} now={now} />
         </div>
@@ -712,6 +715,7 @@ function RiverChart({
   polyCents,
   polyStrike,
   hyperoddCents,
+  trades,
 }: {
   probSeries: { x: number; p: number }[];
   btcCandles: Candle[];
@@ -727,6 +731,7 @@ function RiverChart({
   polyCents: number | null;
   polyStrike: number | null;
   hyperoddCents: number | null;
+  trades: HyperOddTrade[];
 }) {
   const W = 800;
   const H = 360;
@@ -787,6 +792,32 @@ function RiverChart({
   const polyY = polyCents != null ? H - (polyCents / 100) * H : null;
   const hyperoddY = hyperoddCents != null ? H - (hyperoddCents / 100) * H : null;
 
+  // ── Whales — pick the biggest USD trades inside the window, plot at
+  //    (their time, their YES price). Buy YES = green border. Sell = red.
+  const whales = useMemo(() => {
+    if (!trades.length) return [] as { x: number; y: number; usd: number; px: number; sz: number; side: string }[];
+    const inWindow = trades.filter((t) => t.time >= tMin && t.time <= tMax);
+    // top 6 by USD notional, but keep small ones if window is sparse
+    const ranked = [...inWindow]
+      .map((t) => {
+        const px = parseFloat(t.px);
+        const sz = parseFloat(t.sz);
+        const usd = px * sz;
+        return { t, px, sz, usd };
+      })
+      .sort((a, b) => b.usd - a.usd)
+      .slice(0, 6);
+    return ranked.map(({ t, px, sz, usd }) => ({
+      x: ((t.time - tMin) / (tMax - tMin)) * W,
+      y: H - px * H,
+      usd,
+      px,
+      sz,
+      side: t.side,
+    }));
+  }, [trades, tMin, tMax]);
+  const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
+
   // click anywhere on the right edge area to set conviction
   const onChartClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -823,9 +854,9 @@ function RiverChart({
               <polyline
                 fill="none"
                 stroke="#f5a524"
-                strokeWidth="1.4"
+                strokeWidth="1.8"
                 strokeDasharray="0"
-                opacity="0.5"
+                opacity="0.75"
                 points={btcPoints}
               />
             )}
@@ -879,6 +910,112 @@ function RiverChart({
             )}
           </svg>
 
+          {/* ── Whale icons — real on-chain trades plotted at (time, YES px) ── */}
+          {whales.map((w, i) => {
+            const isBuy = w.side === "B" || w.side === "buy";
+            const sizeFactor = Math.min(1, w.usd / maxWhaleUsd);
+            const px = 16 + sizeFactor * 12; // 16-28px diameter
+            const usdStr = w.usd >= 1000 ? `$${(w.usd / 1000).toFixed(1)}K` : `$${w.usd.toFixed(0)}`;
+            return (
+              <div
+                key={i}
+                className="absolute"
+                style={{
+                  left: `${(w.x / W) * 100}%`,
+                  top: `${(w.y / H) * 100}%`,
+                  transform: "translate(-50%, -50%)",
+                  width: px,
+                  height: px,
+                  borderRadius: "50%",
+                  background: "var(--background)",
+                  border: `2px solid ${isBuy ? "var(--hl-green)" : "var(--hl-red)"}`,
+                  boxShadow: `0 0 ${10 + sizeFactor * 12}px ${
+                    isBuy ? "rgba(74,222,128,0.55)" : "rgba(248,113,113,0.55)"
+                  }`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 10 + sizeFactor * 4,
+                  zIndex: 3,
+                  cursor: "pointer",
+                }}
+                title={`${isBuy ? "BUY" : "SELL"} YES · ${w.sz.toFixed(1)} shares @ ${(w.px * 100).toFixed(1)}¢ · ${usdStr}`}
+              >
+                🐋
+                <div
+                  className="absolute mono"
+                  style={{
+                    top: "100%",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    marginTop: 2,
+                    fontSize: 9,
+                    fontWeight: 700,
+                    color: isBuy ? "var(--hl-green)" : "var(--hl-red)",
+                    background: "var(--hl-surface)",
+                    padding: "1px 5px",
+                    borderRadius: 2,
+                    border: `1px solid ${isBuy ? "var(--hl-green)" : "var(--hl-red)"}`,
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {isBuy ? "+" : "−"}{usdStr}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* ── Big inline labels at the right end of EACH line ─────────── */}
+          {/* YES probability endpoint label (green) */}
+          {nowX != null && (
+            <div
+              className="absolute mono"
+              style={{
+                left: `${(nowX / W) * 100}%`,
+                top: `${(endY / H) * 100}%`,
+                transform: "translate(8px, -50%)",
+                background: "var(--hl-green)",
+                color: "#001d0c",
+                padding: "3px 8px",
+                borderRadius: 3,
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: 0.3,
+                whiteSpace: "nowrap",
+                pointerEvents: "none",
+                zIndex: 5,
+                boxShadow: "0 0 10px rgba(74,222,128,0.5)",
+              }}
+            >
+              YES · {yesCents}¢
+            </div>
+          )}
+          {/* BTC mark endpoint label (orange) */}
+          {nowX != null && btcMark != null && (
+            <div
+              className="absolute mono"
+              style={{
+                left: `${(nowX / W) * 100}%`,
+                top: `${(btcToY(btcMark) / H) * 100}%`,
+                transform: "translate(8px, -50%)",
+                background: "var(--hl-yellow)",
+                color: "#1d0606",
+                padding: "3px 8px",
+                borderRadius: 3,
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: 0.3,
+                whiteSpace: "nowrap",
+                pointerEvents: "none",
+                zIndex: 5,
+                boxShadow: "0 0 10px rgba(245,165,36,0.5)",
+              }}
+            >
+              BTC · ${btcMark.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </div>
+          )}
+
           {/* RIGHT y-axis — probability (green) */}
           <div
             className="absolute right-0 top-0 bottom-4 flex flex-col justify-between items-end mono"
@@ -924,31 +1061,6 @@ function RiverChart({
               }}
             >
               NOW
-            </div>
-          )}
-
-          {/* BTC mark callout — current price at the right edge of where data ends */}
-          {btcMark != null && (
-            <div
-              className="absolute mono"
-              style={{
-                left: nowX != null ? `${(nowX / W) * 100}%` : "auto",
-                right: nowX != null ? "auto" : 64,
-                top: `${(btcToY(btcMark) / H) * 100}%`,
-                transform: "translate(-100%, -50%)",
-                marginLeft: -6,
-                background: "var(--hl-yellow)",
-                color: "var(--background)",
-                fontSize: 10,
-                fontWeight: 700,
-                padding: "2px 6px",
-                borderRadius: 2,
-                whiteSpace: "nowrap",
-                pointerEvents: "none",
-                zIndex: 4,
-              }}
-            >
-              BTC ${btcMark.toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </div>
           )}
 
@@ -1057,25 +1169,21 @@ function RiverChart({
           )}
         </div>
 
-        <div className="flex flex-wrap gap-3 mt-2 pt-2 text-[10px] items-center" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
-          <span className="inline-flex items-center gap-1">
-            <span style={{ width: 14, height: 2, background: "var(--hl-green)", display: "inline-block" }}></span>
-            YES probability (#250 mark)
+        <div className="flex flex-wrap gap-4 mt-2 pt-2 text-[10px] items-center" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
+          <span className="inline-flex items-center gap-1.5">
+            <span style={{ width: 18, height: 3, background: "var(--hl-green)", display: "inline-block", borderRadius: 1 }}></span>
+            <b style={{ color: "var(--hl-green)" }}>GREEN</b> = YES probability <span style={{ color: "var(--hl-muted)" }}>(read right y-axis · 0¢-100¢)</span>
           </span>
-          <span className="inline-flex items-center gap-1">
-            <span style={{ width: 14, height: 2, background: "var(--hl-yellow)", display: "inline-block", opacity: 0.6 }}></span>
-            BTC mark
+          <span className="inline-flex items-center gap-1.5">
+            <span style={{ width: 18, height: 3, background: "var(--hl-yellow)", display: "inline-block", borderRadius: 1, opacity: 0.85 }}></span>
+            <b style={{ color: "var(--hl-yellow)" }}>ORANGE</b> = BTC price <span style={{ color: "var(--hl-muted)" }}>(read left y-axis · $)</span>
           </span>
-          <span className="inline-flex items-center gap-1">
-            <span style={{ width: 14, height: 1, borderTop: "1.5px dashed var(--hl-yellow)", display: "inline-block", opacity: 0.5 }}></span>
-            strike
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <span style={{ width: 14, height: 0, borderTop: "1.5px dashed var(--foreground)", display: "inline-block", opacity: 0.5 }}></span>
-            now
+          <span className="inline-flex items-center gap-1.5">
+            <span style={{ fontSize: 12 }}>🐋</span> recent trades
+            <span style={{ color: "var(--hl-muted)" }}>(green=buy YES · red=sell)</span>
           </span>
           <span style={{ marginLeft: "auto", color: "var(--hl-text)" }}>
-            Drag the cyan dot to set your conviction · BTC drives the river
+            Drag cyan dot to set your conviction
           </span>
         </div>
       </div>
