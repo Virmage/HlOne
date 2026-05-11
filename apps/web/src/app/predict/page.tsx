@@ -27,12 +27,11 @@ import { useSearchParams } from "next/navigation";
 const HL_INFO = "https://api.hyperliquid.xyz/info";
 const HL_WS = "wss://api.hyperliquid.xyz/ws";
 
-// HIP-4 outcome markets went live on mainnet. The first (and currently only)
-// binary is outcome 20 — "BTC > $80,657 by 2026-05-11 06:00 UTC". HL encodes
-// outcome shares in `allMids` and l2Book/recentTrades as "#<outcome><side>":
-//   #200 = YES, #201 = NO, etc.
-const HIP4_COIN_YES = "#200";
-const HIP4_COIN_NO = "#201";
+// HIP-4 outcome markets are live. HL encodes outcome shares in
+// allMids / l2Book / recentTrades as "#<outcome><side>" (side 0 = YES, 1 = NO).
+// The active outcome ID rolls each daily settle (06:00 UTC), so we DON'T
+// hardcode it — we discover it live from outcomeMeta on every mount.
+const yesCoinFor = (outcome: number) => `#${outcome}0`;
 
 // ─── synthetic-market math ──────────────────────────────────────────────────
 // GBM implied prob that mark crosses strike by time T given annualised vol σ.
@@ -116,10 +115,12 @@ interface HyperOddState {
   trades: HyperOddTrade[];
   wsConnected: boolean;
   // HIP-4 metadata parsed from outcomeMeta description
+  hip4Outcome: number | null; // the current live binary outcome ID
+  hip4Coin: string | null;    // computed YES coin name e.g. "#250"
   hip4Strike: number | null;
   hip4ExpiryMs: number | null;
   hip4Underlying: string | null;
-  // 24h of probability-river candles for #200
+  // 24h of probability-river candles for the live YES coin
   marketCandles: Candle[];
 }
 
@@ -176,6 +177,8 @@ export default function PredictPage() {
     asks: [],
     trades: [],
     wsConnected: false,
+    hip4Outcome: null,
+    hip4Coin: null,
     hip4Strike: null,
     hip4ExpiryMs: null,
     hip4Underlying: null,
@@ -249,17 +252,13 @@ export default function PredictPage() {
     return () => clearInterval(id);
   }, []);
 
-  // ── LIVE HIP-4 outcome market on mainnet ────────────────────────
-  // outcomeMeta gives us the strike + expiry + underlying.
-  // allMids gives the YES mark for "#200".
-  // l2Book over WS streams live bids/asks.
-  // recentTrades polled every 5s for the tape.
-  // candleSnapshot for "#200" is the actual probability-river history.
+  // ── Step 1: discover the current live HIP-4 binary on mount ──────
+  // The active outcome ID rolls daily (06:00 UTC), so we MUST query
+  // outcomeMeta first and pick whichever outcome currently has
+  // class:priceBinary in its description.
   useEffect(() => {
     let cancelled = false;
-    let ws: WebSocket | null = null;
 
-    // Parse "class:priceBinary|underlying:BTC|expiry:20260511-0600|targetPrice:80657|period:1d"
     const parseHip4Desc = (desc: string) => {
       const parts = Object.fromEntries(
         desc.split("|").map((p) => {
@@ -270,17 +269,13 @@ export default function PredictPage() {
       const expiryStr = parts.expiry as string | undefined;
       let expiryMs: number | null = null;
       if (expiryStr) {
-        // "20260511-0600" → 2026-05-11 06:00 UTC
         const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})$/.exec(expiryStr);
-        if (m) {
-          expiryMs = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
-        }
+        if (m) expiryMs = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
       }
       return {
         strike: parts.targetPrice ? parseFloat(parts.targetPrice) : null,
         underlying: parts.underlying ?? null,
         expiryMs,
-        klass: parts.class ?? null,
       };
     };
 
@@ -293,7 +288,7 @@ export default function PredictPage() {
         });
         if (!res.ok) return;
         const data = (await res.json()) as {
-          outcomes: { outcome: number; name: string; description: string }[];
+          outcomes: { outcome: number; description: string }[];
         };
         const binary = (data.outcomes ?? []).find((o) =>
           (o.description ?? "").includes("priceBinary"),
@@ -302,12 +297,27 @@ export default function PredictPage() {
         const parsed = parseHip4Desc(binary.description);
         setHyperodd((s) => ({
           ...s,
+          hip4Outcome: binary.outcome,
+          hip4Coin: yesCoinFor(binary.outcome),
           hip4Strike: parsed.strike,
           hip4ExpiryMs: parsed.expiryMs,
           hip4Underlying: parsed.underlying,
         }));
       } catch { /* ignore */ }
     };
+
+    fetchOutcomeMeta();
+    // Re-fetch every 60s so a daily rollover during a long session is picked up.
+    const id = setInterval(fetchOutcomeMeta, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  // ── Step 2: once we know the coin, subscribe + poll its data ─────
+  const hip4Coin = hyperodd.hip4Coin;
+  useEffect(() => {
+    if (!hip4Coin) return;
+    let cancelled = false;
+    let ws: WebSocket | null = null;
 
     const fetchMark = async () => {
       try {
@@ -318,10 +328,8 @@ export default function PredictPage() {
         });
         if (!res.ok) return;
         const data = (await res.json()) as Record<string, string>;
-        const yes = data[HIP4_COIN_YES];
-        if (yes && !cancelled) {
-          setHyperodd((s) => ({ ...s, mark: parseFloat(yes) }));
-        }
+        const yes = data[hip4Coin];
+        if (yes && !cancelled) setHyperodd((s) => ({ ...s, mark: parseFloat(yes) }));
       } catch { /* ignore */ }
     };
 
@@ -330,7 +338,7 @@ export default function PredictPage() {
         const res = await fetch(HL_INFO, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "recentTrades", coin: HIP4_COIN_YES }),
+          body: JSON.stringify({ type: "recentTrades", coin: hip4Coin }),
         });
         if (!res.ok) return;
         const data = (await res.json()) as HyperOddTrade[];
@@ -348,7 +356,7 @@ export default function PredictPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             type: "candleSnapshot",
-            req: { coin: HIP4_COIN_YES, interval: "15m", startTime: start, endTime: end },
+            req: { coin: hip4Coin, interval: "15m", startTime: start, endTime: end },
           }),
         });
         if (!res.ok) return;
@@ -358,11 +366,31 @@ export default function PredictPage() {
       } catch { /* ignore */ }
     };
 
-    // Initial fetches + intervals
-    fetchOutcomeMeta();
+    // Also pull the L2 book once via REST so the page renders something
+    // immediately, before the WS connects.
+    const fetchBookOnce = async () => {
+      try {
+        const res = await fetch(HL_INFO, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "l2Book", coin: hip4Coin }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { coin?: string; levels?: BookLevel[][] };
+        const levels = data?.levels ?? [[], []];
+        if (cancelled) return;
+        setHyperodd((s) => ({
+          ...s,
+          bids: (levels[0] as BookLevel[]) ?? [],
+          asks: (levels[1] as BookLevel[]) ?? [],
+        }));
+      } catch { /* ignore */ }
+    };
+
     fetchMark();
     fetchTrades();
     fetchCandles();
+    fetchBookOnce();
     const markId = setInterval(fetchMark, 3000);
     const tradeId = setInterval(fetchTrades, 5000);
     const candleId = setInterval(fetchCandles, 60_000);
@@ -376,7 +404,7 @@ export default function PredictPage() {
           ws?.send(
             JSON.stringify({
               method: "subscribe",
-              subscription: { type: "l2Book", coin: HIP4_COIN_YES },
+              subscription: { type: "l2Book", coin: hip4Coin },
             }),
           );
           if (!cancelled) setHyperodd((s) => ({ ...s, wsConnected: true }));
@@ -385,7 +413,7 @@ export default function PredictPage() {
           if (cancelled) return;
           try {
             const msg = JSON.parse(ev.data);
-            if (msg.channel === "l2Book" && msg.data?.coin === HIP4_COIN_YES) {
+            if (msg.channel === "l2Book" && msg.data?.coin === hip4Coin) {
               const levels = msg.data.levels ?? [[], []];
               setHyperodd((s) => ({
                 ...s,
@@ -415,7 +443,7 @@ export default function PredictPage() {
       clearInterval(candleId);
       if (ws) ws.close();
     };
-  }, []);
+  }, [hip4Coin]);
 
   // poll Kalshi + Polymarket comparison every 8s once strike is known
   useEffect(() => {
@@ -532,7 +560,7 @@ export default function PredictPage() {
         </span>
         <span style={{ color: "var(--hl-text)" }}>
           Book + trades + 24h chart pulled live from the real HIP-4 outcome market{" "}
-          <code className="mono" style={{ color: "var(--hl-accent)" }}>{HIP4_COIN_YES}</code> on HL mainnet. Trade
+          <code className="mono" style={{ color: "var(--hl-accent)" }}>{hyperodd.hip4Coin ?? "loading…"}</code> on HL mainnet. Trade
           execution still disabled — prototype is a reader.
         </span>
         <span
@@ -638,7 +666,7 @@ export default function PredictPage() {
             </div>
             <div className="p-3 text-[11px] leading-relaxed" style={{ color: "var(--hl-muted)" }}>
               <b style={{ color: "var(--hl-green)" }}>HIP-4 went live on mainnet.</b> First market:{" "}
-              <code className="mono" style={{ color: "var(--hl-accent)" }}>{HIP4_COIN_YES}</code> — &quot;BTC closes above
+              <code className="mono" style={{ color: "var(--hl-accent)" }}>{hyperodd.hip4Coin ?? "loading…"}</code> — &quot;BTC closes above
               ${hyperodd.hip4Strike?.toLocaleString() ?? "—"} by{" "}
               {hyperodd.hip4ExpiryMs ? new Date(hyperodd.hip4ExpiryMs).toUTCString().slice(0, 22) : "—"} UTC&quot;.
               <br /><br />
@@ -859,7 +887,7 @@ function RiverChart({
                 fontSize: 9, fontWeight: 700, borderRadius: 2,
                 transform: "translateY(-50%)", whiteSpace: "nowrap", pointerEvents: "none", zIndex: 4,
               }}
-              title={`HIP-4 mainnet ${HIP4_COIN_YES} mark`}
+              title={`HIP-4 mainnet mark`}
             >
               HIP-4 {hyperoddCents}¢
             </div>
@@ -892,7 +920,7 @@ function LiveOrderBook({ hyperodd, yesCents, now }: { hyperodd: HyperOddState; y
       <div className="px-3 py-2 flex items-center gap-3" style={{ borderBottom: "1px solid var(--hl-border)" }}>
         <span className="ptitle">Order book</span>
         <span className="psub">
-          live · <span className="mono">{HIP4_COIN_YES}</span> · HIP-4 mainnet · YES side
+          live · <span className="mono">{hyperodd.hip4Coin ?? "loading…"}</span> · HIP-4 mainnet · YES side
         </span>
         <div className="ml-auto flex gap-3 text-[10px]" style={{ color: "var(--hl-muted)" }}>
           {markCents != null && (
@@ -1261,8 +1289,8 @@ function CompareStrip({
         {hyperoddCents != null ? (
           <>
             <span className="mono font-bold" style={{ color: "var(--hl-accent)", fontSize: 14 }}>{hyperoddCents}¢</span>
-            <span style={{ color: "var(--hl-muted)", fontSize: 10 }} title={HIP4_COIN_YES}>
-              {HIP4_COIN_YES}
+            <span style={{ color: "var(--hl-muted)", fontSize: 10 }} title={hyperodd.hip4Coin ?? "loading…"}>
+              {hyperodd.hip4Coin ?? "loading…"}
             </span>
           </>
         ) : (
