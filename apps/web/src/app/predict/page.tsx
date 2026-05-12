@@ -165,7 +165,8 @@ export default function PredictPage() {
   const [now, setNow] = useState(0);
   const [stake, setStake] = useState("250");
   const [side, setSide] = useState<"yes" | "no">("yes");
-  const [convictionPct, setConvictionPct] = useState<number | null>(null);
+  const [orderType, setOrderType] = useState<"market" | "limit">("market");
+  const [limitPx, setLimitPx] = useState<string>("");
 
   const [compare, setCompare] = useState<CompareData | null>(null);
   const [hyperodd, setHyperodd] = useState<HyperOddState>({
@@ -509,11 +510,21 @@ export default function PredictPage() {
   // to fair-value if HIP-4 candles haven't loaded yet.
   const probSeries = marketProbSeries.length > 0 ? marketProbSeries : fairProbSeries;
 
-  // synthetic conviction price (from drag) — defaults to current YES
-  const userPrice = convictionPct ?? yesCents;
-  const userPriceFraction = userPrice / 100;
+  // Standard order-entry math. For YES side: buying at the best ask (market)
+  // or at the user's limit. For NO: 1 - ask (since NO price + YES price = $1).
+  // Use the HIP-4 live mark if order is "market", else the limit price.
+  const liveMark = hyperodd.mark ?? yesCents / 100;
+  const liveYesAsk = hyperodd.asks[0] ? parseFloat(hyperodd.asks[0].px) : liveMark;
+  const liveYesBid = hyperodd.bids[0] ? parseFloat(hyperodd.bids[0].px) : liveMark;
+  const effectiveYesPx =
+    orderType === "limit" && parseFloat(limitPx) > 0
+      ? parseFloat(limitPx) / 100
+      : side === "yes"
+        ? liveYesAsk
+        : liveYesBid; // buying NO = selling YES, so fill at the bid
+  const userPriceFraction = side === "yes" ? effectiveYesPx : 1 - effectiveYesPx;
   const stakeNum = parseFloat(stake) || 0;
-  const shares = side === "yes" ? stakeNum / userPriceFraction : stakeNum / (1 - userPriceFraction);
+  const shares = userPriceFraction > 0 ? stakeNum / userPriceFraction : 0;
   const maxPayout = shares;
   const profit = maxPayout - stakeNum;
 
@@ -630,14 +641,11 @@ export default function PredictPage() {
             strike={strike}
             settleTs={settleTs}
             now={now}
-            userPrice={userPrice}
             yesCents={yesCents}
-            setConvictionPct={setConvictionPct}
             kalshiCents={compare?.kalshi.available && compare.kalshi.last != null ? Math.round(compare.kalshi.last * 100) : null}
             kalshiStrike={compare?.kalshi.matchedStrike ?? null}
             polyCents={compare?.polymarket.available && compare.polymarket.yesPrice != null ? Math.round(compare.polymarket.yesPrice * 100) : null}
             polyStrike={compare?.polymarket.matchedStrike ?? null}
-            hyperoddCents={hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : null}
             trades={hyperodd.trades}
           />
           <LiveOrderBook hyperodd={hyperodd} yesCents={yesCents} now={now} />
@@ -651,12 +659,16 @@ export default function PredictPage() {
             setStake={setStake}
             side={side}
             setSide={setSide}
-            userPrice={userPrice}
+            orderType={orderType}
+            setOrderType={setOrderType}
+            limitPx={limitPx}
+            setLimitPx={setLimitPx}
+            liveYesBid={liveYesBid}
+            liveYesAsk={liveYesAsk}
+            effectiveYesPx={effectiveYesPx}
             shares={shares}
             maxPayout={maxPayout}
             profit={profit}
-            convictionPct={convictionPct}
-            setConvictionPct={setConvictionPct}
           />
           <div className="panel">
             <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
@@ -707,14 +719,11 @@ function RiverChart({
   strike,
   settleTs,
   now,
-  userPrice,
   yesCents,
-  setConvictionPct,
   kalshiCents,
   kalshiStrike,
   polyCents,
   polyStrike,
-  hyperoddCents,
   trades,
 }: {
   probSeries: { x: number; p: number }[];
@@ -723,14 +732,11 @@ function RiverChart({
   strike: number | null;
   settleTs: number;
   now: number;
-  userPrice: number;
   yesCents: number;
-  setConvictionPct: (n: number | null) => void;
   kalshiCents: number | null;
   kalshiStrike: number | null;
   polyCents: number | null;
   polyStrike: number | null;
-  hyperoddCents: number | null;
   trades: HyperOddTrade[];
 }) {
   const W = 800;
@@ -787,44 +793,51 @@ function RiverChart({
   const strikeY = H / 2;
 
   const endY = H - (yesCents / 100) * H;
-  const userY = H - (userPrice / 100) * H;
   const kalshiY = kalshiCents != null ? H - (kalshiCents / 100) * H : null;
   const polyY = polyCents != null ? H - (polyCents / 100) * H : null;
-  const hyperoddY = hyperoddCents != null ? H - (hyperoddCents / 100) * H : null;
 
-  // ── Whales — pick the biggest USD trades inside the window, plot at
-  //    (their time, their YES price). Buy YES = green border. Sell = red.
+  // ── Whales — aggregate same-direction trades within 30s buckets so the
+  //    chart doesn't pile a dozen tiny prints on the same pixel. Plot the
+  //    biggest 5 aggregates. Buy YES = green border, sell = red.
   const whales = useMemo(() => {
-    if (!trades.length) return [] as { x: number; y: number; usd: number; px: number; sz: number; side: string }[];
+    if (!trades.length) return [] as { x: number; y: number; usd: number; px: number; side: string; count: number }[];
     const inWindow = trades.filter((t) => t.time >= tMin && t.time <= tMax);
-    // top 6 by USD notional, but keep small ones if window is sparse
-    const ranked = [...inWindow]
-      .map((t) => {
-        const px = parseFloat(t.px);
-        const sz = parseFloat(t.sz);
-        const usd = px * sz;
-        return { t, px, sz, usd };
-      })
+    // bucket: same side + same 30s window → aggregate
+    type Agg = { tSum: number; pxSum: number; szSum: number; usd: number; count: number; side: string };
+    const buckets = new Map<string, Agg>();
+    for (const t of inWindow) {
+      const px = parseFloat(t.px);
+      const sz = parseFloat(t.sz);
+      const bucketKey = `${t.side}:${Math.floor(t.time / 30000)}`;
+      const usd = px * sz;
+      const b = buckets.get(bucketKey);
+      if (b) {
+        b.tSum += t.time;
+        b.pxSum += px;
+        b.szSum += sz;
+        b.usd += usd;
+        b.count += 1;
+      } else {
+        buckets.set(bucketKey, { tSum: t.time, pxSum: px, szSum: sz, usd, count: 1, side: t.side });
+      }
+    }
+    const aggs = [...buckets.values()]
       .sort((a, b) => b.usd - a.usd)
-      .slice(0, 6);
-    return ranked.map(({ t, px, sz, usd }) => ({
-      x: ((t.time - tMin) / (tMax - tMin)) * W,
-      y: H - px * H,
-      usd,
-      px,
-      sz,
-      side: t.side,
-    }));
+      .slice(0, 5);
+    return aggs.map((a) => {
+      const t = a.tSum / a.count;
+      const px = a.pxSum / a.count;
+      return {
+        x: ((t - tMin) / (tMax - tMin)) * W,
+        y: H - px * H,
+        usd: a.usd,
+        px,
+        side: a.side,
+        count: a.count,
+      };
+    });
   }, [trades, tMin, tMax]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
-
-  // click anywhere on the right edge area to set conviction
-  const onChartClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const yPx = e.clientY - rect.top;
-    const yPct = 100 - (yPx / rect.height) * 100;
-    setConvictionPct(Math.max(2, Math.min(98, Math.round(yPct))));
-  };
 
   return (
     <div className="panel" style={{ minHeight: 480 }}>
@@ -836,7 +849,7 @@ function RiverChart({
         </div>
       </div>
       <div className="p-3 flex flex-col">
-        <div className="relative" style={{ height: 360 }} onClick={onChartClick}>
+        <div className="relative" style={{ height: 360 }}>
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "calc(100% - 32px)", height: "100%", display: "block" }}>
             <defs>
               <linearGradient id="rgrad" x1="0" y1="0" x2="0" y2="1">
@@ -896,26 +909,24 @@ function RiverChart({
               </>
             )}
 
-            {/* Kalshi reference line (yellow dashed) — last trade price for closest strike */}
-            {kalshiY != null && (
-              <line x1="0" y1={kalshiY} x2={W} y2={kalshiY} stroke="#f5a524" strokeWidth="1.2" strokeDasharray="6,4" opacity="0.55" />
+            {/* Polymarket reference line (purple dashed) — only if it sits at a y meaningfully different from the live YES (skip if within 5¢ to avoid overlap) */}
+            {polyY != null && polyCents != null && Math.abs(polyCents - yesCents) >= 5 && (
+              <line x1="0" y1={polyY} x2={W} y2={polyY} stroke="#a371f7" strokeWidth="1.2" strokeDasharray="6,4" opacity="0.45" />
             )}
-            {/* Polymarket reference line (purple dashed) */}
-            {polyY != null && (
-              <line x1="0" y1={polyY} x2={W} y2={polyY} stroke="#a371f7" strokeWidth="1.2" strokeDasharray="6,4" opacity="0.55" />
-            )}
-            {/* HIP-4 live mark (cyan dotted) */}
-            {hyperoddY != null && (
-              <line x1="0" y1={hyperoddY} x2={W} y2={hyperoddY} stroke="#00f0ff" strokeWidth="1.6" strokeDasharray="2,3" opacity="0.85" />
+            {/* Kalshi reference line (yellow dashed) — only if meaningfully different from the live YES */}
+            {kalshiY != null && kalshiCents != null && Math.abs(kalshiCents - yesCents) >= 5 && (
+              <line x1="0" y1={kalshiY} x2={W} y2={kalshiY} stroke="#f5a524" strokeWidth="1.2" strokeDasharray="6,4" opacity="0.45" />
             )}
           </svg>
 
-          {/* ── Whale icons — real on-chain trades plotted at (time, YES px) ── */}
+          {/* ── Trade-flow icons — aggregated within 30s buckets so we don't
+                pile dozens of $5 prints on one pixel. Bigger circle = more $$. ── */}
           {whales.map((w, i) => {
             const isBuy = w.side === "B" || w.side === "buy";
             const sizeFactor = Math.min(1, w.usd / maxWhaleUsd);
-            const px = 16 + sizeFactor * 12; // 16-28px diameter
+            const px = 14 + sizeFactor * 14; // 14-28px diameter
             const usdStr = w.usd >= 1000 ? `$${(w.usd / 1000).toFixed(1)}K` : `$${w.usd.toFixed(0)}`;
+            const countSuffix = w.count > 1 ? `×${w.count}` : "";
             return (
               <div
                 key={i}
@@ -929,17 +940,17 @@ function RiverChart({
                   borderRadius: "50%",
                   background: "var(--background)",
                   border: `2px solid ${isBuy ? "var(--hl-green)" : "var(--hl-red)"}`,
-                  boxShadow: `0 0 ${10 + sizeFactor * 12}px ${
-                    isBuy ? "rgba(74,222,128,0.55)" : "rgba(248,113,113,0.55)"
+                  boxShadow: `0 0 ${8 + sizeFactor * 12}px ${
+                    isBuy ? "rgba(74,222,128,0.4)" : "rgba(248,113,113,0.4)"
                   }`,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: 10 + sizeFactor * 4,
+                  fontSize: 9 + sizeFactor * 4,
                   zIndex: 3,
                   cursor: "pointer",
                 }}
-                title={`${isBuy ? "BUY" : "SELL"} YES · ${w.sz.toFixed(1)} shares @ ${(w.px * 100).toFixed(1)}¢ · ${usdStr}`}
+                title={`${isBuy ? "BUY" : "SELL"} YES · ${w.count} trade${w.count > 1 ? "s" : ""} @ ~${(w.px * 100).toFixed(1)}¢ · total ${usdStr}`}
               >
                 🐋
                 <div
@@ -960,7 +971,7 @@ function RiverChart({
                     pointerEvents: "none",
                   }}
                 >
-                  {isBuy ? "+" : "−"}{usdStr}
+                  {isBuy ? "+" : "−"}{usdStr}{countSuffix}
                 </div>
               </div>
             );
@@ -1084,41 +1095,7 @@ function RiverChart({
             <span>settle ▶</span>
           </div>
 
-          {/* dashed forward arc from line end → user thumb */}
-          <svg
-            className="absolute pointer-events-none"
-            style={{ right: 32, top: 0, width: 80, height: "100%" }}
-            viewBox={`0 0 80 ${H}`}
-            preserveAspectRatio="none"
-          >
-            <path d={`M0,${endY} C20,${endY - (endY - userY) * 0.3} 40,${userY + (endY - userY) * 0.3} 60,${userY}`}
-              stroke="#00f0ff" strokeWidth="1.6" strokeDasharray="3,3" fill="none" opacity="0.7"
-            />
-          </svg>
-
-          {/* conviction thumb */}
-          <div
-            className="absolute"
-            style={{
-              right: 32, width: 14, height: 14, borderRadius: "50%",
-              background: "var(--hl-accent)",
-              boxShadow: "0 0 12px rgba(0,240,255,0.8), inset 0 0 0 2px var(--background)",
-              transform: "translate(50%, -50%)", zIndex: 4,
-              top: `${(userY / H) * 100}%`,
-              transition: "top 0.12s ease",
-            }}
-          />
-          <div
-            className="absolute mono"
-            style={{
-              right: 50, top: `${(userY / H) * 100}%`,
-              padding: "2px 7px", background: "var(--hl-accent)", color: "var(--background)",
-              fontSize: 10, fontWeight: 700, borderRadius: 3,
-              transform: "translateY(-50%)", whiteSpace: "nowrap", pointerEvents: "none", zIndex: 4,
-            }}
-          >
-            YOU {userPrice}¢
-          </div>
+          {/* Conviction thumb + arc removed — order entry uses standard limit/market panel */}
 
           {/* Kalshi label on the right edge */}
           {kalshiCents != null && kalshiY != null && (
@@ -1152,39 +1129,34 @@ function RiverChart({
             </div>
           )}
 
-          {/* HIP-4 live mark label */}
-          {hyperoddCents != null && hyperoddY != null && (
-            <div
-              className="absolute mono"
-              style={{
-                right: 0, top: `${(hyperoddY / H) * 100}%`,
-                padding: "2px 6px", background: "var(--hl-accent)", color: "var(--background)",
-                fontSize: 9, fontWeight: 700, borderRadius: 2,
-                transform: "translateY(-50%)", whiteSpace: "nowrap", pointerEvents: "none", zIndex: 4,
-              }}
-              title={`HIP-4 mainnet mark`}
-            >
-              HIP-4 {hyperoddCents}¢
-            </div>
-          )}
+          {/* HIP-4 horizontal label removed — the green river IS the HIP-4 mark; no need for a separate horizontal line. */}
         </div>
 
         <div className="flex flex-wrap gap-4 mt-2 pt-2 text-[10px] items-center" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
           <span className="inline-flex items-center gap-1.5">
             <span style={{ width: 18, height: 3, background: "var(--hl-green)", display: "inline-block", borderRadius: 1 }}></span>
-            <b style={{ color: "var(--hl-green)" }}>GREEN</b> = YES probability <span style={{ color: "var(--hl-muted)" }}>(read right y-axis · 0¢-100¢)</span>
+            <b style={{ color: "var(--hl-green)" }}>YES probability</b> <span style={{ color: "var(--hl-muted)" }}>· right axis 0¢-100¢</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span style={{ width: 18, height: 3, background: "var(--hl-yellow)", display: "inline-block", borderRadius: 1, opacity: 0.85 }}></span>
-            <b style={{ color: "var(--hl-yellow)" }}>ORANGE</b> = BTC price <span style={{ color: "var(--hl-muted)" }}>(read left y-axis · $)</span>
+            <b style={{ color: "var(--hl-yellow)" }}>BTC price</b> <span style={{ color: "var(--hl-muted)" }}>· left axis $</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span style={{ fontSize: 12 }}>🐋</span> recent trades
-            <span style={{ color: "var(--hl-muted)" }}>(green=buy YES · red=sell)</span>
+            <span style={{ fontSize: 12 }}>🐋</span>
+            <b>trade flow</b> <span style={{ color: "var(--hl-muted)" }}>· green=buy YES · red=sell · 30s buckets</span>
           </span>
-          <span style={{ marginLeft: "auto", color: "var(--hl-text)" }}>
-            Drag cyan dot to set your conviction
-          </span>
+          {kalshiCents != null && (
+            <span className="inline-flex items-center gap-1.5">
+              <span style={{ width: 14, height: 0, borderTop: "1.5px dashed var(--hl-yellow)", display: "inline-block", opacity: 0.6 }}></span>
+              Kalshi <b className="mono" style={{ color: "var(--hl-yellow)" }}>{kalshiCents}¢</b>
+            </span>
+          )}
+          {polyCents != null && (
+            <span className="inline-flex items-center gap-1.5">
+              <span style={{ width: 14, height: 0, borderTop: "1.5px dashed var(--hl-purple)", display: "inline-block", opacity: 0.6 }}></span>
+              Polymarket <b className="mono" style={{ color: "var(--hl-purple)" }}>{polyCents}¢</b>
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -1403,12 +1375,16 @@ function TradePanel({
   setStake,
   side,
   setSide,
-  userPrice,
+  orderType,
+  setOrderType,
+  limitPx,
+  setLimitPx,
+  liveYesBid,
+  liveYesAsk,
+  effectiveYesPx,
   shares,
   maxPayout,
   profit,
-  convictionPct,
-  setConvictionPct,
 }: {
   yesCents: number;
   noCents: number;
@@ -1416,22 +1392,35 @@ function TradePanel({
   setStake: (s: string) => void;
   side: "yes" | "no";
   setSide: (s: "yes" | "no") => void;
-  userPrice: number;
+  orderType: "market" | "limit";
+  setOrderType: (t: "market" | "limit") => void;
+  limitPx: string;
+  setLimitPx: (s: string) => void;
+  liveYesBid: number;
+  liveYesAsk: number;
+  effectiveYesPx: number;
   shares: number;
   maxPayout: number;
   profit: number;
-  convictionPct: number | null;
-  setConvictionPct: (n: number | null) => void;
 }) {
-  const edge = userPrice - yesCents;
+  const fillPriceCents = side === "yes" ? effectiveYesPx * 100 : (1 - effectiveYesPx) * 100;
+  const bestForSide = side === "yes" ? liveYesAsk * 100 : (1 - liveYesBid) * 100;
+  const slippageBps =
+    orderType === "limit" && parseFloat(limitPx) > 0
+      ? Math.abs(fillPriceCents - bestForSide) * 100 // bps approx
+      : 0;
 
   return (
     <div className="panel">
       <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
-        <span className="ptitle">Send conviction</span>
-        <span className="psub ml-auto">drag dot on chart to set price</span>
+        <span className="ptitle">Order entry</span>
+        <span className="psub ml-auto">
+          best bid {(liveYesBid * 100).toFixed(1)}¢ · ask {(liveYesAsk * 100).toFixed(1)}¢
+        </span>
       </div>
       <div className="p-3 flex flex-col gap-2">
+
+        {/* YES / NO side */}
         <div className="grid grid-cols-2 gap-1 p-1" style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}>
           <button
             onClick={() => setSide("yes")}
@@ -1442,7 +1431,7 @@ function TradePanel({
               borderRadius: 2,
             }}
           >
-            YES
+            BUY YES
             <span className="mono text-[14px]">{yesCents}¢</span>
           </button>
           <button
@@ -1454,25 +1443,56 @@ function TradePanel({
               borderRadius: 2,
             }}
           >
-            NO
+            BUY NO
             <span className="mono text-[14px]">{noCents}¢</span>
           </button>
         </div>
 
-        <div
-          className="px-2 py-2 flex items-center gap-2 text-[11px]"
-          style={{ background: "rgba(0,240,255,0.06)", border: "1px solid rgba(0,240,255,0.2)" }}
-        >
-          <span style={{ color: "var(--hl-text)" }}>Your price</span>
-          <span className="text-[10px]" style={{ color: "var(--hl-muted)" }}>vs market {yesCents}¢</span>
-          <span className="ml-auto mono text-[16px] font-bold" style={{ color: "var(--hl-accent)" }}>{userPrice}¢</span>
-          {convictionPct !== null && (
-            <button onClick={() => setConvictionPct(null)} className="text-[10px]" style={{ color: "var(--hl-muted)" }}>reset</button>
-          )}
+        {/* Market / Limit toggle */}
+        <div className="grid grid-cols-2 gap-1 p-1" style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}>
+          <button
+            onClick={() => setOrderType("market")}
+            className="py-1.5 text-[10px] font-semibold"
+            style={{
+              background: orderType === "market" ? "var(--hl-surface-hover)" : "transparent",
+              color: orderType === "market" ? "var(--foreground)" : "var(--hl-muted)",
+              borderRadius: 2,
+            }}
+          >
+            MARKET
+          </button>
+          <button
+            onClick={() => setOrderType("limit")}
+            className="py-1.5 text-[10px] font-semibold"
+            style={{
+              background: orderType === "limit" ? "var(--hl-surface-hover)" : "transparent",
+              color: orderType === "limit" ? "var(--foreground)" : "var(--hl-muted)",
+              borderRadius: 2,
+            }}
+          >
+            LIMIT
+          </button>
         </div>
 
+        {/* Limit price input — only when limit selected */}
+        {orderType === "limit" && (
+          <div className="flex items-center gap-2 px-2 py-1.5" style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}>
+            <span className="cellL">Limit ¢</span>
+            <input
+              type="text"
+              value={limitPx}
+              placeholder={side === "yes" ? (liveYesAsk * 100).toFixed(1) : ((1 - liveYesBid) * 100).toFixed(1)}
+              onChange={(e) => setLimitPx(e.target.value.replace(/[^\d.]/g, ""))}
+              className="flex-1 min-w-0 bg-transparent border-none outline-none mono text-right text-[16px] font-semibold"
+              style={{ color: "var(--foreground)" }}
+            />
+            <span className="mono text-[10px]" style={{ color: "var(--hl-muted)" }}>¢ per share</span>
+          </div>
+        )}
+
+        {/* Size input */}
         <div className="flex items-center gap-2 px-2 py-1.5" style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}>
-          <span className="cellL">Stake</span>
+          <span className="cellL">Size</span>
           <input
             type="text"
             value={stake}
@@ -1496,9 +1516,13 @@ function TradePanel({
           ))}
         </div>
 
+        {/* Summary */}
         <div className="px-2 py-2" style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}>
+          <SumRow l={orderType === "market" ? "Avg fill" : "Limit price"} v={`${fillPriceCents.toFixed(1)}¢`} />
           <SumRow l="Shares" v={shares.toFixed(0)} />
-          <SumRow l="Edge vs market" v={`${edge >= 0 ? "+" : ""}${edge}¢`} cls={edge >= 0 ? "text-[var(--hl-accent)]" : "text-[var(--hl-red)]"} />
+          {orderType === "limit" && slippageBps > 0 && (
+            <SumRow l="Distance from best" v={`${Math.abs(fillPriceCents - bestForSide).toFixed(2)}¢`} cls="text-[var(--hl-muted)]" />
+          )}
           <SumRow l="Profit if win" v={`+$${profit.toFixed(2)}`} cls="text-[var(--hl-green)]" />
           <SumRow l="Max payout" v={`$${maxPayout.toFixed(2)}`} total />
         </div>
@@ -1506,12 +1530,15 @@ function TradePanel({
         <button
           className="py-2.5 text-[13px] font-bold tracking-wide"
           style={{ background: side === "yes" ? "var(--hl-green)" : "var(--hl-red)", color: "#001d0c", border: "none" }}
-          onClick={() => alert("Trade execution disabled in prototype.")}
+          onClick={() => alert("Execution wiring lands in the next iteration. Order shape is final.")}
         >
-          {side === "yes" ? `Buy ${shares.toFixed(0)} YES @ ${userPrice}¢ →` : `Buy ${shares.toFixed(0)} NO @ ${userPrice}¢ →`}
+          {orderType === "market"
+            ? `${side === "yes" ? "Buy YES" : "Buy NO"} @ market`
+            : `${side === "yes" ? "Buy YES" : "Buy NO"} @ ${parseFloat(limitPx || "0").toFixed(1)}¢`
+          }
         </button>
         <div className="text-[9px] text-center tracking-wide" style={{ color: "var(--hl-muted)" }}>
-          Synthetic · settles 23:59 UTC · execution disabled
+          Execution disabled in prototype · settles 06:00 UTC tomorrow
         </div>
       </div>
     </div>
