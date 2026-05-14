@@ -615,11 +615,8 @@ export default function PredictPage() {
 
       {/* market strip */}
       <div className="max-w-[1440px] mx-auto px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
-        <div className="flex items-center gap-3 mb-2 flex-wrap">
-          <span className="badge-c">Crypto · Binary · Daily</span>
-          {btcMark ? <span className="badge-l">Live</span> : <span className="badge-d">Loading mark…</span>}
-          <span className="badge-c">HIP-4 · live mainnet</span>
-          <h1 className="text-[17px] font-semibold tracking-tight">
+        <div className="flex items-center gap-4 mb-3 flex-wrap">
+          <h1 className="text-[28px] font-bold tracking-tight leading-tight">
             Will BTC close above ${strike?.toLocaleString() ?? "…"} today?
           </h1>
           <div className="ml-auto flex gap-2">
