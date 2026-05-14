@@ -1534,13 +1534,13 @@ function RiverChart({
           </span>
           {kalshiCents != null && (
             <span className="inline-flex items-center gap-1" title="Linearly interpolated at HIP-4's strike">
-              Kalshi <b className="mono" style={{ color: "var(--hl-yellow)" }}>{kalshiCents}¢</b>
+              Kalshi <b className="mono" style={{ color: "var(--hl-yellow)" }}>{kalshiCents}%</b>
               <span style={{ color: "var(--hl-muted)" }}>@ HL strike (interp)</span>
             </span>
           )}
           {polyCents != null && (
             <span className="inline-flex items-center gap-1" title="Linearly interpolated at HIP-4's strike">
-              Polymarket <b className="mono" style={{ color: "var(--hl-purple)" }}>{polyCents}¢</b>
+              Polymarket <b className="mono" style={{ color: "var(--hl-purple)" }}>{polyCents}%</b>
               <span style={{ color: "var(--hl-muted)" }}>@ HL strike (interp)</span>
             </span>
           )}
@@ -2017,7 +2017,7 @@ function CompareStrip({
       {/* HLOne implied */}
       <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
         <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>HLOne implied</span>
-        <span className="mono font-bold" style={{ color: "var(--hl-green)", fontSize: 14 }}>{yesCents}¢</span>
+        <span className="mono font-bold" style={{ color: "var(--hl-green)", fontSize: 14 }}>{yesCents}%</span>
         {strike && <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>@ ${strike.toLocaleString()}</span>}
       </div>
 
@@ -2026,7 +2026,7 @@ function CompareStrip({
         <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>HIP-4 live</span>
         {hyperoddCents != null ? (
           <>
-            <span className="mono font-bold" style={{ color: "var(--hl-accent)", fontSize: 14 }}>{hyperoddCents}¢</span>
+            <span className="mono font-bold" style={{ color: "var(--hl-accent)", fontSize: 14 }}>{hyperoddCents}%</span>
             <span style={{ color: "var(--hl-muted)", fontSize: 10 }} title={hyperodd.hip4Coin ?? "loading…"}>
               {hyperodd.hip4Coin ?? "loading…"}
             </span>
@@ -2041,16 +2041,16 @@ function CompareStrip({
         <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Kalshi</span>
         {kalshiCents != null ? (
           <>
-            <span className="mono font-bold" style={{ color: "var(--hl-yellow)", fontSize: 14 }}>{kalshiCents}¢</span>
+            <span className="mono font-bold" style={{ color: "var(--hl-yellow)", fontSize: 14 }}>{kalshiCents}%</span>
             {kalshiIsInterpolated && strike ? (
               <span
                 style={{ color: "var(--hl-muted)", fontSize: 10 }}
-                title={`Linearly interpolated at $${strike.toLocaleString()} from Kalshi strikes $${k?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketLowerYes ?? 0) * 100)}¢) and $${k?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketUpperYes ?? 0) * 100)}¢)`}
+                title={`Linearly interpolated at $${strike.toLocaleString()} from Kalshi strikes $${k?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketLowerYes ?? 0) * 100)}%) and $${k?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketUpperYes ?? 0) * 100)}%)`}
               >
                 @ ${strike.toLocaleString()} interp
               </span>
             ) : kalshiBid != null && kalshiAsk != null ? (
-              <span className="mono" style={{ color: "var(--hl-muted)", fontSize: 10 }}>{kalshiBid}/{kalshiAsk}</span>
+              <span className="mono" style={{ color: "var(--hl-muted)", fontSize: 10 }}>{kalshiBid}/{kalshiAsk}%</span>
             ) : null}
           </>
         ) : (
@@ -2063,11 +2063,11 @@ function CompareStrip({
         <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Polymarket</span>
         {polyCents != null ? (
           <>
-            <span className="mono font-bold" style={{ color: "var(--hl-purple)", fontSize: 14 }}>{polyCents}¢</span>
+            <span className="mono font-bold" style={{ color: "var(--hl-purple)", fontSize: 14 }}>{polyCents}%</span>
             {polyIsInterpolated && strike ? (
               <span
                 style={{ color: "var(--hl-muted)", fontSize: 10 }}
-                title={`Linearly interpolated at $${strike.toLocaleString()} from Polymarket strikes $${p?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketLowerYes ?? 0) * 100)}¢) and $${p?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketUpperYes ?? 0) * 100)}¢)`}
+                title={`Linearly interpolated at $${strike.toLocaleString()} from Polymarket strikes $${p?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketLowerYes ?? 0) * 100)}%) and $${p?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketUpperYes ?? 0) * 100)}%)`}
               >
                 @ ${strike.toLocaleString()} interp
               </span>
@@ -2107,7 +2107,7 @@ function CompareStrip({
               }}
             >
               {maxAbs >= 0 ? "+" : ""}
-              {maxAbs}¢
+              {maxAbs} pp
             </span>
             {isEdge && (
               <span
@@ -2121,7 +2121,7 @@ function CompareStrip({
                   fontWeight: 700,
                   letterSpacing: 0.5,
                 }}
-                title="Mispricing > 3¢ vs at least one venue"
+                title="Mispricing > 3 percentage points vs at least one venue"
               >
                 EDGE
               </span>
