@@ -1545,9 +1545,16 @@ function RiverChart({
             </span>
             <b style={{ color: "#a371f7" }}>σ√t fair value</b> <span style={{ color: "var(--hl-muted)" }}>· reference</span>
           </span>
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5" title="Solid orange line — live BTC mark over the last 24h. The underlying that drives the YES probability.">
             <span style={{ width: 18, height: 3, background: "var(--hl-yellow)", display: "inline-block", borderRadius: 1, opacity: 0.85 }}></span>
             <b style={{ color: "var(--hl-yellow)" }}>BTC price</b> <span style={{ color: "var(--hl-muted)" }}>· left axis $</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5" title="Horizontal dashed orange line at the strike price. BTC above this line at expiry = YES wins.">
+            <span style={{ display: "inline-flex", gap: 2 }}>
+              <span style={{ width: 5, height: 1.5, background: "var(--hl-yellow)", opacity: 0.45 }}></span>
+              <span style={{ width: 5, height: 1.5, background: "var(--hl-yellow)", opacity: 0.45 }}></span>
+            </span>
+            <b style={{ color: "var(--hl-yellow)", opacity: 0.7 }}>strike</b> <span style={{ color: "var(--hl-muted)" }}>· settle threshold</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span style={{ display: "inline-flex", gap: 1 }}>
