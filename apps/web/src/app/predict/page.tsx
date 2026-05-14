@@ -608,6 +608,16 @@ export default function PredictPage() {
   const distance = btcMark && strike ? strike - btcMark : 0;
   const distancePct = btcMark && strike ? (distance / btcMark) * 100 : 0;
 
+  // Expiry tier — used to show a warning banner as settle nears. Pin risk
+  // and σ√t collapse make the displayed implied prob unreliable in the last
+  // hour, especially the last 15 minutes.
+  const minsToSettle = settleTs > 0 && now > 0 ? (settleTs - now) / 60_000 : Infinity;
+  const expiryTier: "none" | "soon" | "imminent" =
+    minsToSettle <= 0 ? "none" : minsToSettle <= 15 ? "imminent" : minsToSettle <= 60 ? "soon" : "none";
+  // How close BTC is to strike, as % of strike (proxy for pin risk severity)
+  const strikeProximityPct = btcMark && strike ? Math.abs(distancePct) : Infinity;
+  const isPinRisk = expiryTier !== "none" && strikeProximityPct < 0.3;
+
   // ─── render ────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen text-[var(--foreground)]" style={{ background: "var(--background)" }}>
@@ -621,6 +631,11 @@ export default function PredictPage() {
         .badge-l { padding: 2px 7px; border-radius: 3px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(248,113,113,0.1); color: var(--hl-red); }
         .badge-l::before { content: "● "; }
         .badge-d { padding: 2px 7px; border-radius: 3px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(245,165,36,0.12); color: var(--hl-yellow); }
+        @keyframes expiry-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.55; }
+        }
+        .expiry-pulse { animation: expiry-pulse 1.2s ease-in-out infinite; }
       `}</style>
 
       {/* LIVE banner */}
@@ -646,6 +661,49 @@ export default function PredictPage() {
           {hyperodd.wsConnected ? "● ws live" : "○ ws connecting…"}
         </span>
       </div>
+
+      {/* Expiry warning — only shown when contract is within 60 min of settle */}
+      {expiryTier !== "none" && (
+        <div
+          className={`max-w-[1440px] mx-auto px-4 py-2 flex items-center gap-3 text-[11px] ${expiryTier === "imminent" ? "expiry-pulse" : ""}`}
+          style={{
+            background: expiryTier === "imminent" ? "rgba(248,113,113,0.12)" : "rgba(245,165,36,0.1)",
+            borderBottom: `1px solid ${expiryTier === "imminent" ? "rgba(248,113,113,0.4)" : "rgba(245,165,36,0.3)"}`,
+          }}
+        >
+          <span
+            className="mono font-bold"
+            style={{
+              color: expiryTier === "imminent" ? "var(--hl-red)" : "var(--hl-yellow)",
+              letterSpacing: 0.6,
+              fontSize: 10,
+            }}
+          >
+            {expiryTier === "imminent" ? "⚠ EXPIRING NOW" : "⏱ EXPIRING SOON"}
+          </span>
+          <span style={{ color: "var(--hl-text)" }}>
+            Settles in <b className="mono">{fmtCountdown(settleTs - now)}</b>.
+            {expiryTier === "imminent"
+              ? " Expect pin risk and rapid YES/NO whipsaws as BTC oscillates around the strike. σ-implied prob is no longer meaningful — trust the live order book and recent trades only."
+              : " The σ-implied probability becomes unreliable as time decays — use the live HIP-4 mark, not the fair-value reference, for decision-making."}
+            {isPinRisk && (
+              <span style={{ color: "var(--hl-red)", fontWeight: 600, marginLeft: 8 }}>
+                BTC is within {strikeProximityPct.toFixed(2)}% of strike — pin risk active.
+              </span>
+            )}
+          </span>
+          <span
+            className="ml-auto mono"
+            style={{
+              color: expiryTier === "imminent" ? "var(--hl-red)" : "var(--hl-yellow)",
+              fontSize: 14,
+              fontWeight: 700,
+            }}
+          >
+            {fmtCountdown(settleTs - now)}
+          </span>
+        </div>
+      )}
 
       {/* market strip */}
       <div className="max-w-[1440px] mx-auto px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
@@ -687,7 +745,19 @@ export default function PredictPage() {
               ? <>needs <b className="mono" style={{ color: "var(--hl-yellow)" }}>+${distance.toFixed(0)} ({distancePct.toFixed(2)}%)</b> to settle <b style={{ color: "var(--hl-green)" }}>YES</b></>
               : <>currently <b className="mono" style={{ color: "var(--hl-green)" }}>${Math.abs(distance).toFixed(0)} above</b> strike — must hold for <b style={{ color: "var(--hl-green)" }}>YES</b></>}
           </span>
-          <span className="ml-auto" style={{ color: "var(--hl-muted)" }}>
+          <span
+            className="ml-auto"
+            style={{
+              color: "var(--hl-muted)",
+              opacity: expiryTier === "imminent" ? 0.4 : 1,
+              textDecoration: expiryTier === "imminent" ? "line-through" : "none",
+            }}
+            title={
+              expiryTier === "imminent"
+                ? "Unreliable — σ√t collapses to ~0 near expiry. Trust the live HIP-4 mark instead."
+                : undefined
+            }
+          >
             Implied prob: <b className="mono" style={{ color: "var(--hl-green)" }}>{(yesProb * 100).toFixed(1)}%</b> · σ·√t at 65% annual vol
           </span>
         </div>
