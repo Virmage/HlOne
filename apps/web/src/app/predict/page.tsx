@@ -562,13 +562,20 @@ export default function PredictPage() {
   }, [hyperodd.hip4ExpiryMs, now]);
   const hoursToSettle = (settleTs - now) / (60 * 60 * 1000);
 
-  // current YES probability (live)
+  // σ√t fair value — theoretical YES probability given BTC mark + vol model.
+  // Used for the "implied prob" widget and the faded fair-value chart line.
   const yesProb = useMemo(() => {
     if (btcMark == null || strike == null) return 0.5;
     return impliedYesProb(btcMark, strike, hoursToSettle);
   }, [btcMark, strike, hoursToSettle]);
+  const fairCents = Math.round(yesProb * 100);
 
-  const yesCents = Math.round(yesProb * 100);
+  // The ACTUAL YES price — what the live HIP-4 market is trading at right now.
+  // This is what everyday user-facing "YES" displays should use (chart endpoint
+  // chip, order entry side toggle, market-strip YES/NO stats). Falls back to
+  // fair value until the live mark loads.
+  const yesCents =
+    hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : fairCents;
   const noCents = 100 - yesCents;
 
   // Real market probability series — from #200 candles. This is the actual YES
@@ -765,12 +772,12 @@ export default function PredictPage() {
                 : undefined
             }
           >
-            Implied prob: <b className="mono" style={{ color: "var(--hl-green)" }}>{(yesProb * 100).toFixed(1)}%</b> · σ·√t at 65% annual vol
+            Implied prob: <b className="mono" style={{ color: "var(--hl-green)" }}>{(yesProb * 100).toFixed(1)}%</b> · σ·√t at 65% annual vol (theory; market is {yesCents}%)
           </span>
         </div>
 
         {/* Compare strip — HLOne implied vs HL testnet (HyperOdd) vs Kalshi vs Polymarket */}
-        <CompareStrip yesCents={yesCents} compare={compare} strike={strike} hyperodd={hyperodd} now={now} />
+        <CompareStrip fairCents={fairCents} compare={compare} strike={strike} hyperodd={hyperodd} now={now} />
       </div>
 
       {/* main grid */}
@@ -815,7 +822,7 @@ export default function PredictPage() {
             }
             limitOrderSide={orderType === "limit" && parseFloat(limitPx) > 0 ? side : null}
           />
-          <LiveOrderBook hyperodd={hyperodd} yesCents={yesCents} now={now} />
+          <LiveOrderBook hyperodd={hyperodd} fairCents={fairCents} now={now} />
         </div>
 
         <div className="flex flex-col gap-3 min-w-0">
@@ -1665,7 +1672,7 @@ function RiverChart({
   );
 }
 
-function LiveOrderBook({ hyperodd, yesCents, now }: { hyperodd: HyperOddState; yesCents: number; now: number }) {
+function LiveOrderBook({ hyperodd, fairCents, now }: { hyperodd: HyperOddState; fairCents: number; now: number }) {
   const hasBook = hyperodd.bids.length > 0 || hyperodd.asks.length > 0;
   const markCents = hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : null;
   const bestBid = hyperodd.bids[0] ? parseFloat(hyperodd.bids[0].px) : null;
@@ -1727,7 +1734,7 @@ function LiveOrderBook({ hyperodd, yesCents, now }: { hyperodd: HyperOddState; y
             {hyperodd.prevDayMark != null && (
               <span className="cellL" style={{ marginTop: 6 }}>prev {Math.round(hyperodd.prevDayMark * 100)}¢</span>
             )}
-            <span className="cellL" style={{ marginTop: 4, color: "var(--hl-yellow)" }}>HL implied {yesCents}¢</span>
+            <span className="cellL" style={{ marginTop: 4, color: "var(--hl-yellow)" }}>HL implied {fairCents}¢</span>
           </div>
           <div
             className="flex items-center justify-center p-6 text-[11px] text-center"
@@ -2048,13 +2055,13 @@ function TradePanel({
 }
 
 function CompareStrip({
-  yesCents,
+  fairCents,
   compare,
   strike,
   hyperodd,
   now,
 }: {
-  yesCents: number;
+  fairCents: number;  // σ√t fair value (HLOne implied — what THEORY says)
   compare: CompareData | null;
   strike: number | null;
   hyperodd: HyperOddState;
@@ -2107,7 +2114,7 @@ function CompareStrip({
   // and Polymarket only — HLOne fair is theoretical, not a venue you can
   // trade against. Time-aware threshold: tighter near expiry where pin
   // risk dominates and small noise can produce misleading EDGE flags.
-  const fairGap = hyperoddCents != null ? yesCents - hyperoddCents : null;
+  const fairGap = hyperoddCents != null ? fairCents - hyperoddCents : null;
   const kalshiGap = hyperoddCents != null && kalshiCents != null ? kalshiCents - hyperoddCents : null;
   const polyGap = hyperoddCents != null && polyCents != null ? polyCents - hyperoddCents : null;
 
@@ -2173,7 +2180,7 @@ function CompareStrip({
       {/* HLOne σ√t fair value — gap is theory-vs-market */}
       <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
         <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Fair</span>
-        <span className="mono font-bold" style={{ color: "var(--hl-green)", fontSize: 14 }}>{yesCents}%</span>
+        <span className="mono font-bold" style={{ color: "var(--hl-green)", fontSize: 14 }}>{fairCents}%</span>
         <GapChip gap={fairGap} suffix="theory" />
       </div>
 
