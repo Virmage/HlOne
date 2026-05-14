@@ -973,7 +973,7 @@ function RiverChart({
   limitOrderSide: "yes" | "no" | null;
 }) {
   const W = 800;
-  const H = 360;
+  const H = 420; // bumped from 360 to give whales more vertical room
 
   // X-axis spans the contract's actual lifetime: 24h ending at settleTs.
   // This way the chart reads as "open → settle" and an in-progress market
@@ -1116,7 +1116,31 @@ function RiverChart({
       }
     }
 
-    return [...slots.values()].sort((a, b) => b.usd - a.usd).slice(0, 10);
+    // Take top 7 (was 10 — was crowding too much), then run a simple
+    // collision-avoidance pass: biggest whales keep their actual (time,
+    // price) position; smaller ones get pushed vertically (alternating
+    // up/down) until they no longer overlap a previously-placed whale.
+    // The price tooltip still shows the original price, so the offset is
+    // purely visual.
+    const ranked = [...slots.values()].sort((a, b) => b.usd - a.usd).slice(0, 7);
+    const placed: Whale[] = [];
+    const MIN_GAP_X = 28; // px — roughly one whale diameter
+    const MIN_GAP_Y = 28;
+    for (const w of ranked) {
+      let y = w.y;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const collides = placed.some(
+          (p) => Math.abs(p.x - w.x) < MIN_GAP_X && Math.abs(p.y - y) < MIN_GAP_Y,
+        );
+        if (!collides) break;
+        // Alternate offset up / down, growing magnitude each pair
+        const sign = attempt % 2 === 0 ? -1 : 1;
+        const mag = Math.ceil((attempt + 1) / 2) * MIN_GAP_Y;
+        y = Math.max(20, Math.min(H - 20, w.y + sign * mag));
+      }
+      placed.push({ ...w, y });
+    }
+    return placed;
   }, [trades, marketCandles, tMin, tMax]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
 
@@ -1149,7 +1173,7 @@ function RiverChart({
   const limitY = limitOrderCents != null ? H - (limitOrderCents / 100) * H : null;
 
   return (
-    <div className="panel" style={{ minHeight: 480 }}>
+    <div className="panel" style={{ minHeight: 540 }}>
       <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
         <span className="ptitle">Probability river</span>
         <span className="psub ml-3">live · computed from BTC mark vs strike</span>
@@ -1158,7 +1182,7 @@ function RiverChart({
         </div>
       </div>
       <div className="p-3 flex flex-col">
-        <div className="relative" style={{ height: 360 }}>
+        <div className="relative" style={{ height: 420 }}>
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "calc(100% - 32px)", height: "100%", display: "block" }}>
             <defs>
               <linearGradient id="rgrad" x1="0" y1="0" x2="0" y2="1">
