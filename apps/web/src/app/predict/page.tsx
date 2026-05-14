@@ -1338,19 +1338,21 @@ function RiverChart({
             <line x1="0" y1={H * 0.5} x2={W} y2={H * 0.5} stroke="#1a2428" strokeDasharray="2,4" />
             <line x1="0" y1={H * 0.75} x2={W} y2={H * 0.75} stroke="#1a2428" strokeDasharray="2,4" />
             <line x1="0" y1={H} x2={W} y2={H} stroke="#1a2428" />
-            {/* BTC price line — drawn first so it sits behind the probability river */}
+            {/* BTC price line — true orange, so the legend's "orange line = BTC"
+                actually matches the colour rendered. */}
             {btcPoints && (
               <polyline
                 fill="none"
-                stroke="#f5a524"
+                stroke="#fb923c"
                 strokeWidth="1.8"
                 strokeDasharray="0"
-                opacity="0.75"
+                opacity="0.85"
                 points={btcPoints}
               />
             )}
 
-            {/* Strike reference (horizontal line at strike on BTC scale = middle of chart) */}
+            {/* Strike reference — kept yellow (#f5a524) so it's visually distinct
+                from the BTC line, and matches the "yellow strike threshold" legend. */}
             {strike != null && (
               <>
                 <line
@@ -1361,7 +1363,7 @@ function RiverChart({
                   stroke="#f5a524"
                   strokeWidth="1"
                   strokeDasharray="4,4"
-                  opacity="0.35"
+                  opacity="0.4"
                 />
               </>
             )}
@@ -1497,7 +1499,8 @@ function RiverChart({
               YES · {yesCents}¢
             </div>
           )}
-          {/* BTC mark endpoint label (orange) */}
+          {/* BTC mark endpoint label — true orange (#fb923c) to actually
+              match the "orange line = BTC price" legend label. */}
           {nowX != null && btcMark != null && (
             <div
               className="absolute mono"
@@ -1505,7 +1508,7 @@ function RiverChart({
                 left: `${(nowX / W) * 100}%`,
                 top: `${(btcToY(btcMark) / H) * 100}%`,
                 transform: "translate(8px, -50%)",
-                background: "var(--hl-yellow)",
+                background: "#fb923c",
                 color: "#1d0606",
                 padding: "3px 8px",
                 borderRadius: 3,
@@ -1515,7 +1518,7 @@ function RiverChart({
                 whiteSpace: "nowrap",
                 pointerEvents: "none",
                 zIndex: 5,
-                boxShadow: "0 0 10px rgba(245,165,36,0.5)",
+                boxShadow: "0 0 10px rgba(251,146,60,0.55)",
               }}
             >
               BTC · ${btcMark.toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -1534,16 +1537,16 @@ function RiverChart({
             <span style={{ color: "var(--hl-green)" }}>0¢</span>
           </div>
 
-          {/* LEFT y-axis — BTC price (orange) — labels reflect the auto-fit
-              range, with the strike row highlighted at its actual position. */}
+          {/* LEFT y-axis — BTC price (orange labels match the BTC line) with
+              the strike row highlighted in yellow to match the strike line. */}
           {strike != null && (
             <div
               className="absolute left-0 top-0 bottom-4 mono"
-              style={{ width: 70, fontSize: 9, color: "var(--hl-yellow)", padding: "2px 4px", pointerEvents: "none", opacity: 0.7 }}
+              style={{ width: 70, fontSize: 9, color: "#fb923c", padding: "2px 4px", pointerEvents: "none", opacity: 0.75 }}
             >
               <span style={{ position: "absolute", top: "0%", left: 4 }}>${Math.round(btcYMax).toLocaleString()}</span>
               <span style={{ position: "absolute", top: "25%", left: 4 }}>${Math.round(btcYMin + (btcYMax - btcYMin) * 0.75).toLocaleString()}</span>
-              <span style={{ position: "absolute", top: `${(strikeY / H) * 100}%`, left: 4, color: "var(--hl-yellow)", fontWeight: 700, transform: "translateY(-50%)" }}>
+              <span style={{ position: "absolute", top: `${(strikeY / H) * 100}%`, left: 4, color: "var(--hl-yellow)", fontWeight: 700, transform: "translateY(-50%)", opacity: 1 }}>
                 ${strike.toLocaleString()} ◀ strike
               </span>
               <span style={{ position: "absolute", top: "75%", left: 4 }}>${Math.round(btcYMin + (btcYMax - btcYMin) * 0.25).toLocaleString()}</span>
@@ -1622,15 +1625,15 @@ function RiverChart({
             <b style={{ color: "#a371f7" }}>σ√t fair value</b> <span style={{ color: "var(--hl-muted)" }}>· reference</span>
           </span>
           <span className="inline-flex items-center gap-1.5" title="Solid orange line — live BTC mark over the last 24h. The underlying that drives the YES probability.">
-            <span style={{ width: 20, height: 3, background: "var(--hl-yellow)", display: "inline-block", borderRadius: 1 }}></span>
-            <b style={{ color: "var(--hl-yellow)" }}>orange line = BTC price</b> <span style={{ color: "var(--hl-muted)" }}>· left axis $</span>
+            <span style={{ width: 20, height: 3, background: "#fb923c", display: "inline-block", borderRadius: 1 }}></span>
+            <b style={{ color: "#fb923c" }}>orange line = BTC price</b> <span style={{ color: "var(--hl-muted)" }}>· left axis $</span>
           </span>
-          <span className="inline-flex items-center gap-1.5" title="Horizontal dashed orange line at the strike price. BTC above this line at expiry = YES wins.">
+          <span className="inline-flex items-center gap-1.5" title="Horizontal dashed YELLOW line at the strike price. BTC above this line at expiry = YES wins.">
             <span style={{ display: "inline-flex", gap: 2 }}>
-              <span style={{ width: 5, height: 1.5, background: "var(--hl-yellow)", opacity: 0.45 }}></span>
-              <span style={{ width: 5, height: 1.5, background: "var(--hl-yellow)", opacity: 0.45 }}></span>
+              <span style={{ width: 5, height: 1.5, background: "var(--hl-yellow)", opacity: 0.55 }}></span>
+              <span style={{ width: 5, height: 1.5, background: "var(--hl-yellow)", opacity: 0.55 }}></span>
             </span>
-            <b style={{ color: "var(--hl-yellow)", opacity: 0.7 }}>strike</b> <span style={{ color: "var(--hl-muted)" }}>· settle threshold</span>
+            <b style={{ color: "var(--hl-yellow)", opacity: 0.85 }}>yellow dashed = strike</b> <span style={{ color: "var(--hl-muted)" }}>· settle threshold</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span style={{ display: "inline-flex", gap: 1 }}>
