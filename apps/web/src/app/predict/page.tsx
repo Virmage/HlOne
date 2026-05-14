@@ -22,7 +22,6 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 const HL_INFO = "https://api.hyperliquid.xyz/info";
 const HL_WS = "wss://api.hyperliquid.xyz/ws";
@@ -159,8 +158,9 @@ interface CompareData {
 
 // ─── component ─────────────────────────────────────────────────────────────
 export default function PredictPage() {
-  const params = useSearchParams();
-  const preview = params?.get("preview") === "1";
+  // Public route — was gated behind ?preview=1 during prototype, gate dropped
+  // for production. Trade execution remains disabled (button shows an alert)
+  // until the EIP-712 + builder-fee wiring lands in the next iteration.
 
   const [btcMark, setBtcMark] = useState<number | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -557,20 +557,6 @@ export default function PredictPage() {
   const shares = userPriceFraction > 0 ? stakeNum / userPriceFraction : 0;
   const maxPayout = shares;
   const profit = maxPayout - stakeNum;
-
-  if (!preview) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-8 text-center">
-        <div className="max-w-md">
-          <h1 className="text-2xl font-bold mb-3">Predictions · prototype</h1>
-          <p className="text-[var(--hl-muted)] text-sm leading-relaxed">
-            HIP-4 outcome markets aren&apos;t live on the public API yet, so this route is staging-only.
-            Append <code className="text-[var(--hl-accent)]">?preview=1</code> to view the prototype.
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   const distance = btcMark && strike ? strike - btcMark : 0;
   const distancePct = btcMark && strike ? (distance / btcMark) * 100 : 0;

@@ -309,7 +309,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
           Options
         </button>
         <Link
-          href="/predict?preview=1"
+          href="/predict"
           className="px-4 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px text-[var(--hl-muted)] border-transparent hover:text-[var(--hl-accent)] inline-flex items-center gap-1.5"
           title="HIP-4 outcome markets — opens the predictions view"
         >
