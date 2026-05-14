@@ -1046,21 +1046,43 @@ function RiverChart({
   const kalshiY = kalshiCents != null ? H - (kalshiCents / 100) * H : null;
   const polyY = polyCents != null ? H - (polyCents / 100) * H : null;
 
-  // ── Whales — primary source is the server-collected trades buffer (the
-  //    Railway API has been subscribed to HL's WS since boot, so we have
-  //    real (time, price) for every fill). Aggregate same-direction trades
-  //    within 60s buckets so the chart doesn't pile dozens of small prints
-  //    on the same pixel, pick the top 10 by USD.
-  //
-  //    Fallback to per-candle aggregation when the trades buffer is sparse
-  //    (e.g. first few seconds after a daily contract rollover).
+  // ── Whales — HYBRID: candle volume for historical distribution (spans
+  //    the full 24h immediately), overlaid with WS-trade buckets for
+  //    the recent hour where we have actual per-trade detail. As the
+  //    server collector accumulates over days, the "recent" window
+  //    naturally widens and the chart shows more fine-grained flow.
   const whales = useMemo(() => {
     type Whale = { x: number; y: number; usd: number; px: number; side: string; count: number };
-    const inWindow = trades.filter((t) => t.time >= tMin && t.time <= tMax);
-    if (inWindow.length >= 5) {
-      type Agg = { tSum: number; pxSum: number; szSum: number; usd: number; count: number; side: string };
+    const slots = new Map<number, Whale>(); // keyed by candle.t
+
+    // Layer 1: candle-based whales for the whole window (gives 24h coverage).
+    for (const c of marketCandles) {
+      if (c.t < tMin || c.t > tMax) continue;
+      const open = parseFloat(c.o);
+      const close = parseFloat(c.c);
+      const vol = parseFloat(c.v);
+      if (!Number.isFinite(vol) || vol <= 0) continue;
+      const avgPx = (open + close) / 2;
+      const usd = vol * avgPx;
+      const midTime = c.t + (15 * 60 * 1000) / 2;
+      slots.set(c.t, {
+        x: ((midTime - tMin) / (tMax - tMin)) * W,
+        y: H - close * H,
+        usd,
+        px: close,
+        side: close >= open ? "B" : "A",
+        count: Math.round(vol),
+      });
+    }
+
+    // Layer 2: WS-trade buckets at finer granularity (60s) for slots
+    // where we have real trade data. These replace the parent candle's
+    // whale with a more precise (time, price) point.
+    if (trades.length > 0) {
+      type Agg = { tSum: number; pxSum: number; usd: number; count: number; side: string };
       const buckets = new Map<string, Agg>();
-      for (const t of inWindow) {
+      for (const t of trades) {
+        if (t.time < tMin || t.time > tMax) continue;
         const px = parseFloat(t.px);
         const sz = parseFloat(t.sz);
         if (!Number.isFinite(px) || !Number.isFinite(sz)) continue;
@@ -1070,55 +1092,31 @@ function RiverChart({
         if (b) {
           b.tSum += t.time;
           b.pxSum += px;
-          b.szSum += sz;
           b.usd += usd;
           b.count += 1;
         } else {
-          buckets.set(key, { tSum: t.time, pxSum: px, szSum: sz, usd, count: 1, side: t.side });
+          buckets.set(key, { tSum: t.time, pxSum: px, usd, count: 1, side: t.side });
         }
       }
-      const aggs = [...buckets.values()].sort((a, b) => b.usd - a.usd).slice(0, 10);
-      return aggs.map((a): Whale => {
+      // Insert WS buckets keyed by a synthetic time so they don't clash
+      // with candle keys. Use a high-resolution key (60s bucket × 1000)
+      // to keep them distinct.
+      let i = 1;
+      for (const a of buckets.values()) {
         const t = a.tSum / a.count;
         const px = a.pxSum / a.count;
-        return {
+        slots.set(-i++, {
           x: ((t - tMin) / (tMax - tMin)) * W,
           y: H - px * H,
           usd: a.usd,
           px,
           side: a.side,
           count: a.count,
-        };
-      });
+        });
+      }
     }
 
-    // Fallback — derive from candle volume so the chart isn't empty when
-    // the trade buffer hasn't accumulated yet.
-    if (!marketCandles.length) return [] as Whale[];
-    const candleWindow = marketCandles.filter((c) => c.t >= tMin && c.t <= tMax);
-    const ranked = candleWindow
-      .map((c) => {
-        const open = parseFloat(c.o);
-        const close = parseFloat(c.c);
-        const vol = parseFloat(c.v);
-        const avgPx = (open + close) / 2;
-        const usd = vol * avgPx;
-        return { c, open, close, vol, usd };
-      })
-      .filter((r) => r.vol > 0)
-      .sort((a, b) => b.usd - a.usd)
-      .slice(0, 8);
-    return ranked.map(({ c, open, close, vol, usd }): Whale => {
-      const midTime = c.t + (15 * 60 * 1000) / 2;
-      return {
-        x: ((midTime - tMin) / (tMax - tMin)) * W,
-        y: H - close * H,
-        usd,
-        px: close,
-        side: close >= open ? "B" : "A",
-        count: Math.round(vol),
-      };
-    });
+    return [...slots.values()].sort((a, b) => b.usd - a.usd).slice(0, 10);
   }, [trades, marketCandles, tMin, tMax]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
 
@@ -1223,10 +1221,10 @@ function RiverChart({
             {fairPoints && (
               <polyline
                 fill="none"
-                stroke="#86efac"
-                strokeWidth="1.2"
-                strokeDasharray="4,4"
-                opacity="0.35"
+                stroke="#a371f7"
+                strokeWidth="1.4"
+                strokeDasharray="5,4"
+                opacity="0.7"
                 points={fairPoints}
               />
             )}
@@ -1513,10 +1511,10 @@ function RiverChart({
           </span>
           <span className="inline-flex items-center gap-1.5" title="What the YES price 'should' be given BTC's path + 65% annual vol. Gap to market = trade signal. Hidden in last 15min when math breaks.">
             <span style={{ display: "inline-flex", gap: 2 }}>
-              <span style={{ width: 4, height: 1.5, background: "#86efac", opacity: 0.6 }}></span>
-              <span style={{ width: 4, height: 1.5, background: "#86efac", opacity: 0.6 }}></span>
+              <span style={{ width: 5, height: 1.5, background: "#a371f7", opacity: 0.7 }}></span>
+              <span style={{ width: 5, height: 1.5, background: "#a371f7", opacity: 0.7 }}></span>
             </span>
-            <b style={{ color: "#86efac", opacity: 0.7 }}>σ√t fair value</b> <span style={{ color: "var(--hl-muted)" }}>· reference</span>
+            <b style={{ color: "#a371f7" }}>σ√t fair value</b> <span style={{ color: "var(--hl-muted)" }}>· reference</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span style={{ width: 18, height: 3, background: "var(--hl-yellow)", display: "inline-block", borderRadius: 1, opacity: 0.85 }}></span>
