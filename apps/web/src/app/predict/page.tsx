@@ -893,48 +893,50 @@ function RiverChart({
   const kalshiY = kalshiCents != null ? H - (kalshiCents / 100) * H : null;
   const polyY = polyCents != null ? H - (polyCents / 100) * H : null;
 
-  // ── Whales — aggregate same-direction trades within 30s buckets so the
-  //    chart doesn't pile a dozen tiny prints on the same pixel. Plot the
-  //    biggest 5 aggregates. Buy YES = green border, sell = red.
+  // ── Whales — primary source is per-candle volume (gives us proper
+  //    historical distribution across the 24h timeline). HL doesn't have a
+  //    historical-trades endpoint, but each 15min candle has a `v` (shares
+  //    traded) field — that IS the historical trade flow, summarised.
+  //
+  //    Each candle becomes a candidate whale icon at (mid-time, close-px),
+  //    sized by USD notional (v × avg-price), coloured by candle direction
+  //    (close ≥ open → bull/green; close < open → bear/red). We pick the
+  //    top 8 by USD so the chart isn't littered with low-volume periods.
+  //
+  //    The live WS trade stream (`trades` prop) feeds the trade tape in
+  //    other panels but isn't redrawn here — candles already capture
+  //    everything older than the current 15min slot, and the current
+  //    in-progress candle's volume updates every 60s when we refetch.
   const whales = useMemo(() => {
-    if (!trades.length) return [] as { x: number; y: number; usd: number; px: number; side: string; count: number }[];
-    const inWindow = trades.filter((t) => t.time >= tMin && t.time <= tMax);
-    // bucket: same side + same 30s window → aggregate
-    type Agg = { tSum: number; pxSum: number; szSum: number; usd: number; count: number; side: string };
-    const buckets = new Map<string, Agg>();
-    for (const t of inWindow) {
-      const px = parseFloat(t.px);
-      const sz = parseFloat(t.sz);
-      const bucketKey = `${t.side}:${Math.floor(t.time / 30000)}`;
-      const usd = px * sz;
-      const b = buckets.get(bucketKey);
-      if (b) {
-        b.tSum += t.time;
-        b.pxSum += px;
-        b.szSum += sz;
-        b.usd += usd;
-        b.count += 1;
-      } else {
-        buckets.set(bucketKey, { tSum: t.time, pxSum: px, szSum: sz, usd, count: 1, side: t.side });
-      }
-    }
-    const aggs = [...buckets.values()]
+    if (!marketCandles.length) return [] as { x: number; y: number; usd: number; px: number; side: string; count: number }[];
+    const inWindow = marketCandles.filter((c) => c.t >= tMin && c.t <= tMax);
+    const ranked = inWindow
+      .map((c) => {
+        const open = parseFloat(c.o);
+        const close = parseFloat(c.c);
+        const vol = parseFloat(c.v);
+        const avgPx = (open + close) / 2;
+        const usd = vol * avgPx;
+        return { c, open, close, vol, usd };
+      })
+      .filter((r) => r.vol > 0)
       .sort((a, b) => b.usd - a.usd)
-      .slice(0, 5);
-    return aggs.map((a) => {
-      const t = a.tSum / a.count;
-      const px = a.pxSum / a.count;
+      .slice(0, 8);
+    return ranked.map(({ c, open, close, vol, usd }) => {
+      const midTime = c.t + (15 * 60 * 1000) / 2;
       return {
-        x: ((t - tMin) / (tMax - tMin)) * W,
-        y: H - px * H,
-        usd: a.usd,
-        px,
-        side: a.side,
-        count: a.count,
+        x: ((midTime - tMin) / (tMax - tMin)) * W,
+        y: H - close * H,
+        usd,
+        px: close,
+        side: close >= open ? "B" : "A", // bull or bear candle
+        count: Math.round(vol),
       };
     });
-  }, [trades, tMin, tMax]);
+  }, [marketCandles, tMin, tMax]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
+  // suppress unused-var warning — `trades` still consumed by the trade tape elsewhere
+  void trades;
 
   // ── Volume profile — one thin bar per HIP-4 candle, scaled by the candle's
   //    `v` field. Gives the chart historical-flow context even when individual
@@ -1100,7 +1102,7 @@ function RiverChart({
                   zIndex: 3,
                   cursor: "pointer",
                 }}
-                title={`${isBuy ? "BUY" : "SELL"} YES · ${w.count} trade${w.count > 1 ? "s" : ""} @ ~${(w.px * 100).toFixed(1)}¢ · total ${usdStr}`}
+                title={`${isBuy ? "Bullish" : "Bearish"} 15min candle · ${w.count.toLocaleString()} shares @ ~${(w.px * 100).toFixed(1)}¢ · ${usdStr}`}
               >
                 🐋
                 <div
@@ -1325,7 +1327,7 @@ function RiverChart({
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span style={{ fontSize: 12 }}>🐋</span>
-            <b>live trade flow</b> <span style={{ color: "var(--hl-muted)" }}>· streams via WS · accumulates</span>
+            <b>biggest 15min flow</b> <span style={{ color: "var(--hl-muted)" }}>· green=bullish · red=bearish · sized by $$</span>
           </span>
           {kalshiCents != null && kalshiStrike != null && (
             <span className="inline-flex items-center gap-1">
