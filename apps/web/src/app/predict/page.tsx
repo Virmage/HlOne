@@ -104,6 +104,8 @@ interface HyperOddTrade {
   sz: string;
   side: string;
   time: number;
+  coin?: string;
+  tid?: number;
 }
 interface HyperOddState {
   mark: number | null;
@@ -398,7 +400,9 @@ export default function PredictPage() {
     const tradeId = setInterval(fetchTrades, 5000);
     const candleId = setInterval(fetchCandles, 60_000);
 
-    // WS for live L2 book updates
+    // WS for live L2 book + trade stream — both subscribed on the same socket.
+    // The trades channel is what gives us real trade-flow-over-time for the
+    // chart whales (otherwise recentTrades only returns the last ~30s).
     const connectWs = () => {
       if (cancelled) return;
       try {
@@ -408,6 +412,12 @@ export default function PredictPage() {
             JSON.stringify({
               method: "subscribe",
               subscription: { type: "l2Book", coin: hip4Coin },
+            }),
+          );
+          ws?.send(
+            JSON.stringify({
+              method: "subscribe",
+              subscription: { type: "trades", coin: hip4Coin },
             }),
           );
           if (!cancelled) setHyperodd((s) => ({ ...s, wsConnected: true }));
@@ -423,6 +433,25 @@ export default function PredictPage() {
                 bids: (levels[0] as BookLevel[]) ?? [],
                 asks: (levels[1] as BookLevel[]) ?? [],
               }));
+            } else if (msg.channel === "trades" && Array.isArray(msg.data)) {
+              // append new trades — they arrive as arrays of trade objects.
+              // Cap accumulated state at 500 entries to avoid memory bloat.
+              const incoming = (msg.data as HyperOddTrade[]).filter(
+                (t) => t && t.coin === hip4Coin,
+              );
+              if (incoming.length > 0) {
+                setHyperodd((s) => {
+                  // Dedupe by `tid` — WS may resend trades on reconnect
+                  const tids = new Set(s.trades.map((t) => (t as unknown as { tid?: number }).tid));
+                  const newOnes = incoming.filter(
+                    (t) => !tids.has((t as unknown as { tid?: number }).tid),
+                  );
+                  if (newOnes.length === 0) return s;
+                  // Newest first, capped at 500
+                  const merged = [...newOnes, ...s.trades].slice(0, 500);
+                  return { ...s, trades: merged };
+                });
+              }
             }
           } catch { /* ignore */ }
         };
@@ -463,7 +492,7 @@ export default function PredictPage() {
       }
     };
     fetchCompare();
-    const id = setInterval(fetchCompare, 8000);
+    const id = setInterval(fetchCompare, 5000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -628,7 +657,7 @@ export default function PredictPage() {
         </div>
 
         {/* Compare strip — HLOne implied vs HL testnet (HyperOdd) vs Kalshi vs Polymarket */}
-        <CompareStrip yesCents={yesCents} compare={compare} strike={strike} hyperodd={hyperodd} />
+        <CompareStrip yesCents={yesCents} compare={compare} strike={strike} hyperodd={hyperodd} now={now} />
       </div>
 
       {/* main grid */}
@@ -909,14 +938,9 @@ function RiverChart({
               </>
             )}
 
-            {/* Polymarket reference line (purple dashed) — only if it sits at a y meaningfully different from the live YES (skip if within 5¢ to avoid overlap) */}
-            {polyY != null && polyCents != null && Math.abs(polyCents - yesCents) >= 5 && (
-              <line x1="0" y1={polyY} x2={W} y2={polyY} stroke="#a371f7" strokeWidth="1.2" strokeDasharray="6,4" opacity="0.45" />
-            )}
-            {/* Kalshi reference line (yellow dashed) — only if meaningfully different from the live YES */}
-            {kalshiY != null && kalshiCents != null && Math.abs(kalshiCents - yesCents) >= 5 && (
-              <line x1="0" y1={kalshiY} x2={W} y2={kalshiY} stroke="#f5a524" strokeWidth="1.2" strokeDasharray="6,4" opacity="0.45" />
-            )}
+            {/* Kalshi + Polymarket reference lines removed — they were
+                confusing without inline labels. Cross-venue values now live
+                only in the bottom legend with their matched strikes. */}
           </svg>
 
           {/* ── Trade-flow icons — aggregated within 30s buckets so we don't
@@ -1145,16 +1169,16 @@ function RiverChart({
             <span style={{ fontSize: 12 }}>🐋</span>
             <b>trade flow</b> <span style={{ color: "var(--hl-muted)" }}>· green=buy YES · red=sell · 30s buckets</span>
           </span>
-          {kalshiCents != null && (
-            <span className="inline-flex items-center gap-1.5">
-              <span style={{ width: 14, height: 0, borderTop: "1.5px dashed var(--hl-yellow)", display: "inline-block", opacity: 0.6 }}></span>
+          {kalshiCents != null && kalshiStrike != null && (
+            <span className="inline-flex items-center gap-1">
               Kalshi <b className="mono" style={{ color: "var(--hl-yellow)" }}>{kalshiCents}¢</b>
+              <span style={{ color: "var(--hl-muted)" }}>@ ${kalshiStrike.toLocaleString()}</span>
             </span>
           )}
-          {polyCents != null && (
-            <span className="inline-flex items-center gap-1.5">
-              <span style={{ width: 14, height: 0, borderTop: "1.5px dashed var(--hl-purple)", display: "inline-block", opacity: 0.6 }}></span>
+          {polyCents != null && polyStrike != null && (
+            <span className="inline-flex items-center gap-1">
               Polymarket <b className="mono" style={{ color: "var(--hl-purple)" }}>{polyCents}¢</b>
+              <span style={{ color: "var(--hl-muted)" }}>@ ${polyStrike.toLocaleString()}</span>
             </span>
           )}
         </div>
@@ -1550,12 +1574,23 @@ function CompareStrip({
   compare,
   strike,
   hyperodd,
+  now,
 }: {
   yesCents: number;
   compare: CompareData | null;
   strike: number | null;
   hyperodd: HyperOddState;
+  now: number;
 }) {
+  // Freshness — how long ago was the cross-venue compare data fetched?
+  const ageMs = compare ? Math.max(0, now - compare.fetchedAt) : null;
+  const ageStr = ageMs == null
+    ? "—"
+    : ageMs < 1000
+      ? "<1s"
+      : ageMs < 60_000
+        ? `${Math.floor(ageMs / 1000)}s`
+        : `${Math.floor(ageMs / 60_000)}m`;
   const k = compare?.kalshi;
   const kalshiCents = k?.available && k.last != null ? Math.round(k.last * 100) : null;
   const kalshiBid = k?.yesBid != null ? Math.round(k.yesBid * 100) : null;
@@ -1585,8 +1620,20 @@ function CompareStrip({
         alignItems: "center",
       }}
     >
-      <span className="cellL" style={{ color: "var(--hl-accent)", fontWeight: 600, letterSpacing: 0.6 }}>
+      <span className="cellL flex items-center gap-1.5" style={{ color: "var(--hl-accent)", fontWeight: 600, letterSpacing: 0.6 }}>
         Cross-venue
+        <span
+          className="mono"
+          style={{
+            fontSize: 9,
+            color: ageMs != null && ageMs < 15_000 ? "var(--hl-green)" : "var(--hl-muted)",
+            fontWeight: 400,
+            letterSpacing: 0,
+            textTransform: "none",
+          }}
+        >
+          {compare ? `· ${ageStr} ago` : "· loading…"}
+        </span>
       </span>
 
       {/* HLOne implied */}

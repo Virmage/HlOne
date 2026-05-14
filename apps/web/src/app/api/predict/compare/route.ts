@@ -58,9 +58,10 @@ interface CompareResponse {
   fetchedAt: number;
 }
 
-// 5-second in-memory cache keyed by strike
+// 2-second in-memory cache keyed by strike (server). Client polls every 5s,
+// so effective freshness is ≤7s in the worst case.
 const cache = new Map<number, { data: CompareResponse; ts: number }>();
-const CACHE_MS = 5_000;
+const CACHE_MS = 2_000;
 
 async function fetchKalshi(strike: number): Promise<CompareResponse["kalshi"]> {
   try {
