@@ -1009,6 +1009,39 @@ function Row({ label, value, sub, cls = "", big = false }: { label: string; valu
 }
 
 // ─── small components ──────────────────────────────────────────────────────
+/**
+ * Inline gap chip — shows "+5 theory" or "-12 arb" in muted (small gap) or
+ * coloured (significant gap) styling. Used in the cross-venue strip to
+ * surface each comparator's distance from HIP-4 live without needing a
+ * separate row.
+ */
+function GapChip({ gap, suffix, title }: { gap: number | null; suffix: string; title?: string }) {
+  if (gap == null) return null;
+  const abs = Math.abs(gap);
+  // Anything <2pp reads as noise — show dimmed; ≥3pp coloured.
+  const isSignificant = abs >= 3;
+  const color = !isSignificant
+    ? "var(--hl-muted)"
+    : gap < 0
+      ? "var(--hl-green)"  // venue cheaper than HIP-4 → buy YES there
+      : "var(--hl-red)";   // venue richer than HIP-4 → buy YES at HIP-4
+  return (
+    <span
+      className="mono"
+      style={{
+        color,
+        fontSize: 10,
+        fontWeight: isSignificant ? 700 : 500,
+        opacity: abs < 1 ? 0.5 : 1,
+      }}
+      title={title ?? `Gap vs HIP-4 live (the actual market). ${gap < 0 ? "Negative = " + suffix + " venue is cheaper than HIP-4." : "Positive = " + suffix + " venue is richer than HIP-4."}`}
+    >
+      {gap >= 0 ? "+" : ""}
+      {gap} pp
+    </span>
+  );
+}
+
 function Stat({ label, value, cls }: { label: string; value: string; cls: string }) {
   return (
     <div className="px-3 border-r last:border-r-0 first:pl-0" style={{ borderColor: "var(--hl-border)" }}>
@@ -2043,8 +2076,6 @@ function CompareStrip({
       : k?.available && k.last != null
         ? Math.round(k.last * 100)
         : null;
-  const kalshiBid = k?.yesBid != null ? Math.round(k.yesBid * 100) : null;
-  const kalshiAsk = k?.yesAsk != null ? Math.round(k.yesAsk * 100) : null;
   const kalshiIsInterpolated = k?.interpolatedYes != null;
 
   const p = compare?.polymarket;
@@ -2058,13 +2089,38 @@ function CompareStrip({
 
   const hyperoddCents = hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : null;
 
-  // max divergence across all venues
-  const gaps: number[] = [];
-  if (kalshiCents != null) gaps.push(yesCents - kalshiCents);
-  if (polyCents != null) gaps.push(yesCents - polyCents);
-  if (hyperoddCents != null) gaps.push(yesCents - hyperoddCents);
-  const maxAbs = gaps.reduce((m, g) => (Math.abs(g) > Math.abs(m) ? g : m), 0);
-  const isEdge = Math.abs(maxAbs) >= 3 && gaps.length > 0;
+  // ── Edge logic ─────────────────────────────────────────────────────────
+  // Anchor: the LIVE HIP-4 market price (the actual thing we're trading).
+  // Every other reading is shown as its gap vs HIP-4 live, in percentage
+  // points. Two flavours:
+  //   1. fairGap = HLOne σ√t fair value vs market — "theory says cheap/rich"
+  //      A mean-reversion signal; meaningful, not directly arb-able.
+  //   2. kalshiGap / polyGap = same-question venue vs market — cross-venue
+  //      arb. If Kalshi YES is 30% while HIP-4 YES is 50%, buy YES on Kalshi
+  //      cheaper, hedge on HIP-4. Tradeable (assuming you've got accounts
+  //      on both venues + similar settle times).
+  //
+  // The "best arb" callout picks the largest absolute gap across Kalshi
+  // and Polymarket only — HLOne fair is theoretical, not a venue you can
+  // trade against. Time-aware threshold: tighter near expiry where pin
+  // risk dominates and small noise can produce misleading EDGE flags.
+  const fairGap = hyperoddCents != null ? yesCents - hyperoddCents : null;
+  const kalshiGap = hyperoddCents != null && kalshiCents != null ? kalshiCents - hyperoddCents : null;
+  const polyGap = hyperoddCents != null && polyCents != null ? polyCents - hyperoddCents : null;
+
+  const arbCandidates: { name: string; gap: number; color: string }[] = [];
+  if (kalshiGap != null) arbCandidates.push({ name: "Kalshi", gap: kalshiGap, color: "var(--hl-yellow)" });
+  if (polyGap != null) arbCandidates.push({ name: "Polymarket", gap: polyGap, color: "var(--hl-purple)" });
+  arbCandidates.sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
+  const bestArb = arbCandidates[0];
+
+  // Time-aware threshold — looser near expiry where pin risk creates noise
+  const minsToSettleHere = compare ? Math.max(0, (compare.fetchedAt + 0 - now) / 60_000) : 0;
+  void minsToSettleHere; // (placeholder if we want to use it later)
+  // For now keep threshold simple: 3pp baseline. UI separately dims the
+  // arb chip during the imminent expiry tier (handled at page level).
+  const edgeThreshold = 3;
+  const isArb = bestArb != null && Math.abs(bestArb.gap) >= edgeThreshold;
 
   return (
     <div
@@ -2093,19 +2149,15 @@ function CompareStrip({
         </span>
       </span>
 
-      {/* HLOne implied */}
-      <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
-        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>HLOne implied</span>
-        <span className="mono font-bold" style={{ color: "var(--hl-green)", fontSize: 14 }}>{yesCents}%</span>
-        {strike && <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>@ ${strike.toLocaleString()}</span>}
-      </div>
-
-      {/* HIP-4 LIVE — the real on-chain market */}
-      <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
-        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>HIP-4 live</span>
+      {/* HIP-4 LIVE — visual anchor for everything else. */}
+      <div
+        className="flex items-baseline gap-2 px-2 border-l"
+        style={{ borderColor: "var(--hl-border)", boxShadow: "inset 2px 0 0 var(--hl-accent)" }}
+      >
+        <span style={{ color: "var(--hl-accent)", fontSize: 10, fontWeight: 600 }}>HIP-4 (anchor)</span>
         {hyperoddCents != null ? (
           <>
-            <span className="mono font-bold" style={{ color: "var(--hl-accent)", fontSize: 14 }}>{hyperoddCents}%</span>
+            <span className="mono font-bold" style={{ color: "var(--hl-accent)", fontSize: 15 }}>{hyperoddCents}%</span>
             <span style={{ color: "var(--hl-muted)", fontSize: 10 }} title={hyperodd.hip4Coin ?? "loading…"}>
               {hyperodd.hip4Coin ?? "loading…"}
             </span>
@@ -2115,44 +2167,49 @@ function CompareStrip({
         )}
       </div>
 
-      {/* Kalshi — interpolated at HL's strike */}
+      {/* HLOne σ√t fair value — gap is theory-vs-market */}
+      <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
+        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Fair</span>
+        <span className="mono font-bold" style={{ color: "var(--hl-green)", fontSize: 14 }}>{yesCents}%</span>
+        <GapChip gap={fairGap} suffix="theory" />
+      </div>
+
+      {/* Kalshi — gap is venue-vs-market (tradeable arb) */}
       <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
         <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Kalshi</span>
         {kalshiCents != null ? (
           <>
             <span className="mono font-bold" style={{ color: "var(--hl-yellow)", fontSize: 14 }}>{kalshiCents}%</span>
-            {kalshiIsInterpolated && strike ? (
-              <span
-                style={{ color: "var(--hl-muted)", fontSize: 10 }}
-                title={`Linearly interpolated at $${strike.toLocaleString()} from Kalshi strikes $${k?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketLowerYes ?? 0) * 100)}%) and $${k?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketUpperYes ?? 0) * 100)}%)`}
-              >
-                @ ${strike.toLocaleString()} interp
-              </span>
-            ) : kalshiBid != null && kalshiAsk != null ? (
-              <span className="mono" style={{ color: "var(--hl-muted)", fontSize: 10 }}>{kalshiBid}/{kalshiAsk}%</span>
-            ) : null}
+            <GapChip
+              gap={kalshiGap}
+              suffix="arb"
+              title={
+                kalshiIsInterpolated && strike
+                  ? `Linearly interpolated at $${strike.toLocaleString()} from Kalshi strikes $${k?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketLowerYes ?? 0) * 100)}%) and $${k?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketUpperYes ?? 0) * 100)}%)`
+                  : undefined
+              }
+            />
           </>
         ) : (
           <span style={{ color: "var(--hl-muted)", fontSize: 11 }}>{k?.error ? "unavailable" : "loading…"}</span>
         )}
       </div>
 
-      {/* Polymarket — interpolated at HL's strike */}
+      {/* Polymarket — gap is venue-vs-market (tradeable arb) */}
       <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
         <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Polymarket</span>
         {polyCents != null ? (
           <>
             <span className="mono font-bold" style={{ color: "var(--hl-purple)", fontSize: 14 }}>{polyCents}%</span>
-            {polyIsInterpolated && strike ? (
-              <span
-                style={{ color: "var(--hl-muted)", fontSize: 10 }}
-                title={`Linearly interpolated at $${strike.toLocaleString()} from Polymarket strikes $${p?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketLowerYes ?? 0) * 100)}%) and $${p?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketUpperYes ?? 0) * 100)}%)`}
-              >
-                @ ${strike.toLocaleString()} interp
-              </span>
-            ) : p?.matchedStrike ? (
-              <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>@ ${p.matchedStrike.toLocaleString()}</span>
-            ) : null}
+            <GapChip
+              gap={polyGap}
+              suffix="arb"
+              title={
+                polyIsInterpolated && strike
+                  ? `Linearly interpolated at $${strike.toLocaleString()} from Polymarket strikes $${p?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketLowerYes ?? 0) * 100)}%) and $${p?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketUpperYes ?? 0) * 100)}%)`
+                  : undefined
+              }
+            />
             {p?.eventSlug && (
               <a
                 href={`https://polymarket.com/event/${p.eventSlug}`}
@@ -2169,40 +2226,42 @@ function CompareStrip({
         )}
       </div>
 
-      {/* Divergence flag — max gap across venues */}
-      <div className="flex items-center gap-2 px-2">
-        {gaps.length > 0 ? (
+      {/* Best arb — the largest absolute venue-vs-market gap */}
+      <div className="flex items-center gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
+        {bestArb != null ? (
           <>
-            <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>max Δ</span>
+            <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Best arb</span>
+            <span className="mono" style={{ color: bestArb.color, fontSize: 11, fontWeight: 600 }}>{bestArb.name}</span>
             <span
               className="mono font-bold"
               style={{
-                color: isEdge
-                  ? maxAbs > 0
-                    ? "var(--hl-green)"
-                    : "var(--hl-red)"
-                  : "var(--hl-muted)",
+                color: isArb ? (bestArb.gap < 0 ? "var(--hl-green)" : "var(--hl-red)") : "var(--hl-muted)",
                 fontSize: 14,
               }}
+              title={
+                bestArb.gap < 0
+                  ? `${bestArb.name} is ${Math.abs(bestArb.gap)} pp BELOW HIP-4 — buy YES on ${bestArb.name} (cheaper), short YES / buy NO on HIP-4 to hedge.`
+                  : `${bestArb.name} is ${bestArb.gap} pp ABOVE HIP-4 — sell YES on ${bestArb.name} (richer), buy YES on HIP-4 to hedge.`
+              }
             >
-              {maxAbs >= 0 ? "+" : ""}
-              {maxAbs} pp
+              {bestArb.gap >= 0 ? "+" : ""}
+              {bestArb.gap} pp
             </span>
-            {isEdge && (
+            {isArb && (
               <span
                 className="mono"
                 style={{
                   fontSize: 9,
                   padding: "1px 6px",
                   borderRadius: 2,
-                  background: "rgba(245,165,36,0.15)",
+                  background: "rgba(245,165,36,0.18)",
                   color: "var(--hl-yellow)",
                   fontWeight: 700,
                   letterSpacing: 0.5,
                 }}
-                title="Mispricing > 3 percentage points vs at least one venue"
+                title={`Cross-venue mispricing ≥ ${edgeThreshold}pp · settle times differ across venues, so part of the gap is structural, not arb.`}
               >
-                EDGE
+                ARB
               </span>
             )}
           </>
