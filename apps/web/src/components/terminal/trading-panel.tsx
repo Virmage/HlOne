@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useCallback, useEffect } from "react";
 import type { TokenOverview, HLOneScore } from "@/lib/api";
 import type { PlaceOrderResult } from "@/lib/hl-exchange";
@@ -307,6 +308,19 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         >
           Options
         </button>
+        <Link
+          href="/predict?preview=1"
+          className="px-4 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px text-[var(--hl-muted)] border-transparent hover:text-[var(--hl-accent)] inline-flex items-center gap-1.5"
+          title="HIP-4 outcome markets — opens the predictions view"
+        >
+          Predictions
+          <span
+            className="text-[8px] font-bold tracking-wider px-1 py-px rounded"
+            style={{ background: "rgba(0,240,255,0.12)", color: "var(--hl-accent)" }}
+          >
+            NEW
+          </span>
+        </Link>
       </div>
 
       {/* ─── Options Mode: Order Entry ─── */}
