@@ -1116,28 +1116,26 @@ function RiverChart({
       }
     }
 
-    // Take top 7 (was 10 — was crowding too much), then run a simple
-    // collision-avoidance pass: biggest whales keep their actual (time,
-    // price) position; smaller ones get pushed vertically (alternating
-    // up/down) until they no longer overlap a previously-placed whale.
-    // The price tooltip still shows the original price, so the offset is
-    // purely visual.
+    // Take top 7, then collision-avoid by stacking UPWARD only — biggest
+    // whales sit ON the wave at the true (time, price), smaller ones in
+    // the same x-bucket stack into the 70px gutter zone above the chart.
+    // Always pushing UP means the stack reads naturally from the price
+    // upward, never confusingly crashing below the wave.
     const ranked = [...slots.values()].sort((a, b) => b.usd - a.usd).slice(0, 7);
     const placed: Whale[] = [];
     const MIN_GAP_X = 28; // px — roughly one whale diameter
-    const MIN_GAP_Y = 28;
+    const MIN_GAP_Y = 30;
     for (const w of ranked) {
       let y = w.y;
-      for (let attempt = 0; attempt < 10; attempt++) {
+      for (let attempt = 0; attempt < 12; attempt++) {
         const collides = placed.some(
           (p) => Math.abs(p.x - w.x) < MIN_GAP_X && Math.abs(p.y - y) < MIN_GAP_Y,
         );
         if (!collides) break;
-        // Alternate offset up / down, growing magnitude each pair
-        const sign = attempt % 2 === 0 ? -1 : 1;
-        const mag = Math.ceil((attempt + 1) / 2) * MIN_GAP_Y;
-        y = Math.max(20, Math.min(H - 20, w.y + sign * mag));
+        y -= MIN_GAP_Y; // ALWAYS push up; y can go negative (above chart top)
       }
+      // Clamp so a whale can't escape into the next-day's chart row above
+      y = Math.max(-70, y);
       placed.push({ ...w, y });
     }
     return placed;
@@ -1182,7 +1180,14 @@ function RiverChart({
         </div>
       </div>
       <div className="p-3 flex flex-col">
-        <div className="relative" style={{ height: 420 }}>
+        {/* The 70px spacer above the chart is a "whale stack zone" — whales
+            pushed up by collision avoidance render into this space. The
+            chart-canvas div below keeps its original 420px height + positioning,
+            so the SVG and all child absolute-positioning math stays unchanged.
+            overflow: visible lets whales (when forced very high) render into
+            this zone instead of clipping. */}
+        <div style={{ height: 70 }} />
+        <div className="relative" style={{ height: 420, overflow: "visible" }}>
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "calc(100% - 32px)", height: "100%", display: "block" }}>
             <defs>
               <linearGradient id="rgrad" x1="0" y1="0" x2="0" y2="1">
