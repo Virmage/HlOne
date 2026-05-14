@@ -771,6 +771,7 @@ export default function PredictPage() {
         <div className="flex flex-col gap-3 min-w-0">
           <RiverChart
             probSeries={probSeries}
+            fairProbSeries={marketProbSeries.length > 0 && expiryTier !== "imminent" ? fairProbSeries : []}
             btcCandles={candles}
             marketCandles={hyperodd.marketCandles}
             btcMark={btcMark}
@@ -938,6 +939,7 @@ function Stat({ label, value, cls }: { label: string; value: string; cls: string
 
 function RiverChart({
   probSeries,
+  fairProbSeries,
   btcCandles,
   marketCandles,
   btcMark,
@@ -954,6 +956,7 @@ function RiverChart({
   limitOrderSide,
 }: {
   probSeries: { x: number; p: number }[];
+  fairProbSeries: { x: number; p: number }[];
   btcCandles: Candle[];
   marketCandles: Candle[];
   btcMark: number | null;
@@ -997,6 +1000,23 @@ function RiverChart({
       })
       .join(" ");
   }, [probSeries, tMin, tMax]);
+
+  // Faded σ√t reference — what the YES probability "should" be at each
+  // moment given BTC's actual price path + a 65% annual-vol assumption.
+  // The gap to the real market river IS the trade signal: when the real
+  // market sits well above fair value, sellers are getting a premium;
+  // below means buyers are. Auto-cleared in the imminent expiry tier
+  // (page caller zeroes the prop) since the math blows up near settle.
+  const fairPoints = useMemo(() => {
+    if (!fairProbSeries.length || !Number.isFinite(tMin) || tMax <= tMin) return "";
+    return fairProbSeries
+      .map((d) => {
+        const x = ((d.x - tMin) / (tMax - tMin)) * W;
+        const y = H - d.p * H;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+  }, [fairProbSeries, tMin, tMax]);
 
   const btcPoints = useMemo(() => {
     if (!btcCandles.length || strike == null) return "";
@@ -1197,6 +1217,20 @@ function RiverChart({
             ))}
 
             {points && <path d={areaPath} fill="url(#rgrad)" />}
+
+            {/* Faded σ√t fair-value reference — what YES "should" be given
+                BTC's path. The gap to the real market is the signal. */}
+            {fairPoints && (
+              <polyline
+                fill="none"
+                stroke="#86efac"
+                strokeWidth="1.2"
+                strokeDasharray="4,4"
+                opacity="0.35"
+                points={fairPoints}
+              />
+            )}
+
             {points && <polyline fill="none" stroke="#4ade80" strokeWidth="2.4" points={points} />}
 
             {/* NOW vertical line */}
@@ -1476,6 +1510,13 @@ function RiverChart({
           <span className="inline-flex items-center gap-1.5">
             <span style={{ width: 18, height: 3, background: "var(--hl-green)", display: "inline-block", borderRadius: 1 }}></span>
             <b style={{ color: "var(--hl-green)" }}>YES probability</b> <span style={{ color: "var(--hl-muted)" }}>· right axis 0¢-100¢</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5" title="What the YES price 'should' be given BTC's path + 65% annual vol. Gap to market = trade signal. Hidden in last 15min when math breaks.">
+            <span style={{ display: "inline-flex", gap: 2 }}>
+              <span style={{ width: 4, height: 1.5, background: "#86efac", opacity: 0.6 }}></span>
+              <span style={{ width: 4, height: 1.5, background: "#86efac", opacity: 0.6 }}></span>
+            </span>
+            <b style={{ color: "#86efac", opacity: 0.7 }}>σ√t fair value</b> <span style={{ color: "var(--hl-muted)" }}>· reference</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span style={{ width: 18, height: 3, background: "var(--hl-yellow)", display: "inline-block", borderRadius: 1, opacity: 0.85 }}></span>
