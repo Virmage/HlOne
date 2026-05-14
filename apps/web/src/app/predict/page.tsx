@@ -180,6 +180,13 @@ export default function PredictPage() {
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [limitPx, setLimitPx] = useState<string>("");
   const [showRules, setShowRules] = useState(false);
+  const [selectedWhale, setSelectedWhale] = useState<{
+    side: string;
+    px: number;
+    usd: number;
+    count: number;
+    time: number;
+  } | null>(null);
 
   const [compare, setCompare] = useState<CompareData | null>(null);
   const [hyperodd, setHyperodd] = useState<HyperOddState>({
@@ -798,6 +805,7 @@ export default function PredictPage() {
                 : null
             }
             trades={hyperodd.trades}
+            onWhaleClick={setSelectedWhale}
             limitOrderCents={
               orderType === "limit" && parseFloat(limitPx) > 0
                 ? side === "yes"
@@ -921,6 +929,81 @@ export default function PredictPage() {
           </div>
         </div>
       )}
+
+      {/* Whale-details modal — click any 🐋 icon on the chart */}
+      {selectedWhale && (() => {
+        const w = selectedWhale;
+        const isBuy = w.side === "B" || w.side === "buy";
+        const usdStr = w.usd >= 1000 ? `$${(w.usd / 1000).toFixed(2)}K` : `$${w.usd.toFixed(2)}`;
+        const shares = (w.usd / w.px).toFixed(0);
+        const dt = new Date(w.time);
+        const timeStr = dt.toUTCString();
+        const minutesAgo = Math.max(0, Math.floor((now - w.time) / 60_000));
+        const agoStr = minutesAgo < 60 ? `${minutesAgo}m ago` : `${(minutesAgo / 60).toFixed(1)}h ago`;
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+            onClick={() => setSelectedWhale(null)}
+          >
+            <div
+              className="max-w-[440px] w-full p-5 text-[13px]"
+              style={{ background: "var(--hl-surface)", border: `1px solid ${isBuy ? "var(--hl-green)" : "var(--hl-red)"}`, color: "var(--foreground)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-baseline gap-2 mb-4">
+                <span style={{ fontSize: 22 }}>🐋</span>
+                <h2 className="text-[16px] font-bold tracking-tight">
+                  <span style={{ color: isBuy ? "var(--hl-green)" : "var(--hl-red)" }}>
+                    {isBuy ? "BUY YES" : "SELL YES"}
+                  </span>
+                </h2>
+                <button
+                  onClick={() => setSelectedWhale(null)}
+                  className="ml-auto text-[20px] leading-none"
+                  style={{ color: "var(--hl-muted)" }}
+                  aria-label="Close"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                <Row label="Total notional" value={usdStr} cls={isBuy ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"} big />
+                <Row label="Average price" value={`${(w.px * 100).toFixed(1)}¢ / share`} />
+                <Row label="Shares traded" value={`${shares} (~$1 max each)`} />
+                <Row label="Trade count in bucket" value={`${w.count} fill${w.count > 1 ? "s" : ""}`} />
+                <Row label="Time" value={`${agoStr}`} sub={timeStr.slice(0, 22)} />
+                <Row
+                  label="Settles"
+                  value={hyperodd.hip4ExpiryMs ? new Date(hyperodd.hip4ExpiryMs).toUTCString().slice(0, 22) : "—"}
+                />
+                <Row
+                  label="Contract"
+                  value={hyperodd.hip4Coin ?? "—"}
+                  sub={strike ? `BTC > $${strike.toLocaleString()}` : undefined}
+                />
+              </div>
+
+              <p style={{ fontSize: 11, color: "var(--hl-muted)", paddingTop: 10, borderTop: "1px solid var(--hl-border)", marginTop: 14, lineHeight: 1.5 }}>
+                This is an aggregate of all trades on the same side within a 60-second bucket. Individual fill detail (wallet addresses, tx hashes) coming next &mdash; they&apos;re being collected on the API right now.
+              </p>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+function Row({ label, value, sub, cls = "", big = false }: { label: string; value: string; sub?: string; cls?: string; big?: boolean }) {
+  return (
+    <div className="flex justify-between items-baseline" style={{ borderBottom: "1px dashed var(--hl-border)", paddingBottom: 6 }}>
+      <span style={{ color: "var(--hl-muted)" }}>{label}</span>
+      <span className="text-right">
+        <span className={`mono ${big ? "text-[16px] font-bold" : "font-semibold"} ${cls}`}>{value}</span>
+        {sub && <span style={{ display: "block", fontSize: 10, color: "var(--hl-muted)" }}>{sub}</span>}
+      </span>
     </div>
   );
 }
@@ -948,6 +1031,7 @@ function RiverChart({
   kalshiCents,
   polyCents,
   trades,
+  onWhaleClick,
   limitOrderCents,
   limitOrderSide,
 }: {
@@ -963,6 +1047,7 @@ function RiverChart({
   kalshiCents: number | null;
   polyCents: number | null;
   trades: HyperOddTrade[];
+  onWhaleClick: (w: { side: string; px: number; usd: number; count: number; time: number }) => void;
   limitOrderCents: number | null;
   limitOrderSide: "yes" | "no" | null;
 }) {
@@ -1046,7 +1131,7 @@ function RiverChart({
   //    server collector accumulates over days, the "recent" window
   //    naturally widens and the chart shows more fine-grained flow.
   const whales = useMemo(() => {
-    type Whale = { x: number; y: number; usd: number; px: number; side: string; count: number };
+    type Whale = { x: number; y: number; usd: number; px: number; side: string; count: number; time: number };
     const slots = new Map<number, Whale>(); // keyed by candle.t
 
     // Layer 1: candle-based whales for the whole window (gives 24h coverage).
@@ -1066,6 +1151,7 @@ function RiverChart({
         px: close,
         side: close >= open ? "B" : "A",
         count: Math.round(vol),
+        time: midTime,
       });
     }
 
@@ -1106,6 +1192,7 @@ function RiverChart({
           px,
           side: a.side,
           count: a.count,
+          time: t,
         });
       }
     }
@@ -1325,7 +1412,8 @@ function RiverChart({
                   zIndex: 3,
                   cursor: "pointer",
                 }}
-                title={`${isBuy ? "BUY" : "SELL"} YES · ${w.count} trade${w.count > 1 ? "s" : ""} @ ~${(w.px * 100).toFixed(1)}¢ · total ${usdStr}`}
+                title={`Click for details · ${isBuy ? "BUY" : "SELL"} YES · ${w.count} trade${w.count > 1 ? "s" : ""} @ ~${(w.px * 100).toFixed(1)}¢ · ${usdStr}`}
+                onClick={() => onWhaleClick({ side: w.side, px: w.px, usd: w.usd, count: w.count, time: w.time })}
               >
                 🐋
               </div>
@@ -1408,27 +1496,9 @@ function RiverChart({
             </div>
           )}
 
-          {/* NOW label above the vertical line */}
-          {nowX != null && nowX > 30 && nowX < W - 30 && (
-            <div
-              className="absolute mono"
-              style={{
-                left: `${(nowX / W) * 100}%`,
-                top: 4,
-                transform: "translateX(-50%)",
-                fontSize: 9,
-                color: "var(--foreground)",
-                background: "var(--hl-surface)",
-                padding: "1px 6px",
-                borderRadius: 2,
-                border: "1px solid var(--hl-border)",
-                pointerEvents: "none",
-                letterSpacing: 0.4,
-              }}
-            >
-              NOW
-            </div>
-          )}
+          {/* NOW chip removed — the dashed vertical line + the "now ▶"
+              label in the x-axis convey the same thing without the
+              outlined-box artifact the user kept noticing. */}
 
           {/* x-axis — contract lifetime: open → settle */}
           <div
