@@ -1112,25 +1112,30 @@ function RiverChart({
 
     // Take top 7, then collision-avoid by stacking UPWARD only — biggest
     // whales sit ON the wave at the true (time, price), smaller ones in
-    // the same x-bucket stack into the 70px gutter zone above the chart.
-    // Always pushing UP means the stack reads naturally from the price
-    // upward, never confusingly crashing below the wave.
+    // the same x-bucket stack upward into the 70px gutter zone above the
+    // chart. Each whale's "time coverage" scales with its icon diameter
+    // (USD-weighted): a bigger whale covers a wider time slot, so any
+    // whale within that slot is treated as overlapping and pushed up.
+    const maxUsd = [...slots.values()].reduce((m, w) => Math.max(m, w.usd), 1);
+    const diameterFor = (usd: number) => 14 + Math.min(1, usd / maxUsd) * 14; // 14-28px
     const ranked = [...slots.values()].sort((a, b) => b.usd - a.usd).slice(0, 7);
-    const placed: Whale[] = [];
-    const MIN_GAP_X = 28; // px — roughly one whale diameter
-    const MIN_GAP_Y = 30;
+    const placed: (Whale & { d: number })[] = [];
     for (const w of ranked) {
       let y = w.y;
+      const dW = diameterFor(w.usd);
       for (let attempt = 0; attempt < 12; attempt++) {
-        const collides = placed.some(
-          (p) => Math.abs(p.x - w.x) < MIN_GAP_X && Math.abs(p.y - y) < MIN_GAP_Y,
-        );
+        const collides = placed.some((p) => {
+          // x-gap based on the LARGER of the two whales' diameters + 4px padding
+          const gapX = Math.max(p.d, dW) + 4;
+          const gapY = Math.max(p.d, dW) + 4;
+          return Math.abs(p.x - w.x) < gapX && Math.abs(p.y - y) < gapY;
+        });
         if (!collides) break;
-        y -= MIN_GAP_Y; // ALWAYS push up; y can go negative (above chart top)
+        y -= dW + 4; // step up by the current whale's own diameter
       }
       // Clamp so a whale can't escape into the next-day's chart row above
       y = Math.max(-70, y);
-      placed.push({ ...w, y });
+      placed.push({ ...w, y, d: dW });
     }
     return placed;
   }, [trades, marketCandles, tMin, tMax]);
@@ -1290,14 +1295,13 @@ function RiverChart({
             )}
           </svg>
 
-          {/* ── Trade-flow icons — aggregated within 30s buckets so we don't
-                pile dozens of $5 prints on one pixel. Bigger circle = more $$. ── */}
+          {/* ── Trade-flow icons — icon only, no chip label. Details on hover.
+                Bigger circle = more $$. Stacking handled in the whales memo. ── */}
           {whales.map((w, i) => {
             const isBuy = w.side === "B" || w.side === "buy";
             const sizeFactor = Math.min(1, w.usd / maxWhaleUsd);
             const px = 14 + sizeFactor * 14; // 14-28px diameter
             const usdStr = w.usd >= 1000 ? `$${(w.usd / 1000).toFixed(1)}K` : `$${w.usd.toFixed(0)}`;
-            const countSuffix = w.count > 1 ? `×${w.count}` : "";
             return (
               <div
                 key={i}
@@ -1324,26 +1328,6 @@ function RiverChart({
                 title={`${isBuy ? "BUY" : "SELL"} YES · ${w.count} trade${w.count > 1 ? "s" : ""} @ ~${(w.px * 100).toFixed(1)}¢ · total ${usdStr}`}
               >
                 🐋
-                <div
-                  className="absolute mono"
-                  style={{
-                    top: "100%",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    marginTop: 2,
-                    fontSize: 9,
-                    fontWeight: 700,
-                    color: isBuy ? "var(--hl-green)" : "var(--hl-red)",
-                    background: "var(--hl-surface)",
-                    padding: "1px 5px",
-                    borderRadius: 2,
-                    border: `1px solid ${isBuy ? "var(--hl-green)" : "var(--hl-red)"}`,
-                    whiteSpace: "nowrap",
-                    pointerEvents: "none",
-                  }}
-                >
-                  {isBuy ? "+" : "−"}{usdStr}{countSuffix}
-                </div>
               </div>
             );
           })}
