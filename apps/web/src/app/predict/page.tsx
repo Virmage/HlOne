@@ -169,6 +169,7 @@ export default function PredictPage() {
   const [side, setSide] = useState<"yes" | "no">("yes");
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [limitPx, setLimitPx] = useState<string>("");
+  const [showRules, setShowRules] = useState(false);
 
   const [compare, setCompare] = useState<CompareData | null>(null);
   const [hyperodd, setHyperodd] = useState<HyperOddState>({
@@ -620,8 +621,13 @@ export default function PredictPage() {
             Will BTC close above ${strike?.toLocaleString() ?? "…"} today?
           </h1>
           <div className="ml-auto flex gap-2">
-            <button className="text-[11px] px-3 py-1 rounded" style={{ background: "var(--hl-surface)", border: "1px solid var(--hl-border)", color: "var(--hl-text)" }}>★ Watch</button>
-            <button className="text-[11px] px-3 py-1 rounded" style={{ background: "var(--hl-surface)", border: "1px solid var(--hl-border)", color: "var(--hl-text)" }}>Resolution rules</button>
+            <button
+              onClick={() => setShowRules(true)}
+              className="text-[11px] px-3 py-1 rounded"
+              style={{ background: "var(--hl-surface)", border: "1px solid var(--hl-border)", color: "var(--hl-text)" }}
+            >
+              Resolution rules
+            </button>
           </div>
         </div>
 
@@ -663,6 +669,7 @@ export default function PredictPage() {
           <RiverChart
             probSeries={probSeries}
             btcCandles={candles}
+            marketCandles={hyperodd.marketCandles}
             btcMark={btcMark}
             strike={strike}
             settleTs={settleTs}
@@ -673,6 +680,14 @@ export default function PredictPage() {
             polyCents={compare?.polymarket.available && compare.polymarket.yesPrice != null ? Math.round(compare.polymarket.yesPrice * 100) : null}
             polyStrike={compare?.polymarket.matchedStrike ?? null}
             trades={hyperodd.trades}
+            limitOrderCents={
+              orderType === "limit" && parseFloat(limitPx) > 0
+                ? side === "yes"
+                  ? parseFloat(limitPx)
+                  : 100 - parseFloat(limitPx)
+                : null
+            }
+            limitOrderSide={orderType === "limit" && parseFloat(limitPx) > 0 ? side : null}
           />
           <LiveOrderBook hyperodd={hyperodd} yesCents={yesCents} now={now} />
         </div>
@@ -724,6 +739,70 @@ export default function PredictPage() {
           </div>
         </div>
       </main>
+
+      {/* Resolution rules modal */}
+      {showRules && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+          onClick={() => setShowRules(false)}
+        >
+          <div
+            className="max-w-[600px] w-full p-6 text-[13px] leading-relaxed"
+            style={{ background: "var(--hl-surface)", border: "1px solid var(--hl-border)", color: "var(--foreground)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-baseline mb-4">
+              <h2 className="text-[18px] font-bold tracking-tight">Resolution rules</h2>
+              <button
+                onClick={() => setShowRules(false)}
+                className="ml-auto text-[20px] leading-none"
+                style={{ color: "var(--hl-muted)" }}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3" style={{ color: "var(--hl-text)" }}>
+              <p>
+                <b style={{ color: "var(--foreground)" }}>Question:</b> Will BTC close above ${strike?.toLocaleString() ?? "—"} at{" "}
+                {hyperodd.hip4ExpiryMs ? new Date(hyperodd.hip4ExpiryMs).toUTCString() : "06:00 UTC"}?
+              </p>
+              <p>
+                <b style={{ color: "var(--foreground)" }}>Settlement source:</b> BTC mark price on HyperCore (Hyperliquid&apos;s on-chain
+                spot index). YES pays out $1 if the mark at expiry is strictly greater than the strike; otherwise NO pays out $1.
+              </p>
+              <p>
+                <b style={{ color: "var(--foreground)" }}>Contract:</b>{" "}
+                <code className="mono" style={{ color: "var(--hl-accent)" }}>{hyperodd.hip4Coin ?? "—"}</code> (HIP-4 outcome share,
+                outcome ID {hyperodd.hip4Outcome ?? "—"}). YES shares trade on the order book; price is in cents of $1 payout.
+              </p>
+              <p>
+                <b style={{ color: "var(--foreground)" }}>Collateral:</b> USDH. Fully collateralised — no liquidations, no funding.
+                Maximum loss is your stake.
+              </p>
+              <p>
+                <b style={{ color: "var(--foreground)" }}>Rollover:</b> A new daily binary opens automatically at settle. The new
+                contract&apos;s strike is set by HL based on the prevailing BTC mark; this prototype detects the rollover via{" "}
+                <code className="mono">outcomeMeta</code> and resubscribes within ~60s.
+              </p>
+              <p style={{ fontSize: 11, color: "var(--hl-muted)", paddingTop: 8, borderTop: "1px solid var(--hl-border)", marginTop: 12 }}>
+                See the{" "}
+                <a
+                  href="https://hyperliquid.gitbook.io/hyperliquid-docs"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: "var(--hl-accent)", textDecoration: "underline" }}
+                >
+                  HL docs ↗
+                </a>{" "}
+                for the full HIP-4 spec.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -741,6 +820,7 @@ function Stat({ label, value, cls }: { label: string; value: string; cls: string
 function RiverChart({
   probSeries,
   btcCandles,
+  marketCandles,
   btcMark,
   strike,
   settleTs,
@@ -751,9 +831,12 @@ function RiverChart({
   polyCents,
   polyStrike,
   trades,
+  limitOrderCents,
+  limitOrderSide,
 }: {
   probSeries: { x: number; p: number }[];
   btcCandles: Candle[];
+  marketCandles: Candle[];
   btcMark: number | null;
   strike: number | null;
   settleTs: number;
@@ -764,6 +847,8 @@ function RiverChart({
   polyCents: number | null;
   polyStrike: number | null;
   trades: HyperOddTrade[];
+  limitOrderCents: number | null;
+  limitOrderSide: "yes" | "no" | null;
 }) {
   const W = 800;
   const H = 360;
@@ -865,6 +950,34 @@ function RiverChart({
   }, [trades, tMin, tMax]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
 
+  // ── Volume profile — one thin bar per HIP-4 candle, scaled by the candle's
+  //    `v` field. Gives the chart historical-flow context even when individual
+  //    trades aren't backfilled (which they can't be — HL doesn't have a
+  //    historical trades endpoint, only `recentTrades` + the WS stream).
+  const volBars = useMemo(() => {
+    if (!marketCandles.length) return [] as { x: number; w: number; h: number; bull: boolean }[];
+    const inWindow = marketCandles.filter((c) => c.t >= tMin && c.t <= tMax);
+    if (!inWindow.length) return [];
+    const maxVol = inWindow.reduce((m, c) => Math.max(m, parseFloat(c.v)), 0.001);
+    const candleSpanMs = 15 * 60 * 1000;
+    const barWPct = ((candleSpanMs / (tMax - tMin)) * W) * 0.7; // 70% width of candle slot
+    return inWindow.map((c) => {
+      const vol = parseFloat(c.v);
+      const open = parseFloat(c.o);
+      const close = parseFloat(c.c);
+      const heightPct = Math.max(0.02, vol / maxVol); // min visible
+      return {
+        x: ((c.t + candleSpanMs / 2 - tMin) / (tMax - tMin)) * W,
+        w: Math.max(1, barWPct),
+        h: heightPct * 40, // up to 40px tall
+        bull: close >= open,
+      };
+    });
+  }, [marketCandles, tMin, tMax]);
+
+  // Limit-order horizontal line position
+  const limitY = limitOrderCents != null ? H - (limitOrderCents / 100) * H : null;
+
   return (
     <div className="panel" style={{ minHeight: 480 }}>
       <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
@@ -916,6 +1029,21 @@ function RiverChart({
               </>
             )}
 
+            {/* Volume bars from HIP-4 candles — sits at the chart bottom,
+                coloured by candle direction (close >= open). Tells you where
+                flow happened in the last 24h. */}
+            {volBars.map((b, i) => (
+              <rect
+                key={i}
+                x={b.x - b.w / 2}
+                y={H - b.h - 18}
+                width={b.w}
+                height={b.h}
+                fill={b.bull ? "#4ade80" : "#f87171"}
+                opacity="0.4"
+              />
+            ))}
+
             {points && <path d={areaPath} fill="url(#rgrad)" />}
             {points && <polyline fill="none" stroke="#4ade80" strokeWidth="2.4" points={points} />}
 
@@ -938,6 +1066,21 @@ function RiverChart({
             {/* Kalshi + Polymarket reference lines removed — they were
                 confusing without inline labels. Cross-venue values now live
                 only in the bottom legend with their matched strikes. */}
+
+            {/* Pending limit order line — only shown when user is composing a
+                limit order in the panel (not yet placed). Cyan = your price. */}
+            {limitY != null && (
+              <line
+                x1="0"
+                y1={limitY}
+                x2={W}
+                y2={limitY}
+                stroke="#00f0ff"
+                strokeWidth="1.4"
+                strokeDasharray="4,4"
+                opacity="0.85"
+              />
+            )}
           </svg>
 
           {/* ── Trade-flow icons — aggregated within 30s buckets so we don't
@@ -1150,7 +1293,31 @@ function RiverChart({
             </div>
           )}
 
-          {/* HIP-4 horizontal label removed — the green river IS the HIP-4 mark; no need for a separate horizontal line. */}
+          {/* Pending limit-order endpoint label — cyan chip near the right edge
+              when a limit is being composed. */}
+          {limitY != null && limitOrderCents != null && (
+            <div
+              className="absolute mono"
+              style={{
+                right: 32,
+                top: `${(limitY / H) * 100}%`,
+                transform: "translate(100%, -50%)",
+                background: "var(--hl-accent)",
+                color: "var(--background)",
+                fontSize: 10,
+                fontWeight: 800,
+                padding: "2px 6px",
+                borderRadius: 2,
+                whiteSpace: "nowrap",
+                pointerEvents: "none",
+                zIndex: 4,
+                boxShadow: "0 0 8px rgba(0,240,255,0.6)",
+              }}
+            >
+              YOUR LIMIT · {limitOrderCents.toFixed(1)}¢ {limitOrderSide?.toUpperCase()}
+            </div>
+          )}
+          {/* HIP-4 horizontal label removed — the green river IS the HIP-4 mark. */}
         </div>
 
         <div className="flex flex-wrap gap-4 mt-2 pt-2 text-[10px] items-center" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
@@ -1163,8 +1330,16 @@ function RiverChart({
             <b style={{ color: "var(--hl-yellow)" }}>BTC price</b> <span style={{ color: "var(--hl-muted)" }}>· left axis $</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
+            <span style={{ display: "inline-flex", gap: 1 }}>
+              <span style={{ width: 3, height: 10, background: "var(--hl-green)", opacity: 0.4 }} />
+              <span style={{ width: 3, height: 6, background: "var(--hl-red)", opacity: 0.4 }} />
+              <span style={{ width: 3, height: 12, background: "var(--hl-green)", opacity: 0.4 }} />
+            </span>
+            <b>volume bars</b> <span style={{ color: "var(--hl-muted)" }}>· per 15min candle</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
             <span style={{ fontSize: 12 }}>🐋</span>
-            <b>trade flow</b> <span style={{ color: "var(--hl-muted)" }}>· green=buy YES · red=sell · 30s buckets</span>
+            <b>live trade flow</b> <span style={{ color: "var(--hl-muted)" }}>· streams via WS · accumulates</span>
           </span>
           {kalshiCents != null && kalshiStrike != null && (
             <span className="inline-flex items-center gap-1">
