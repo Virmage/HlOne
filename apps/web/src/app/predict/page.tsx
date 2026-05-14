@@ -788,7 +788,6 @@ export default function PredictPage() {
                     : null
                 : null
             }
-            kalshiStrike={compare?.kalshi.matchedStrike ?? null}
             polyCents={
               compare?.polymarket.available
                 ? compare.polymarket.interpolatedYes != null
@@ -798,7 +797,6 @@ export default function PredictPage() {
                     : null
                 : null
             }
-            polyStrike={compare?.polymarket.matchedStrike ?? null}
             trades={hyperodd.trades}
             limitOrderCents={
               orderType === "limit" && parseFloat(limitPx) > 0
@@ -948,9 +946,7 @@ function RiverChart({
   now,
   yesCents,
   kalshiCents,
-  kalshiStrike,
   polyCents,
-  polyStrike,
   trades,
   limitOrderCents,
   limitOrderSide,
@@ -965,9 +961,7 @@ function RiverChart({
   now: number;
   yesCents: number;
   kalshiCents: number | null;
-  kalshiStrike: number | null;
   polyCents: number | null;
-  polyStrike: number | null;
   trades: HyperOddTrade[];
   limitOrderCents: number | null;
   limitOrderSide: "yes" | "no" | null;
@@ -1043,8 +1037,8 @@ function RiverChart({
   const strikeY = H / 2;
 
   const endY = H - (yesCents / 100) * H;
-  const kalshiY = kalshiCents != null ? H - (kalshiCents / 100) * H : null;
-  const polyY = polyCents != null ? H - (polyCents / 100) * H : null;
+  // kalshiY/polyY removed — on-chart chips eliminated as duplicate of the
+  // cross-venue strip. Refer to compare/legend for those values.
 
   // ── Whales — HYBRID: candle volume for historical distribution (spans
   //    the full 24h immediately), overlaid with WS-trade buckets for
@@ -1474,37 +1468,10 @@ function RiverChart({
 
           {/* Conviction thumb + arc removed — order entry uses standard limit/market panel */}
 
-          {/* Kalshi label on the right edge */}
-          {kalshiCents != null && kalshiY != null && (
-            <div
-              className="absolute mono"
-              style={{
-                right: 0, top: `${(kalshiY / H) * 100}%`,
-                padding: "2px 6px", background: "var(--hl-yellow)", color: "var(--background)",
-                fontSize: 9, fontWeight: 700, borderRadius: 2,
-                transform: "translateY(-50%)", whiteSpace: "nowrap", pointerEvents: "none", zIndex: 4,
-              }}
-              title={kalshiStrike ? `Kalshi @ $${kalshiStrike.toLocaleString()} strike` : "Kalshi"}
-            >
-              KALSHI {kalshiCents}¢
-            </div>
-          )}
-
-          {/* Polymarket label on the right edge */}
-          {polyCents != null && polyY != null && (
-            <div
-              className="absolute mono"
-              style={{
-                right: 0, top: `${(polyY / H) * 100}%`,
-                padding: "2px 6px", background: "var(--hl-purple)", color: "white",
-                fontSize: 9, fontWeight: 700, borderRadius: 2,
-                transform: "translateY(-50%)", whiteSpace: "nowrap", pointerEvents: "none", zIndex: 4,
-              }}
-              title={polyStrike ? `Polymarket @ $${polyStrike.toLocaleString()} strike` : "Polymarket"}
-            >
-              POLY {polyCents}¢
-            </div>
-          )}
+          {/* Kalshi + Polymarket on-chart chips removed — duplicate with the
+              cross-venue strip at top + the legend at bottom. The right edge
+              now only has the two primary endpoint chips (YES and BTC) plus
+              the optional limit-order chip when composing a limit. */}
 
           {/* Pending limit-order endpoint label — cyan chip near the right edge
               when a limit is being composed. */}
