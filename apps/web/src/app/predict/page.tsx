@@ -1060,10 +1060,29 @@ function RiverChart({
   const tMin = settleTs - 24 * 60 * 60 * 1000;
   const tMax = settleTs;
 
-  // BTC y-axis: centered on strike, ±$1500 — covers ~2% daily moves cleanly.
-  const btcRange = 1500;
-  const btcYMin = strike != null ? strike - btcRange : 80000;
-  const btcYMax = strike != null ? strike + btcRange : 82000;
+  // BTC y-axis: auto-fit to the actual BTC range in the visible window
+  // (was a fixed ±$1500 around strike, which clipped when BTC moved past
+  // those bounds — the BTC endpoint chip rendered as a half-clipped box
+  // at the chart's top edge). Always includes strike + live mark with 8%
+  // padding so nothing sits flush against the edge.
+  const { btcYMin, btcYMax, strikeY } = useMemo(() => {
+    const prices: number[] = [];
+    for (const c of btcCandles) {
+      if (c.t < tMin || c.t > tMax) continue;
+      const p = parseFloat(c.c);
+      if (Number.isFinite(p)) prices.push(p);
+    }
+    if (btcMark != null) prices.push(btcMark);
+    if (strike != null) prices.push(strike);
+    const min = prices.length ? Math.min(...prices) : (strike ?? 80000) - 1500;
+    const max = prices.length ? Math.max(...prices) : (strike ?? 80000) + 1500;
+    const span = Math.max(800, max - min);
+    const pad = Math.max(150, span * 0.08);
+    const yMin = min - pad;
+    const yMax = max + pad;
+    const sY = strike != null ? H - ((strike - yMin) / (yMax - yMin)) * H : H / 2;
+    return { btcYMin: yMin, btcYMax: yMax, strikeY: sY };
+  }, [btcCandles, btcMark, strike, tMin, tMax]);
   const btcToY = (price: number) => {
     const t = (price - btcYMin) / (btcYMax - btcYMin);
     return H - Math.max(0, Math.min(1, t)) * H;
@@ -1118,8 +1137,8 @@ function RiverChart({
 
   // Where "now" lands on the chart
   const nowX = now > 0 ? ((now - tMin) / (tMax - tMin)) * W : null;
-  // strike line in BTC scale → at exactly the middle of the chart (y = H/2 by construction)
-  const strikeY = H / 2;
+  // strikeY is computed above in the BTC y-axis memo (now that the axis
+  // auto-fits, strike isn't always at H/2).
 
   const endY = H - (yesCents / 100) * H;
   // kalshiY/polyY removed — on-chart chips eliminated as duplicate of the
@@ -1482,17 +1501,20 @@ function RiverChart({
             <span style={{ color: "var(--hl-green)" }}>0¢</span>
           </div>
 
-          {/* LEFT y-axis — BTC price (orange) — labelled at strike ±$1500 */}
+          {/* LEFT y-axis — BTC price (orange) — labels reflect the auto-fit
+              range, with the strike row highlighted at its actual position. */}
           {strike != null && (
             <div
-              className="absolute left-0 top-0 bottom-4 flex flex-col justify-between mono"
-              style={{ width: 60, fontSize: 9, color: "var(--hl-yellow)", padding: "2px 4px", pointerEvents: "none", opacity: 0.7 }}
+              className="absolute left-0 top-0 bottom-4 mono"
+              style={{ width: 70, fontSize: 9, color: "var(--hl-yellow)", padding: "2px 4px", pointerEvents: "none", opacity: 0.7 }}
             >
-              <span>${(strike + 1500).toLocaleString()}</span>
-              <span>${(strike + 750).toLocaleString()}</span>
-              <span style={{ color: "var(--hl-yellow)", fontWeight: 700 }}>${strike.toLocaleString()} ◀ strike</span>
-              <span>${(strike - 750).toLocaleString()}</span>
-              <span>${(strike - 1500).toLocaleString()}</span>
+              <span style={{ position: "absolute", top: "0%", left: 4 }}>${Math.round(btcYMax).toLocaleString()}</span>
+              <span style={{ position: "absolute", top: "25%", left: 4 }}>${Math.round(btcYMin + (btcYMax - btcYMin) * 0.75).toLocaleString()}</span>
+              <span style={{ position: "absolute", top: `${(strikeY / H) * 100}%`, left: 4, color: "var(--hl-yellow)", fontWeight: 700, transform: "translateY(-50%)" }}>
+                ${strike.toLocaleString()} ◀ strike
+              </span>
+              <span style={{ position: "absolute", top: "75%", left: 4 }}>${Math.round(btcYMin + (btcYMax - btcYMin) * 0.25).toLocaleString()}</span>
+              <span style={{ position: "absolute", bottom: 0, left: 4 }}>${Math.round(btcYMin).toLocaleString()}</span>
             </div>
           )}
 
@@ -1567,8 +1589,8 @@ function RiverChart({
             <b style={{ color: "#a371f7" }}>σ√t fair value</b> <span style={{ color: "var(--hl-muted)" }}>· reference</span>
           </span>
           <span className="inline-flex items-center gap-1.5" title="Solid orange line — live BTC mark over the last 24h. The underlying that drives the YES probability.">
-            <span style={{ width: 18, height: 3, background: "var(--hl-yellow)", display: "inline-block", borderRadius: 1, opacity: 0.85 }}></span>
-            <b style={{ color: "var(--hl-yellow)" }}>BTC price</b> <span style={{ color: "var(--hl-muted)" }}>· left axis $</span>
+            <span style={{ width: 20, height: 3, background: "var(--hl-yellow)", display: "inline-block", borderRadius: 1 }}></span>
+            <b style={{ color: "var(--hl-yellow)" }}>orange line = BTC price</b> <span style={{ color: "var(--hl-muted)" }}>· left axis $</span>
           </span>
           <span className="inline-flex items-center gap-1.5" title="Horizontal dashed orange line at the strike price. BTC above this line at expiry = YES wins.">
             <span style={{ display: "inline-flex", gap: 2 }}>
