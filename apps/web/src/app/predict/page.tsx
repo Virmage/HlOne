@@ -134,6 +134,11 @@ interface CompareData {
     yesAsk?: number;
     yesMid?: number;
     last?: number;
+    interpolatedYes?: number;
+    bracketLowerStrike?: number;
+    bracketLowerYes?: number;
+    bracketUpperStrike?: number;
+    bracketUpperYes?: number;
     openInterest?: number;
     closeTime?: string;
     ticker?: string;
@@ -145,6 +150,11 @@ interface CompareData {
     matchedStrike?: number;
     requestedStrike: number;
     yesPrice?: number;
+    interpolatedYes?: number;
+    bracketLowerStrike?: number;
+    bracketLowerYes?: number;
+    bracketUpperStrike?: number;
+    bracketUpperYes?: number;
     eventTitle?: string;
     marketQuestion?: string;
     eventEndDate?: string;
@@ -698,9 +708,25 @@ export default function PredictPage() {
             settleTs={settleTs}
             now={now}
             yesCents={yesCents}
-            kalshiCents={compare?.kalshi.available && compare.kalshi.last != null ? Math.round(compare.kalshi.last * 100) : null}
+            kalshiCents={
+              compare?.kalshi.available
+                ? compare.kalshi.interpolatedYes != null
+                  ? Math.round(compare.kalshi.interpolatedYes * 100)
+                  : compare.kalshi.last != null
+                    ? Math.round(compare.kalshi.last * 100)
+                    : null
+                : null
+            }
             kalshiStrike={compare?.kalshi.matchedStrike ?? null}
-            polyCents={compare?.polymarket.available && compare.polymarket.yesPrice != null ? Math.round(compare.polymarket.yesPrice * 100) : null}
+            polyCents={
+              compare?.polymarket.available
+                ? compare.polymarket.interpolatedYes != null
+                  ? Math.round(compare.polymarket.interpolatedYes * 100)
+                  : compare.polymarket.yesPrice != null
+                    ? Math.round(compare.polymarket.yesPrice * 100)
+                    : null
+                : null
+            }
             polyStrike={compare?.polymarket.matchedStrike ?? null}
             trades={hyperodd.trades}
             limitOrderCents={
@@ -1397,16 +1423,16 @@ function RiverChart({
             <span style={{ fontSize: 12 }}>🐋</span>
             <b>biggest trade flow</b> <span style={{ color: "var(--hl-muted)" }}>· green=buy YES · red=sell · server-collected since boot</span>
           </span>
-          {kalshiCents != null && kalshiStrike != null && (
-            <span className="inline-flex items-center gap-1">
+          {kalshiCents != null && (
+            <span className="inline-flex items-center gap-1" title="Linearly interpolated at HIP-4's strike">
               Kalshi <b className="mono" style={{ color: "var(--hl-yellow)" }}>{kalshiCents}¢</b>
-              <span style={{ color: "var(--hl-muted)" }}>@ ${kalshiStrike.toLocaleString()}</span>
+              <span style={{ color: "var(--hl-muted)" }}>@ HL strike (interp)</span>
             </span>
           )}
-          {polyCents != null && polyStrike != null && (
-            <span className="inline-flex items-center gap-1">
+          {polyCents != null && (
+            <span className="inline-flex items-center gap-1" title="Linearly interpolated at HIP-4's strike">
               Polymarket <b className="mono" style={{ color: "var(--hl-purple)" }}>{polyCents}¢</b>
-              <span style={{ color: "var(--hl-muted)" }}>@ ${polyStrike.toLocaleString()}</span>
+              <span style={{ color: "var(--hl-muted)" }}>@ HL strike (interp)</span>
             </span>
           )}
         </div>
@@ -1820,12 +1846,27 @@ function CompareStrip({
         ? `${Math.floor(ageMs / 1000)}s`
         : `${Math.floor(ageMs / 60_000)}m`;
   const k = compare?.kalshi;
-  const kalshiCents = k?.available && k.last != null ? Math.round(k.last * 100) : null;
+  // Prefer the interpolated price at HL's strike (apples-to-apples); fall
+  // back to the closest actual strike's last trade if interpolation didn't
+  // produce a value.
+  const kalshiCents =
+    k?.available && k.interpolatedYes != null
+      ? Math.round(k.interpolatedYes * 100)
+      : k?.available && k.last != null
+        ? Math.round(k.last * 100)
+        : null;
   const kalshiBid = k?.yesBid != null ? Math.round(k.yesBid * 100) : null;
   const kalshiAsk = k?.yesAsk != null ? Math.round(k.yesAsk * 100) : null;
+  const kalshiIsInterpolated = k?.interpolatedYes != null;
 
   const p = compare?.polymarket;
-  const polyCents = p?.available && p.yesPrice != null ? Math.round(p.yesPrice * 100) : null;
+  const polyCents =
+    p?.available && p.interpolatedYes != null
+      ? Math.round(p.interpolatedYes * 100)
+      : p?.available && p.yesPrice != null
+        ? Math.round(p.yesPrice * 100)
+        : null;
+  const polyIsInterpolated = p?.interpolatedYes != null;
 
   const hyperoddCents = hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : null;
 
@@ -1886,36 +1927,44 @@ function CompareStrip({
         )}
       </div>
 
-      {/* Kalshi */}
+      {/* Kalshi — interpolated at HL's strike */}
       <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
         <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Kalshi</span>
         {kalshiCents != null ? (
           <>
             <span className="mono font-bold" style={{ color: "var(--hl-yellow)", fontSize: 14 }}>{kalshiCents}¢</span>
-            {kalshiBid != null && kalshiAsk != null && (
+            {kalshiIsInterpolated && strike ? (
+              <span
+                style={{ color: "var(--hl-muted)", fontSize: 10 }}
+                title={`Linearly interpolated at $${strike.toLocaleString()} from Kalshi strikes $${k?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketLowerYes ?? 0) * 100)}¢) and $${k?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketUpperYes ?? 0) * 100)}¢)`}
+              >
+                @ ${strike.toLocaleString()} interp
+              </span>
+            ) : kalshiBid != null && kalshiAsk != null ? (
               <span className="mono" style={{ color: "var(--hl-muted)", fontSize: 10 }}>{kalshiBid}/{kalshiAsk}</span>
-            )}
-            {k?.matchedStrike && (
-              <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>@ ${k.matchedStrike.toLocaleString()}</span>
-            )}
+            ) : null}
           </>
         ) : (
           <span style={{ color: "var(--hl-muted)", fontSize: 11 }}>{k?.error ? "unavailable" : "loading…"}</span>
         )}
       </div>
 
-      {/* Polymarket */}
+      {/* Polymarket — interpolated at HL's strike */}
       <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
         <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Polymarket</span>
         {polyCents != null ? (
           <>
             <span className="mono font-bold" style={{ color: "var(--hl-purple)", fontSize: 14 }}>{polyCents}¢</span>
-            {p?.matchedStrike && (
+            {polyIsInterpolated && strike ? (
+              <span
+                style={{ color: "var(--hl-muted)", fontSize: 10 }}
+                title={`Linearly interpolated at $${strike.toLocaleString()} from Polymarket strikes $${p?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketLowerYes ?? 0) * 100)}¢) and $${p?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketUpperYes ?? 0) * 100)}¢)`}
+              >
+                @ ${strike.toLocaleString()} interp
+              </span>
+            ) : p?.matchedStrike ? (
               <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>@ ${p.matchedStrike.toLocaleString()}</span>
-            )}
-            {p?.eventVolume24h && p.eventVolume24h > 0 && (
-              <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>vol ${(p.eventVolume24h / 1000).toFixed(0)}K</span>
-            )}
+            ) : null}
             {p?.eventSlug && (
               <a
                 href={`https://polymarket.com/event/${p.eventSlug}`}

@@ -30,12 +30,17 @@ interface CompareResponse {
   hlImplied?: number; // pre-computed by the client and echoed back, optional
   kalshi: {
     available: boolean;
-    matchedStrike?: number;
+    matchedStrike?: number;       // closest actual strike on Kalshi
     requestedStrike: number;
     yesBid?: number;
     yesAsk?: number;
     yesMid?: number;
-    last?: number;
+    last?: number;                // last trade price at matched strike (0..1)
+    interpolatedYes?: number;     // linearly interpolated at requestedStrike (0..1)
+    bracketLowerStrike?: number;  // strike used as lower bound
+    bracketLowerYes?: number;
+    bracketUpperStrike?: number;
+    bracketUpperYes?: number;
     openInterest?: number;
     closeTime?: string;
     ticker?: string;
@@ -46,7 +51,12 @@ interface CompareResponse {
     available: boolean;
     matchedStrike?: number;
     requestedStrike: number;
-    yesPrice?: number; // the YES outcome price (0..1)
+    yesPrice?: number;
+    interpolatedYes?: number;     // linearly interpolated at requestedStrike (0..1)
+    bracketLowerStrike?: number;
+    bracketLowerYes?: number;
+    bracketUpperStrike?: number;
+    bracketUpperYes?: number;
     eventTitle?: string;
     marketQuestion?: string;
     eventEndDate?: string;
@@ -56,6 +66,49 @@ interface CompareResponse {
     error?: string;
   };
   fetchedAt: number;
+}
+
+/**
+ * Linear-interpolate the YES price at `targetStrike` given a sorted list of
+ * (strike, yesPrice) tuples. Handles out-of-range targets by clamping to the
+ * nearest available strike. Returns the interpolated price + the bracket used.
+ */
+function interpolateAtStrike(
+  ladder: { strike: number; yesPrice: number }[],
+  targetStrike: number,
+): {
+  interpolatedYes?: number;
+  bracketLowerStrike?: number;
+  bracketLowerYes?: number;
+  bracketUpperStrike?: number;
+  bracketUpperYes?: number;
+} {
+  const valid = ladder.filter((r) => Number.isFinite(r.yesPrice) && Number.isFinite(r.strike));
+  if (!valid.length) return {};
+  const sorted = [...valid].sort((a, b) => a.strike - b.strike);
+  let lower: { strike: number; yesPrice: number } | null = null;
+  let upper: { strike: number; yesPrice: number } | null = null;
+  for (const r of sorted) {
+    if (r.strike <= targetStrike) lower = r;
+    if (r.strike >= targetStrike && !upper) upper = r;
+  }
+  if (lower && upper && lower.strike !== upper.strike) {
+    const t = (targetStrike - lower.strike) / (upper.strike - lower.strike);
+    return {
+      interpolatedYes: lower.yesPrice + t * (upper.yesPrice - lower.yesPrice),
+      bracketLowerStrike: lower.strike,
+      bracketLowerYes: lower.yesPrice,
+      bracketUpperStrike: upper.strike,
+      bracketUpperYes: upper.yesPrice,
+    };
+  }
+  if (lower) {
+    return { interpolatedYes: lower.yesPrice, bracketLowerStrike: lower.strike, bracketLowerYes: lower.yesPrice };
+  }
+  if (upper) {
+    return { interpolatedYes: upper.yesPrice, bracketUpperStrike: upper.strike, bracketUpperYes: upper.yesPrice };
+  }
+  return {};
 }
 
 // 2-second in-memory cache keyed by strike (server). Client polls every 5s,
@@ -87,7 +140,28 @@ async function fetchKalshi(strike: number): Promise<CompareResponse["kalshi"]> {
     if (!soonestEvent) return { available: false, requestedStrike: strike, error: "no event" };
 
     const eventMarkets = markets.filter((m) => m.event_ticker === soonestEvent);
-    // closest strike — prefer one ≥ our strike if tie
+
+    // Build the strike ladder for interpolation — use the mid of bid/ask
+    // when available, else the last trade price. Skip strikes with no quote.
+    const ladder = eventMarkets
+      .map((m) => {
+        if (typeof m.floor_strike !== "number") return null;
+        const bid = m.yes_bid_dollars != null ? parseFloat(m.yes_bid_dollars) : NaN;
+        const ask = m.yes_ask_dollars != null ? parseFloat(m.yes_ask_dollars) : NaN;
+        const last = m.last_price_dollars != null ? parseFloat(m.last_price_dollars) : NaN;
+        let yesPrice = NaN;
+        if (Number.isFinite(bid) && Number.isFinite(ask) && ask < 1.0) {
+          yesPrice = (bid + ask) / 2;
+        } else if (Number.isFinite(last) && last > 0) {
+          yesPrice = last;
+        }
+        return Number.isFinite(yesPrice) ? { strike: m.floor_strike, yesPrice } : null;
+      })
+      .filter((x): x is { strike: number; yesPrice: number } => x !== null);
+
+    const interp = interpolateAtStrike(ladder, strike);
+
+    // Closest actual strike for "matched" display
     let best: KalshiMarket | null = null;
     let bestDiff = Infinity;
     for (const m of eventMarkets) {
@@ -113,6 +187,7 @@ async function fetchKalshi(strike: number): Promise<CompareResponse["kalshi"]> {
       yesAsk,
       yesMid,
       last,
+      ...interp,
       openInterest: best.open_interest_fp != null ? parseFloat(best.open_interest_fp) : undefined,
       closeTime: best.close_time,
       ticker: best.ticker,
@@ -218,14 +293,22 @@ function matchStrikeInEvent(
 
   if (!parsed.length) return { available: false, requestedStrike: strike, error: "no parseable strikes" };
 
-  parsed.sort((a, b) => Math.abs(a.strike - strike) - Math.abs(b.strike - strike));
-  const best = parsed[0];
+  // Build the strike ladder for interpolation
+  const ladder = parsed
+    .filter((p) => Number.isFinite(p.yes))
+    .map((p) => ({ strike: p.strike, yesPrice: p.yes }));
+  const interp = interpolateAtStrike(ladder, strike);
+
+  // Also keep the closest actual strike for "matched" display
+  const byProximity = [...parsed].sort((a, b) => Math.abs(a.strike - strike) - Math.abs(b.strike - strike));
+  const best = byProximity[0];
 
   return {
     available: Number.isFinite(best.yes),
     matchedStrike: best.strike,
     requestedStrike: strike,
     yesPrice: Number.isFinite(best.yes) ? best.yes : undefined,
+    ...interp,
     eventTitle: event.title,
     marketQuestion: best.question,
     eventEndDate: event.endDate,
