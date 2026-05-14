@@ -17,6 +17,7 @@ import { cacheGet, cacheSet, isRedisConnected } from "../services/cache.js";
 import { getNewsFeedCached, getCoinNews, type NewsPost } from "../services/crypto-panic.js";
 import { getAllSocialMetricsCached, getSocialMetricsCached, type SocialMetrics } from "../services/lunar-crush.js";
 import { getLargeTradesCached } from "../services/trade-tape.js";
+import { getPredictionTrades, getActivePredictionCoin } from "../services/prediction-trades.js";
 import { getMacroDataCached } from "../services/macro-data.js";
 import { getTopTraderFills } from "../services/top-trader-fills.js";
 import { getLiquidationHeatmap } from "../services/liquidation-heatmap.js";
@@ -759,6 +760,26 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       const limit = Math.min(Math.max(1, parseInt(req.query.limit || "200") || 200), 2000);
       return {
         trades: getLargeTradesCached().slice(0, limit),
+        timestamp: Date.now(),
+      };
+    },
+  );
+
+  /**
+   * GET /api/market/predict-trades
+   * Server-collected trade history for the currently-live HIP-4 binary.
+   * Accumulates via WS subscription on the API process — survives across
+   * client reloads and shows trades that happened before the user opened
+   * the page (which HL's recentTrades doesn't, since it only returns the
+   * last ~30 seconds).
+   */
+  app.get<{ Querystring: { limit?: string } }>(
+    "/predict-trades",
+    async (req) => {
+      const limit = Math.min(Math.max(1, parseInt(req.query.limit || "500") || 500), 5000);
+      return {
+        coin: getActivePredictionCoin(),
+        trades: getPredictionTrades(limit),
         timestamp: Date.now(),
       };
     },

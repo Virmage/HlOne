@@ -12,6 +12,7 @@ import { snapshotOI, loadOIFromDb, cleanupOldOISnapshots } from "./oi-tracker.js
 import { getNewsFeed } from "./crypto-panic.js";
 import { getBatchSocialMetrics } from "./lunar-crush.js";
 import { startTradeTapeTracking } from "./trade-tape.js";
+import { startPredictionTradesTracking } from "./prediction-trades.js";
 import { getMacroData } from "./macro-data.js";
 import { startTopTraderFillsTracking, loadFillsFromDb } from "./top-trader-fills.js";
 import { computeCorrelationMatrix } from "./correlation-matrix.js";
@@ -68,6 +69,12 @@ export function startBackgroundJobs() {
 
     // Start trade tape polling (every 20s, self-managed interval)
     startTradeTapeTracking();
+    // Start HIP-4 prediction trades collector — subscribes to HL WS for the
+    // active outcome contract, accumulates trades into a ring buffer, and
+    // auto-resubscribes on the 06:00 UTC daily rollover.
+    startPredictionTradesTracking().catch((e) =>
+      console.error("[bg] predict-trades start:", (e as Error).message),
+    );
     // Start order flow tracking (every 20s, self-managed interval)
     startOrderFlowTracking();
     // Start top trader fills tracking (30min refresh, starts after smart money warms up)

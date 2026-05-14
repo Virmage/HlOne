@@ -393,12 +393,48 @@ export default function PredictPage() {
       } catch { /* ignore */ }
     };
 
+    // Also pull server-collected trade history. The Railway API has been
+    // subscribed to HL's trades WS since boot, so this gives us the FULL
+    // history for the current contract (not just the last ~30s).
+    const fetchServerTrades = async () => {
+      try {
+        const res = await fetch(`/api/market/predict-trades?limit=500`);
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          coin: string | null;
+          trades: { coin: string; px: number; sz: number; side: string; time: number; tid: number; hash?: string }[];
+        };
+        if (cancelled || data.coin !== hip4Coin || !Array.isArray(data.trades)) return;
+        setHyperodd((s) => {
+          const tids = new Set(s.trades.map((t) => t.tid).filter((x): x is number => x != null));
+          const incoming = data.trades
+            .filter((t) => t.tid == null || !tids.has(t.tid))
+            .map((t) => ({
+              coin: t.coin,
+              px: String(t.px),
+              sz: String(t.sz),
+              side: t.side,
+              time: t.time,
+              tid: t.tid,
+            } as HyperOddTrade));
+          if (!incoming.length) return s;
+          // Merge + sort newest first + cap
+          const merged = [...incoming, ...s.trades]
+            .sort((a, b) => b.time - a.time)
+            .slice(0, 500);
+          return { ...s, trades: merged };
+        });
+      } catch { /* ignore */ }
+    };
+
     fetchMark();
     fetchTrades();
+    fetchServerTrades();
     fetchCandles();
     fetchBookOnce();
     const markId = setInterval(fetchMark, 3000);
     const tradeId = setInterval(fetchTrades, 5000);
+    const serverTradeId = setInterval(fetchServerTrades, 10_000);
     const candleId = setInterval(fetchCandles, 60_000);
 
     // WS for live L2 book + trade stream — both subscribed on the same socket.
@@ -473,6 +509,7 @@ export default function PredictPage() {
       cancelled = true;
       clearInterval(markId);
       clearInterval(tradeId);
+      clearInterval(serverTradeId);
       clearInterval(candleId);
       if (ws) ws.close();
     };
@@ -893,24 +930,57 @@ function RiverChart({
   const kalshiY = kalshiCents != null ? H - (kalshiCents / 100) * H : null;
   const polyY = polyCents != null ? H - (polyCents / 100) * H : null;
 
-  // ── Whales — primary source is per-candle volume (gives us proper
-  //    historical distribution across the 24h timeline). HL doesn't have a
-  //    historical-trades endpoint, but each 15min candle has a `v` (shares
-  //    traded) field — that IS the historical trade flow, summarised.
+  // ── Whales — primary source is the server-collected trades buffer (the
+  //    Railway API has been subscribed to HL's WS since boot, so we have
+  //    real (time, price) for every fill). Aggregate same-direction trades
+  //    within 60s buckets so the chart doesn't pile dozens of small prints
+  //    on the same pixel, pick the top 10 by USD.
   //
-  //    Each candle becomes a candidate whale icon at (mid-time, close-px),
-  //    sized by USD notional (v × avg-price), coloured by candle direction
-  //    (close ≥ open → bull/green; close < open → bear/red). We pick the
-  //    top 8 by USD so the chart isn't littered with low-volume periods.
-  //
-  //    The live WS trade stream (`trades` prop) feeds the trade tape in
-  //    other panels but isn't redrawn here — candles already capture
-  //    everything older than the current 15min slot, and the current
-  //    in-progress candle's volume updates every 60s when we refetch.
+  //    Fallback to per-candle aggregation when the trades buffer is sparse
+  //    (e.g. first few seconds after a daily contract rollover).
   const whales = useMemo(() => {
-    if (!marketCandles.length) return [] as { x: number; y: number; usd: number; px: number; side: string; count: number }[];
-    const inWindow = marketCandles.filter((c) => c.t >= tMin && c.t <= tMax);
-    const ranked = inWindow
+    type Whale = { x: number; y: number; usd: number; px: number; side: string; count: number };
+    const inWindow = trades.filter((t) => t.time >= tMin && t.time <= tMax);
+    if (inWindow.length >= 5) {
+      type Agg = { tSum: number; pxSum: number; szSum: number; usd: number; count: number; side: string };
+      const buckets = new Map<string, Agg>();
+      for (const t of inWindow) {
+        const px = parseFloat(t.px);
+        const sz = parseFloat(t.sz);
+        if (!Number.isFinite(px) || !Number.isFinite(sz)) continue;
+        const key = `${t.side}:${Math.floor(t.time / 60_000)}`;
+        const usd = px * sz;
+        const b = buckets.get(key);
+        if (b) {
+          b.tSum += t.time;
+          b.pxSum += px;
+          b.szSum += sz;
+          b.usd += usd;
+          b.count += 1;
+        } else {
+          buckets.set(key, { tSum: t.time, pxSum: px, szSum: sz, usd, count: 1, side: t.side });
+        }
+      }
+      const aggs = [...buckets.values()].sort((a, b) => b.usd - a.usd).slice(0, 10);
+      return aggs.map((a): Whale => {
+        const t = a.tSum / a.count;
+        const px = a.pxSum / a.count;
+        return {
+          x: ((t - tMin) / (tMax - tMin)) * W,
+          y: H - px * H,
+          usd: a.usd,
+          px,
+          side: a.side,
+          count: a.count,
+        };
+      });
+    }
+
+    // Fallback — derive from candle volume so the chart isn't empty when
+    // the trade buffer hasn't accumulated yet.
+    if (!marketCandles.length) return [] as Whale[];
+    const candleWindow = marketCandles.filter((c) => c.t >= tMin && c.t <= tMax);
+    const ranked = candleWindow
       .map((c) => {
         const open = parseFloat(c.o);
         const close = parseFloat(c.c);
@@ -922,21 +992,19 @@ function RiverChart({
       .filter((r) => r.vol > 0)
       .sort((a, b) => b.usd - a.usd)
       .slice(0, 8);
-    return ranked.map(({ c, open, close, vol, usd }) => {
+    return ranked.map(({ c, open, close, vol, usd }): Whale => {
       const midTime = c.t + (15 * 60 * 1000) / 2;
       return {
         x: ((midTime - tMin) / (tMax - tMin)) * W,
         y: H - close * H,
         usd,
         px: close,
-        side: close >= open ? "B" : "A", // bull or bear candle
+        side: close >= open ? "B" : "A",
         count: Math.round(vol),
       };
     });
-  }, [marketCandles, tMin, tMax]);
+  }, [trades, marketCandles, tMin, tMax]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
-  // suppress unused-var warning — `trades` still consumed by the trade tape elsewhere
-  void trades;
 
   // ── Volume profile — one thin bar per HIP-4 candle, scaled by the candle's
   //    `v` field. Gives the chart historical-flow context even when individual
@@ -1102,7 +1170,7 @@ function RiverChart({
                   zIndex: 3,
                   cursor: "pointer",
                 }}
-                title={`${isBuy ? "Bullish" : "Bearish"} 15min candle · ${w.count.toLocaleString()} shares @ ~${(w.px * 100).toFixed(1)}¢ · ${usdStr}`}
+                title={`${isBuy ? "BUY" : "SELL"} YES · ${w.count} trade${w.count > 1 ? "s" : ""} @ ~${(w.px * 100).toFixed(1)}¢ · total ${usdStr}`}
               >
                 🐋
                 <div
@@ -1327,7 +1395,7 @@ function RiverChart({
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span style={{ fontSize: 12 }}>🐋</span>
-            <b>biggest 15min flow</b> <span style={{ color: "var(--hl-muted)" }}>· green=bullish · red=bearish · sized by $$</span>
+            <b>biggest trade flow</b> <span style={{ color: "var(--hl-muted)" }}>· green=buy YES · red=sell · server-collected since boot</span>
           </span>
           {kalshiCents != null && kalshiStrike != null && (
             <span className="inline-flex items-center gap-1">
