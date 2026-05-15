@@ -1276,9 +1276,18 @@ export async function placeSpotOrder(
 
     let limitPrice: number;
     if (params.orderType === "market") {
-      // For spot market orders, use mid price + slippage
-      const midPrice = await getMidPrice(`${params.token}/USDC`).catch(
-        () => getMidPrice(params.token)
+      // HL's allMids keys spot pairs by their @-code, NOT by token name
+      // or "BASE/QUOTE". The spot universe index = (cached assetIndex) -
+      // 10000, and the allMids key is "@<universeIdx>" — so go straight
+      // there. Fall back to "TOKEN/USDC" and bare "TOKEN" so older spot
+      // entries that DO show up by name still resolve (e.g. PURR, HYPE
+      // legacy listings).
+      const spotUniverseIdx = assetIndex - 10000;
+      const spotAtCode = `@${spotUniverseIdx}`;
+      const midPrice = await getMidPrice(spotAtCode).catch(
+        () => getMidPrice(`${params.token}/USDC`).catch(
+          () => getMidPrice(params.token)
+        )
       );
       const slippage = params.isBuy ? 1.005 : 0.995; // 0.5% slippage
       limitPrice = roundPrice(midPrice * slippage);
