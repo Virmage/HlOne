@@ -1,7 +1,15 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
-    "dockerfilePath": "apps/api/Dockerfile"
+    "dockerfilePath": "apps/api/Dockerfile",
+    "watchPatterns": [
+      "apps/api/**",
+      "packages/db/**",
+      "package.json",
+      "package-lock.json",
+      "Dockerfile",
+      "railway.json"
+    ]
   },
   "deploy": {
     "healthcheckPath": "/api/health",

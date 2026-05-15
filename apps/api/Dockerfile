@@ -7,8 +7,15 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/db/package.json ./packages/db/
 COPY apps/api/package.json ./apps/api/
-RUN npm ci --workspace=packages/db --workspace=apps/api --include-workspace-root \
-    && echo "npm ci OK"
+# Retry npm ci up to 3 times — flakes from registry slowness are the most
+# common Railway build failure. Single transient slow-package shouldn't
+# kill the whole deploy.
+RUN for i in 1 2 3; do \
+      echo "npm ci attempt $i/3..." && \
+      npm ci --workspace=packages/db --workspace=apps/api --include-workspace-root && \
+      echo "npm ci OK on attempt $i" && break || \
+      (echo "npm ci failed on attempt $i, retrying in 10s..." && sleep 10); \
+    done
 
 # Build
 FROM base AS builder
