@@ -812,8 +812,6 @@ export default function PredictPage() {
                 : null
             }
             trades={hyperodd.trades}
-            bids={hyperodd.bids}
-            asks={hyperodd.asks}
             onWhaleClick={setSelectedWhale}
             limitOrderCents={
               orderType === "limit" && parseFloat(limitPx) > 0
@@ -1073,8 +1071,6 @@ function RiverChart({
   kalshiCents,
   polyCents,
   trades,
-  bids,
-  asks,
   onWhaleClick,
   limitOrderCents,
   limitOrderSide,
@@ -1091,8 +1087,6 @@ function RiverChart({
   kalshiCents: number | null;
   polyCents: number | null;
   trades: HyperOddTrade[];
-  bids: BookLevel[];
-  asks: BookLevel[];
   onWhaleClick: (w: { side: string; px: number; usd: number; count: number; time: number }) => void;
   limitOrderCents: number | null;
   limitOrderSide: "yes" | "no" | null;
@@ -1321,47 +1315,10 @@ function RiverChart({
   // Limit-order horizontal line position
   const limitY = limitOrderCents != null ? H - (limitOrderCents / 100) * H : null;
 
-  // ── Order-book depth heatmap ─────────────────────────────────────────────
-  // Render top 12 levels each side as thin horizontal bands on the right
-  // edge of the chart (the "now → future" portion). Each band's opacity
-  // scales with its size so big resting orders pop, small ones fade into
-  // the background. Deliberately subtle — the chart's already busy.
-  const depthBands = useMemo(() => {
-    type Band = { y: number; alpha: number; side: "bid" | "ask"; px: number; sz: number };
-    const out: Band[] = [];
-    const N = 12;
-    const bidLevels = bids.slice(0, N);
-    const askLevels = asks.slice(0, N);
-    const maxSize = [...bidLevels, ...askLevels].reduce(
-      (m, l) => Math.max(m, parseFloat(l.sz)),
-      0.001,
-    );
-    for (const l of bidLevels) {
-      const px = parseFloat(l.px);
-      const sz = parseFloat(l.sz);
-      if (!Number.isFinite(px) || !Number.isFinite(sz)) continue;
-      out.push({
-        y: H - px * H,
-        alpha: 0.08 + 0.32 * (sz / maxSize), // 0.08 floor, 0.40 max
-        side: "bid",
-        px,
-        sz,
-      });
-    }
-    for (const l of askLevels) {
-      const px = parseFloat(l.px);
-      const sz = parseFloat(l.sz);
-      if (!Number.isFinite(px) || !Number.isFinite(sz)) continue;
-      out.push({
-        y: H - px * H,
-        alpha: 0.08 + 0.32 * (sz / maxSize),
-        side: "ask",
-        px,
-        sz,
-      });
-    }
-    return out;
-  }, [bids, asks]);
+  // Depth heatmap removed — in tight markets (e.g. YES at 97¢) the book
+  // levels cluster within a few cents and the bands rendered as a fuzzy
+  // fringe instead of meaningful walls. The order-book panel below the
+  // chart already shows full depth with proper price/size info.
 
   return (
     <div className="panel" style={{ minHeight: 540 }}>
@@ -1393,27 +1350,6 @@ function RiverChart({
             <line x1="0" y1={H * 0.5} x2={W} y2={H * 0.5} stroke="#1a2428" strokeDasharray="2,4" />
             <line x1="0" y1={H * 0.75} x2={W} y2={H * 0.75} stroke="#1a2428" strokeDasharray="2,4" />
             <line x1="0" y1={H} x2={W} y2={H} stroke="#1a2428" />
-            {/* Depth heatmap — thin horizontal bands on the right side of the
-                chart at each book level, opacity scaled by size. Renders
-                BEHIND the BTC line + river so it never obscures them. The
-                bands extend from the NOW line to the right edge (the "future"
-                space) since the book is a snapshot of current resting size. */}
-            {depthBands.length > 0 && nowX != null && nowX < W && (
-              <g>
-                {depthBands.map((b, i) => (
-                  <rect
-                    key={i}
-                    x={nowX}
-                    y={b.y - 1}
-                    width={W - nowX}
-                    height={2}
-                    fill={b.side === "bid" ? "#4ade80" : "#f87171"}
-                    opacity={b.alpha}
-                  />
-                ))}
-              </g>
-            )}
-
             {/* BTC price line — true orange, so the legend's "orange line = BTC"
                 actually matches the colour rendered. */}
             {btcPoints && (
@@ -1710,13 +1646,6 @@ function RiverChart({
               <span style={{ width: 5, height: 1.5, background: "var(--hl-yellow)", opacity: 0.55 }}></span>
             </span>
             <b style={{ color: "var(--hl-yellow)", opacity: 0.85 }}>yellow dashed = strike</b> <span style={{ color: "var(--hl-muted)" }}>· settle threshold</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5" title="Faint horizontal bands on the right side of the chart at each L2 book level. Opacity scales with resting size — big walls of liquidity pop, small ones fade.">
-            <span style={{ display: "inline-flex", flexDirection: "column", gap: 1 }}>
-              <span style={{ width: 14, height: 1.5, background: "var(--hl-green)", opacity: 0.35 }}></span>
-              <span style={{ width: 14, height: 1.5, background: "var(--hl-red)", opacity: 0.35 }}></span>
-            </span>
-            <b style={{ color: "var(--hl-muted)" }}>depth bands</b> <span style={{ color: "var(--hl-muted)" }}>· L2 book · bid = green, ask = red</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span style={{ display: "inline-flex", gap: 1 }}>
