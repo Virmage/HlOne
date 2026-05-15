@@ -75,6 +75,20 @@ function nextSettleUtc(): number {
   return settle.getTime();
 }
 
+/**
+ * Translate a UI timeframe selection into HL candle params + chart-window
+ * bounds. Lookback is how far back from now the chart shows; interval is
+ * the candle granularity (smaller windows want finer candles).
+ */
+function tfParams(tf: "1H" | "6H" | "24H") {
+  switch (tf) {
+    case "1H": return { lookbackMs: 1 * 60 * 60 * 1000, interval: "1m" };
+    case "6H": return { lookbackMs: 6 * 60 * 60 * 1000, interval: "5m" };
+    case "24H":
+    default:   return { lookbackMs: 24 * 60 * 60 * 1000, interval: "15m" };
+  }
+}
+
 function fmtCountdown(ms: number) {
   if (ms <= 0) return "00:00:00";
   const s = Math.floor(ms / 1000);
@@ -180,6 +194,7 @@ export default function PredictPage() {
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [limitPx, setLimitPx] = useState<string>("");
   const [showRules, setShowRules] = useState(false);
+  const [timeframe, setTimeframe] = useState<"1H" | "6H" | "24H">("24H");
   const [selectedWhale, setSelectedWhale] = useState<{
     side: string;
     px: number;
@@ -235,19 +250,20 @@ export default function PredictPage() {
   // Strike is whatever the live HIP-4 market reports.
   const strike = hyperodd.hip4Strike;
 
-  // fetch 24h of 15m candles once (refresh every 60s)
+  // BTC candles — granularity + lookback driven by the chart timeframe.
   useEffect(() => {
     let cancelled = false;
+    const { lookbackMs, interval } = tfParams(timeframe);
     const fetchCandles = async () => {
       try {
         const end = Date.now();
-        const start = end - 24 * 60 * 60 * 1000;
+        const start = end - lookbackMs;
         const res = await fetch(HL_INFO, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             type: "candleSnapshot",
-            req: { coin: "BTC", interval: "15m", startTime: start, endTime: end },
+            req: { coin: "BTC", interval, startTime: start, endTime: end },
           }),
         });
         if (!res.ok) return;
@@ -263,7 +279,7 @@ export default function PredictPage() {
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [timeframe]);
 
   // ticking clock for countdown — first interval tick (delay 0) sets initial value
   useEffect(() => {
@@ -370,16 +386,17 @@ export default function PredictPage() {
       } catch { /* ignore */ }
     };
 
+    const { lookbackMs, interval: tfInterval } = tfParams(timeframe);
     const fetchCandles = async () => {
       try {
         const end = Date.now();
-        const start = end - 24 * 60 * 60 * 1000;
+        const start = end - lookbackMs;
         const res = await fetch(HL_INFO, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             type: "candleSnapshot",
-            req: { coin: hip4Coin, interval: "15m", startTime: start, endTime: end },
+            req: { coin: hip4Coin, interval: tfInterval, startTime: start, endTime: end },
           }),
         });
         if (!res.ok) return;
@@ -530,7 +547,7 @@ export default function PredictPage() {
       clearInterval(candleId);
       if (ws) ws.close();
     };
-  }, [hip4Coin]);
+  }, [hip4Coin, timeframe]);
 
   // poll Kalshi + Polymarket comparison every 8s once strike is known
   useEffect(() => {
@@ -784,6 +801,8 @@ export default function PredictPage() {
       <main className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3" style={{ gridTemplateColumns: "1fr 320px", alignItems: "start" }}>
         <div className="flex flex-col gap-3 min-w-0">
           <RiverChart
+            timeframe={timeframe}
+            setTimeframe={setTimeframe}
             probSeries={probSeries}
             fairProbSeries={marketProbSeries.length > 0 && expiryTier !== "imminent" ? fairProbSeries : []}
             btcCandles={candles}
@@ -1060,6 +1079,8 @@ function Stat({ label, value, cls }: { label: string; value: string; cls: string
 }
 
 function RiverChart({
+  timeframe,
+  setTimeframe,
   probSeries,
   fairProbSeries,
   btcCandles,
@@ -1077,6 +1098,8 @@ function RiverChart({
   limitOrderSide,
   limitOrderTypedCents,
 }: {
+  timeframe: "1H" | "6H" | "24H";
+  setTimeframe: (tf: "1H" | "6H" | "24H") => void;
   probSeries: { x: number; p: number }[];
   fairProbSeries: { x: number; p: number }[];
   btcCandles: Candle[];
@@ -1100,8 +1123,19 @@ function RiverChart({
   // X-axis spans the contract's actual lifetime: 24h ending at settleTs.
   // This way the chart reads as "open → settle" and an in-progress market
   // shows a clear NOW marker, not a half-empty canvas.
-  const tMin = settleTs - 24 * 60 * 60 * 1000;
-  const tMax = settleTs;
+  // Chart x-window driven by the active timeframe.
+  //  - 24H: full contract lifetime (settleTs−24h → settleTs). Familiar
+  //    "open → settle" framing with NOW marker.
+  //  - 1H / 6H: zoom to the last N hours ending at NOW. Better for active
+  //    in-session reads.
+  const tMin =
+    timeframe === "24H"
+      ? settleTs - 24 * 60 * 60 * 1000
+      : (now > 0 ? now : Date.now()) - tfParams(timeframe).lookbackMs;
+  const tMax =
+    timeframe === "24H"
+      ? settleTs
+      : now > 0 ? now : Date.now();
 
   // BTC y-axis: auto-fit to the actual BTC range in the visible window
   // (was a fixed ±$1500 around strike, which clipped when BTC moved past
@@ -1338,7 +1372,21 @@ function RiverChart({
         <span className="ptitle">Probability river</span>
         <span className="psub ml-3">live · computed from BTC mark vs strike</span>
         <div className="ml-auto flex gap-1 text-[10px]" style={{ color: "var(--hl-muted)" }}>
-          <button className="px-2 py-0.5 rounded" style={{ background: "var(--hl-surface-hover)", color: "var(--hl-accent)" }}>24H</button>
+          {(["1H", "6H", "24H"] as const).map((tf) => (
+            <button
+              key={tf}
+              onClick={() => setTimeframe(tf)}
+              className="px-2 py-0.5 rounded transition-colors"
+              style={{
+                background: timeframe === tf ? "var(--hl-surface-hover)" : "transparent",
+                color: timeframe === tf ? "var(--hl-accent)" : "var(--hl-muted)",
+                fontWeight: timeframe === tf ? 600 : 400,
+                cursor: "pointer",
+              }}
+            >
+              {tf}
+            </button>
+          ))}
         </div>
       </div>
       <div className="p-3 flex flex-col">
@@ -1640,11 +1688,31 @@ function RiverChart({
               borderTop: "1px solid var(--hl-border)",
             }}
           >
-            <span>open · 06:00 UTC</span>
-            <span>−18h</span>
-            <span>−12h</span>
-            <span>−6h</span>
-            <span>settle ▶</span>
+            {timeframe === "24H" ? (
+              <>
+                <span>open · 06:00 UTC</span>
+                <span>−18h</span>
+                <span>−12h</span>
+                <span>−6h</span>
+                <span>settle ▶</span>
+              </>
+            ) : timeframe === "6H" ? (
+              <>
+                <span>−6h</span>
+                <span>−4h 30m</span>
+                <span>−3h</span>
+                <span>−1h 30m</span>
+                <span>now ▶</span>
+              </>
+            ) : (
+              <>
+                <span>−1h</span>
+                <span>−45m</span>
+                <span>−30m</span>
+                <span>−15m</span>
+                <span>now ▶</span>
+              </>
+            )}
           </div>
 
           {/* Conviction thumb + arc removed — order entry uses standard limit/market panel */}
