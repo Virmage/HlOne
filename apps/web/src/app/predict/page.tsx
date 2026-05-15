@@ -1098,15 +1098,13 @@ function Row({ label, value, sub, cls = "", big = false }: { label: string; valu
 
 // ─── small components ──────────────────────────────────────────────────────
 /**
- * Inline gap chip — shows "+5 theory" or "-12 arb" in muted (small gap) or
- * coloured (significant gap) styling. Used in the cross-venue strip to
- * surface each comparator's distance from HIP-4 live without needing a
- * separate row.
+ * Inline gap chip — shows e.g. "−11% vs HIP-4" in muted (small) or coloured
+ * (significant) styling. Used in the cross-venue strip to make each
+ * comparator's distance from the actual market obvious without jargon.
  */
 function GapChip({ gap, suffix, title }: { gap: number | null; suffix: string; title?: string }) {
   if (gap == null) return null;
   const abs = Math.abs(gap);
-  // Anything <2pp reads as noise — show dimmed; ≥3pp coloured.
   const isSignificant = abs >= 3;
   const color = !isSignificant
     ? "var(--hl-muted)"
@@ -1122,10 +1120,10 @@ function GapChip({ gap, suffix, title }: { gap: number | null; suffix: string; t
         fontWeight: isSignificant ? 700 : 500,
         opacity: abs < 1 ? 0.5 : 1,
       }}
-      title={title ?? `Gap vs HIP-4 live (the actual market). ${gap < 0 ? "Negative = " + suffix + " venue is cheaper than HIP-4." : "Positive = " + suffix + " venue is richer than HIP-4."}`}
+      title={title ?? `Distance from the live HIP-4 mark, in percentage points. ${gap < 0 ? "Negative = this " + suffix + " venue is cheaper than HIP-4." : "Positive = this " + suffix + " venue is richer than HIP-4."}`}
     >
       {gap >= 0 ? "+" : ""}
-      {gap} pp
+      {gap}% vs HIP-4
     </span>
   );
 }
@@ -2466,12 +2464,12 @@ function CompareStrip({
               }}
               title={
                 bestArb.gap < 0
-                  ? `${bestArb.name} is ${Math.abs(bestArb.gap)} pp BELOW HIP-4 — buy YES on ${bestArb.name} (cheaper), short YES / buy NO on HIP-4 to hedge.`
-                  : `${bestArb.name} is ${bestArb.gap} pp ABOVE HIP-4 — sell YES on ${bestArb.name} (richer), buy YES on HIP-4 to hedge.`
+                  ? `${bestArb.name} is ${Math.abs(bestArb.gap)}% CHEAPER than HIP-4 — buy YES on ${bestArb.name}, short YES / buy NO on HIP-4 to hedge.`
+                  : `${bestArb.name} is ${bestArb.gap}% MORE EXPENSIVE than HIP-4 — sell YES on ${bestArb.name}, buy YES on HIP-4 to hedge.`
               }
             >
               {bestArb.gap >= 0 ? "+" : ""}
-              {bestArb.gap} pp
+              {bestArb.gap}%
             </span>
             {isArb && (
               <span
@@ -2485,7 +2483,7 @@ function CompareStrip({
                   fontWeight: 700,
                   letterSpacing: 0.5,
                 }}
-                title={`Cross-venue mispricing ≥ ${edgeThreshold}pp · settle times differ across venues, so part of the gap is structural, not arb.`}
+                title={`Cross-venue mispricing ≥ ${edgeThreshold}% · settle times differ across venues, so part of the gap is structural, not arb.`}
               >
                 ARB
               </span>
