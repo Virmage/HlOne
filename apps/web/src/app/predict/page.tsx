@@ -246,6 +246,31 @@ export default function PredictPage() {
     marketCandles: [],
   });
 
+  // USDH balance — HIP-4 outcomes settle in USDH, so this is the most
+  // useful "how much can I size into a trade" number for predict users.
+  // Lives in the user's spot account; pulled from spotClearinghouseState.
+  const [usdhBalance, setUsdhBalance] = useState<number | null>(null);
+  useEffect(() => {
+    if (!address) { setUsdhBalance(null); return; }
+    let cancelled = false;
+    const fetchBalance = async () => {
+      try {
+        const res = await fetch(HL_INFO, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "spotClearinghouseState", user: address }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { balances?: { coin: string; total: string }[] };
+        const usdh = data?.balances?.find((b) => b.coin === "USDH");
+        if (!cancelled) setUsdhBalance(usdh ? parseFloat(usdh.total) : 0);
+      } catch { /* ignore */ }
+    };
+    fetchBalance();
+    const id = setInterval(fetchBalance, 15_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [address]);
+
   // poll live BTC mark — used as the underlying reference for the settle target widget
   useEffect(() => {
     let cancelled = false;
@@ -886,6 +911,30 @@ export default function PredictPage() {
             <>HIP-4 bucket question <code className="mono" style={{ color: "var(--hl-accent)" }}>Q{bucketMarket?.questionId ?? "…"}</code></>
           )}
         </span>
+
+        {/* USDH balance pill — HIP-4 settles in USDH, so this answers
+            "how much can I size into a trade right now". Only shown when
+            connected; placeholder dash when balance is still loading. */}
+        {isConnected && (
+          <span
+            className="mono text-[11px] px-2 py-0.5 flex items-center gap-1"
+            style={{
+              background: "rgba(74,222,128,0.08)",
+              border: "1px solid rgba(74,222,128,0.25)",
+              borderRadius: 3,
+              color: "var(--hl-green)",
+            }}
+            title="Your USDH spot balance. HIP-4 outcome contracts settle in USDH at expiry."
+          >
+            <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>USDH</span>
+            <b>
+              {usdhBalance == null
+                ? "—"
+                : `$${usdhBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+            </b>
+          </span>
+        )}
+
         <span
           className="ml-auto mono text-[10px]"
           style={{ color: hyperodd.wsConnected ? "var(--hl-green)" : "var(--hl-muted)" }}
