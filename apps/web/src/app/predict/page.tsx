@@ -2073,14 +2073,9 @@ function CompareStrip({
   now: number;
 }) {
   // Freshness — how long ago was the cross-venue compare data fetched?
-  const ageMs = compare ? Math.max(0, now - compare.fetchedAt) : null;
-  const ageStr = ageMs == null
-    ? "—"
-    : ageMs < 1000
-      ? "<1s"
-      : ageMs < 60_000
-        ? `${Math.floor(ageMs / 1000)}s`
-        : `${Math.floor(ageMs / 60_000)}m`;
+  // Freshness timer removed — it ticked every second and the changing width
+  // of "3s ago" → "12s ago" → "1m ago" caused the cross-venue strip to
+  // reflow constantly, jittering the rest of the UI.
   const k = compare?.kalshi;
   // Prefer the interpolated price at HL's strike (apples-to-apples); fall
   // back to the closest actual strike's last trade if interpolation didn't
@@ -2148,20 +2143,8 @@ function CompareStrip({
         alignItems: "center",
       }}
     >
-      <span className="cellL flex items-center gap-1.5" style={{ color: "var(--hl-accent)", fontWeight: 600, letterSpacing: 0.6 }}>
+      <span className="cellL" style={{ color: "var(--hl-accent)", fontWeight: 600, letterSpacing: 0.6 }}>
         Cross-venue
-        <span
-          className="mono"
-          style={{
-            fontSize: 9,
-            color: ageMs != null && ageMs < 15_000 ? "var(--hl-green)" : "var(--hl-muted)",
-            fontWeight: 400,
-            letterSpacing: 0,
-            textTransform: "none",
-          }}
-        >
-          {compare ? `· ${ageStr} ago` : "· loading…"}
-        </span>
       </span>
 
       {/* HIP-4 LIVE — visual anchor for everything else. */}
@@ -2182,9 +2165,9 @@ function CompareStrip({
         )}
       </div>
 
-      {/* HLOne σ√t fair value — gap is theory-vs-market */}
+      {/* HLOne σ√t implied probability — gap is theory-vs-market */}
       <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
-        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Fair</span>
+        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Implied prob</span>
         <span className="mono font-bold" style={{ color: "var(--hl-green)", fontSize: 14 }}>{fairCents}%</span>
         <GapChip gap={fairGap} suffix="theory" />
       </div>
