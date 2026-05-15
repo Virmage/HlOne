@@ -1,5 +1,5 @@
 FROM node:20-slim AS base
-ARG CACHE_BUST=20260407b
+ARG CACHE_BUST=20260515121951
 
 # Install dependencies — all workspace deps go to root node_modules
 FROM base AS deps
@@ -20,7 +20,7 @@ RUN for i in 1 2 3; do \
 # Build
 FROM base AS builder
 WORKDIR /app
-ARG CACHE_BUST=20260407b
+ARG CACHE_BUST=20260515121951
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # If zod isn't hoisted, ensure it's available for tsc
