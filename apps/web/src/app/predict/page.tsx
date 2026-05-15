@@ -1291,12 +1291,10 @@ function RiverChart({
     type Whale = { x: number; y: number; usd: number; px: number; side: string; count: number; time: number };
     const slots = new Map<number, Whale>(); // keyed by candle.t
 
-    // Y-position helper: BUY YES whales anchor on the YES line (top half
-    // for high YES prices); BUY NO / SELL YES whales anchor on the NO
-    // line (the mirror), so each whale sits next to the line that matches
-    // what was bought.
-    const anchorY = (yesPx: number, isBuyYes: boolean) =>
-      isBuyYes ? H - yesPx * H : H - (1 - yesPx) * H;
+    // All whales anchor on the YES line at the trade's actual YES price.
+    // Green border (BUY) and red border (SELL) carry the direction info —
+    // putting buys and sells on different lines (YES vs NO mirror) ended
+    // up hiding the sells at the opposite side of the chart.
 
     // Layer 1: candle-based whales for the whole window (gives 24h coverage).
     for (const c of marketCandles) {
@@ -1311,7 +1309,7 @@ function RiverChart({
       const isBuyYes = close >= open;
       slots.set(c.t, {
         x: ((midTime - tMin) / (tMax - tMin)) * W,
-        y: anchorY(close, isBuyYes),
+        y: H - close * H, // YES line
         usd,
         px: close,
         side: isBuyYes ? "B" : "A",
@@ -1350,10 +1348,9 @@ function RiverChart({
       for (const a of buckets.values()) {
         const t = a.tSum / a.count;
         const px = a.pxSum / a.count;
-        const isBuyYes = a.side === "B" || a.side === "buy";
         slots.set(-i++, {
           x: ((t - tMin) / (tMax - tMin)) * W,
-          y: anchorY(px, isBuyYes),
+          y: H - px * H, // YES line — color carries the BUY/SELL direction
           usd: a.usd,
           px,
           side: a.side,
