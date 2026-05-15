@@ -1293,7 +1293,18 @@ function RiverChart({
   //    naturally widens and the chart shows more fine-grained flow.
   const whales = useMemo(() => {
     type Whale = { x: number; y: number; usd: number; px: number; side: string; count: number; time: number; bucketIdx: number };
-    const BUCKET_MS = 15 * 60 * 1000; // 15-min buckets — matches candle cadence
+    // Bucket size adapts to the visible timeframe so we always get a
+    // reasonable number of stack-columns regardless of zoom level.
+    const totalMs = tMax - tMin;
+    const BUCKET_MS =
+      totalMs >= 12 * 60 * 60 * 1000  // 24h-ish view
+        ? 30 * 60 * 1000               // → 30-min columns
+        : totalMs >= 3 * 60 * 60 * 1000 // 6h-ish view
+          ? 10 * 60 * 1000             // → 10-min columns
+          : 2 * 60 * 1000;             // 1h view → 2-min columns
+    // Vertical offset above the price line so whales don't sit on
+    // top of the YES/NO river itself.
+    const LINE_OFFSET = 14;
 
     // Which coin's trades we care about, per the user's trade-side toggle.
     const wantedCoin = hip4Coin && tradeSide === "yes"
@@ -1339,7 +1350,7 @@ function RiverChart({
       const yesPx = tradeSide === "yes" ? px : 1 - px;
       raw.push({
         x: ((t - tMin) / (tMax - tMin)) * W,
-        y: H - yesPx * H,
+        y: H - yesPx * H - LINE_OFFSET, // sit slightly above the line
         usd: b.usd,
         px,
         side: b.side,
@@ -1369,7 +1380,7 @@ function RiverChart({
       const yesPx = tradeSide === "yes" ? close : 1 - close;
       raw.push({
         x: ((bucketCenter - tMin) / (tMax - tMin)) * W,
-        y: H - yesPx * H,
+        y: H - yesPx * H - LINE_OFFSET, // sit slightly above the line
         usd,
         px: close,
         side: isBuyForSide ? "B" : "A",
