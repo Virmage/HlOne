@@ -405,7 +405,25 @@ export function PriceChart({ coin, tokens, onSelectToken, whaleAlerts = [], liqu
     let list = [...tokens];
     if (search) {
       const q = search.toLowerCase();
-      list = list.filter(t => t.coin.toLowerCase().includes(q));
+      // Search against EVERY label the row might display: the coin code
+      // (e.g. "BTC", or HL's opaque "@230" for spot pairs), the
+      // displayName ("USDH/USDC"), the post-colon part of HIP-3 perps
+      // ("xyz:GOLD" → "GOLD"), AND each side of a spot pair so typing
+      // just "USDH" or just "USDC" surfaces the cross.
+      //
+      // Bug history: this used to match `t.coin` only. Spot pairs like
+      // USDH/USDC have coin="@230" so "usdh" never matched even though
+      // the row was rendering with displayName "USDH/USDC".
+      list = list.filter(t => {
+        const candidates: string[] = [t.coin];
+        if (t.displayName) {
+          candidates.push(t.displayName);
+          // Pair → halves so each base/quote symbol matches on its own
+          for (const part of t.displayName.split("/")) candidates.push(part);
+        }
+        if (t.coin.includes(":")) candidates.push(t.coin.split(":")[1]);
+        return candidates.some(s => s.toLowerCase().includes(q));
+      });
     }
     if (filter === "Trending") {
       list = list.filter(t => Math.abs(t.change24h) > 3);
