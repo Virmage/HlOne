@@ -146,9 +146,18 @@ function connectWs() {
       try {
         const msg = JSON.parse(raw.toString()) as { channel?: string; data?: unknown };
         if (msg.channel === "trades") {
-          handleTrades(msg.data);
+          try {
+            handleTrades(msg.data);
+          } catch (err) {
+            // Inner catch: a malformed trade payload should NEVER crash the
+            // process — log it and keep the WS listener alive.
+            console.error("[predict-trades] handleTrades threw:", (err as Error).message);
+          }
         }
-      } catch { /* ignore */ }
+      } catch (err) {
+        // Outer catch: JSON parse errors / unexpected payload shapes.
+        console.error("[predict-trades] message parse failed:", (err as Error).message);
+      }
     });
 
     sock.on("close", () => {
