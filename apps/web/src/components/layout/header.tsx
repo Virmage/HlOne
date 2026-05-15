@@ -23,6 +23,7 @@ const WalletButton = dynamic(
 const navItems = [
   { href: "/", label: "Terminal" },
   { href: "/portfolio", label: "Portfolio" },
+  { href: "/predict", label: "Predictions" },
   { href: "/studio", label: "Studio" },
   { href: "/security", label: "Security" },
 ];

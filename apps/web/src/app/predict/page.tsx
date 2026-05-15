@@ -246,28 +246,63 @@ export default function PredictPage() {
     marketCandles: [],
   });
 
-  // USDH balance — HIP-4 outcomes settle in USDH, so this is the most
-  // useful "how much can I size into a trade" number for predict users.
-  // Lives in the user's spot account; pulled from spotClearinghouseState.
+  // USDH balance + HIP-4 positions — surfaced in the LIVE banner and the
+  // order panels so the user can see "how much can I size" + "do I
+  // already hold this market" without leaving the page.
+  //
+  // - USDH lives in the user's SPOT clearinghouse (spotClearinghouseState).
+  // - HIP-4 outcome positions live in the PERP clearinghouse alongside
+  //   regular perps — assetPositions[].position.coin is the same "#N0"
+  //   / "#N1" coin name the page already tracks.
   const [usdhBalance, setUsdhBalance] = useState<number | null>(null);
+  const [hip4Positions, setHip4Positions] = useState<Map<string, number>>(new Map());
   useEffect(() => {
-    if (!address) { setUsdhBalance(null); return; }
+    if (!address) {
+      setUsdhBalance(null);
+      setHip4Positions(new Map());
+      return;
+    }
     let cancelled = false;
-    const fetchBalance = async () => {
+    const fetchBalances = async () => {
       try {
-        const res = await fetch(HL_INFO, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "spotClearinghouseState", user: address }),
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as { balances?: { coin: string; total: string }[] };
-        const usdh = data?.balances?.find((b) => b.coin === "USDH");
-        if (!cancelled) setUsdhBalance(usdh ? parseFloat(usdh.total) : 0);
+        const [spotRes, perpRes] = await Promise.all([
+          fetch(HL_INFO, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "spotClearinghouseState", user: address }),
+          }),
+          fetch(HL_INFO, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "clearinghouseState", user: address }),
+          }),
+        ]);
+        if (cancelled) return;
+        if (spotRes.ok) {
+          const data = (await spotRes.json()) as { balances?: { coin: string; total: string }[] };
+          const usdh = data?.balances?.find((b) => b.coin === "USDH");
+          setUsdhBalance(usdh ? parseFloat(usdh.total) : 0);
+        }
+        if (perpRes.ok) {
+          const data = (await perpRes.json()) as {
+            assetPositions?: { position: { coin: string; szi: string } }[];
+          };
+          // Filter to HIP-4 coins only (shape "#<n>0" or "#<n>1") and key
+          // by coin so the order panel can look up its own market's
+          // position with a single map.get().
+          const map = new Map<string, number>();
+          for (const ap of data.assetPositions ?? []) {
+            const c = ap.position?.coin;
+            if (!c || !/^#\d+[01]$/.test(c)) continue;
+            const sz = parseFloat(ap.position.szi);
+            if (Number.isFinite(sz) && sz !== 0) map.set(c, sz);
+          }
+          setHip4Positions(map);
+        }
       } catch { /* ignore */ }
     };
-    fetchBalance();
-    const id = setInterval(fetchBalance, 15_000);
+    fetchBalances();
+    const id = setInterval(fetchBalances, 15_000);
     return () => { cancelled = true; clearInterval(id); };
   }, [address]);
 
@@ -1107,6 +1142,9 @@ export default function PredictPage() {
             maxPayout={maxPayout}
             profit={profit}
             orderStatus={orderStatus}
+            usdhBalance={usdhBalance}
+            yesPosition={hyperodd.hip4Coin ? hip4Positions.get(hyperodd.hip4Coin) ?? 0 : 0}
+            noPosition={hyperodd.hip4Coin ? hip4Positions.get(`#${hyperodd.hip4Coin.slice(1, -1)}1`) ?? 0 : 0}
             onSubmit={async () => {
               if (!isConnected || !address) {
                 setOrderStatus({ kind: "error", message: "Connect wallet first" });
@@ -1204,6 +1242,8 @@ export default function PredictPage() {
           address={address ?? null}
           timeframe={timeframe}
           setTimeframe={setTimeframe}
+          usdhBalance={usdhBalance}
+          hip4Positions={hip4Positions}
         />
       )}
 
@@ -2399,6 +2439,9 @@ function TradePanel({
   profit,
   orderStatus,
   onSubmit,
+  usdhBalance,
+  yesPosition,
+  noPosition,
 }: {
   yesCents: number;
   noCents: number;
@@ -2418,6 +2461,11 @@ function TradePanel({
   profit: number;
   orderStatus: { kind: "idle" | "pending" | "success" | "error"; message?: string };
   onSubmit: () => void;
+  // Wallet context — mirrors the HL trading panel pattern of showing
+  // "Available to Trade" + "Current Position" right above the size input.
+  usdhBalance: number | null;
+  yesPosition: number;  // shares held in this market's YES coin (#N0)
+  noPosition: number;   // shares held in this market's NO coin (#N1)
 }) {
   const fillPriceCents = side === "yes" ? effectiveYesPx * 100 : (1 - effectiveYesPx) * 100;
   const bestForSide = side === "yes" ? liveYesAsk * 100 : (1 - liveYesBid) * 100;
@@ -2505,6 +2553,35 @@ function TradePanel({
             <span className="mono text-[10px]" style={{ color: "var(--hl-muted)" }}>¢ per share</span>
           </div>
         )}
+
+        {/* Wallet context — mirrors the HL trading panel pattern.
+            "Available to Trade" is the USDH balance the user can spend.
+            "Current Position" shows shares already held on this market
+            (YES or NO depending on the side they're viewing). */}
+        <div
+          className="flex flex-col text-[11px]"
+          style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}
+        >
+          <div className="flex items-center justify-between px-2 py-1">
+            <span style={{ color: "var(--hl-muted)" }}>Available to Trade</span>
+            <span className="mono">
+              {usdhBalance == null
+                ? "—"
+                : `${usdhBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDH`}
+            </span>
+          </div>
+          <div className="flex items-center justify-between px-2 py-1" style={{ borderTop: "1px solid var(--hl-border)" }}>
+            <span style={{ color: "var(--hl-muted)" }}>Current Position</span>
+            <span className="mono">
+              {(() => {
+                const pos = side === "yes" ? yesPosition : noPosition;
+                const label = side === "yes" ? "YES" : "NO";
+                if (!pos) return `0 ${label} shares`;
+                return `${pos.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${label} shares`;
+              })()}
+            </span>
+          </div>
+        </div>
 
         {/* Size input */}
         <div className="flex items-center gap-2 px-2 py-1.5" style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}>
@@ -2898,6 +2975,8 @@ function BucketMarketView({
   address,
   timeframe,
   setTimeframe,
+  usdhBalance,
+  hip4Positions,
 }: {
   market: BucketMarket | null;
   btcMark: number | null;
@@ -2908,6 +2987,10 @@ function BucketMarketView({
   address: string | null;
   timeframe: "1H" | "6H" | "24H";
   setTimeframe: (tf: "1H" | "6H" | "24H") => void;
+  // Wallet context — same shape as the binary TradePanel uses for its
+  // Available-to-Trade + Current-Position rows.
+  usdhBalance: number | null;
+  hip4Positions: Map<string, number>;
 }) {
   const [selectedBucketIdx, setSelectedBucketIdx] = useState(0);
   const [tradeSide, setTradeSide] = useState<"yes" | "no">("yes");
@@ -3133,6 +3216,36 @@ function BucketMarketView({
             >
               Limit
             </button>
+          </div>
+
+          {/* Wallet context — Available-to-Trade + Current-Position rows,
+              same shape as the binary TradePanel. Position is whichever
+              side (YES/NO) the user is currently buying for this bucket. */}
+          <div
+            className="flex flex-col text-[11px]"
+            style={{ background: "var(--background)", border: "1px solid var(--hl-border)", borderRadius: 3 }}
+          >
+            <div className="flex items-center justify-between px-2 py-1">
+              <span style={{ color: "var(--hl-muted)" }}>Available to Trade</span>
+              <span className="mono">
+                {usdhBalance == null
+                  ? "—"
+                  : `${usdhBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDH`}
+              </span>
+            </div>
+            <div className="flex items-center justify-between px-2 py-1" style={{ borderTop: "1px solid var(--hl-border)" }}>
+              <span style={{ color: "var(--hl-muted)" }}>Current Position</span>
+              <span className="mono">
+                {(() => {
+                  if (!selectedBucket) return "0";
+                  const coin = tradeSide === "yes" ? selectedBucket.yesCoin : selectedBucket.noCoin;
+                  const pos = hip4Positions.get(coin) ?? 0;
+                  const label = tradeSide === "yes" ? "YES" : "NO";
+                  if (!pos) return `0 ${label} shares`;
+                  return `${pos.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${label} shares`;
+                })()}
+              </span>
+            </div>
           </div>
 
           <label className="text-[10px]" style={{ color: "var(--hl-muted)" }}>Stake (USD)</label>
