@@ -189,6 +189,7 @@ export default function PredictPage() {
   const { address, isConnected } = useSafeAccount();
   const [selectedWhale, setSelectedWhale] = useState<{
     side: string;
+    sideContext: "yes" | "no"; // which contract these trades happened on
     px: number;
     usd: number;
     count: number;
@@ -1044,7 +1045,7 @@ export default function PredictPage() {
                 <span style={{ fontSize: 22 }}>🐋</span>
                 <h2 className="text-[16px] font-bold tracking-tight">
                   <span style={{ color: isBuy ? "var(--hl-green)" : "var(--hl-red)" }}>
-                    {isBuy ? "BUY YES" : "SELL YES"}
+                    {isBuy ? `BUY ${w.sideContext.toUpperCase()}` : `SELL ${w.sideContext.toUpperCase()}`}
                   </span>
                 </h2>
                 <button
@@ -1176,7 +1177,7 @@ function RiverChart({
   trades: HyperOddTrade[];
   hip4Coin: string | null;  // e.g. "#400" — used to derive the NO coin "#401"
   tradeSide: "yes" | "no";  // filters whales to the side the user is trading
-  onWhaleClick: (w: { side: string; px: number; usd: number; count: number; time: number }) => void;
+  onWhaleClick: (w: { side: string; sideContext: "yes" | "no"; px: number; usd: number; count: number; time: number }) => void;
   limitOrderCents: number | null;       // in YES-space (for line position)
   limitOrderSide: "yes" | "no" | null;
   limitOrderTypedCents: number | null;  // raw user input (for chip text)
@@ -1631,8 +1632,8 @@ function RiverChart({
                   zIndex: 3,
                   cursor: "pointer",
                 }}
-                title={`Click for details · ${isBuy ? "BUY" : "SELL"} YES · ${w.count} trade${w.count > 1 ? "s" : ""} @ ~${(w.px * 100).toFixed(1)}¢ · ${usdStr}`}
-                onClick={() => onWhaleClick({ side: w.side, px: w.px, usd: w.usd, count: w.count, time: w.time })}
+                title={`Click for details · ${isBuy ? "BUY" : "SELL"} ${tradeSide.toUpperCase()} · ${w.count} trade${w.count > 1 ? "s" : ""} @ ~${(w.px * 100).toFixed(1)}¢ · ${usdStr}`}
+                onClick={() => onWhaleClick({ side: w.side, sideContext: tradeSide, px: w.px, usd: w.usd, count: w.count, time: w.time })}
               >
                 🐋
               </div>
@@ -1857,10 +1858,17 @@ function RiverChart({
             </span>
             <b>volume bars</b> <span style={{ color: "var(--hl-muted)" }}>· per 15min candle</span>
           </span>
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-2" title="Flow for the side you're trading. Toggle YES/NO in the order panel to swap.">
             <span style={{ fontSize: 12 }}>🐋</span>
-            <b>{tradeSide === "yes" ? "biggest YES buys" : "biggest NO buys"}</b>
-            <span style={{ color: "var(--hl-muted)" }}>· follows your trade side · flip YES/NO to swap</span>
+            <span className="inline-flex items-center gap-1">
+              <span style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid var(--hl-green)", background: "var(--background)", display: "inline-block" }}></span>
+              <b style={{ color: "var(--hl-green)" }}>BUY {tradeSide.toUpperCase()}</b>
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid var(--hl-red)", background: "var(--background)", display: "inline-block" }}></span>
+              <b style={{ color: "var(--hl-red)" }}>SELL {tradeSide.toUpperCase()}</b>
+            </span>
+            <span style={{ color: "var(--hl-muted)" }}>· flip side to swap</span>
           </span>
           {kalshiCents != null && (
             <span className="inline-flex items-center gap-1" title="Linearly interpolated at HIP-4's strike">
