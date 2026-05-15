@@ -1708,48 +1708,61 @@ function RiverChart({
       });
     }
 
-    // Whale size scales by USD across the WHOLE chart so a $200K trade
-    // doesn't look the same as a $5K one.
+    // Every whale renders at the SAME diameter so size never affects
+    // alignment — USD magnitude is encoded in the outline THICKNESS
+    // instead (thicker stroke = bigger trade). Cleaner stack visuals
+    // and easier to compare across buckets at a glance.
+    const DIAMETER = 20;
     const maxUsd = raw.reduce((m, w) => Math.max(m, w.usd), 1);
-    const diameterFor = (usd: number) => 12 + Math.min(1, usd / maxUsd) * 14; // 12-26px
+    // 1.5px (thin, small trade) → 5px (thick, biggest trade in view).
+    // Stored on the whale so the render code can read it without
+    // re-deriving from maxUsd.
+    const outlineFor = (usd: number) => 1.5 + Math.min(1, usd / maxUsd) * 3.5;
 
-    // Limit per side to keep the chart readable. 8 per side = up to 16
-    // visible whales total, comfortably below the level where stacks
-    // start running into the price band.
+    // Limit per side to keep the chart readable.
     const yesRanked = raw.filter((w) => w.isYes).sort((a, b) => b.usd - a.usd).slice(0, 8);
     const noRanked = raw.filter((w) => !w.isYes).sort((a, b) => b.usd - a.usd).slice(0, 8);
 
-    // Fixed slot height (max diameter + 2px gap). Every slot is the same
-    // size so adjacent buckets' first whales sit at identical distances
-    // from the chart edge — no drift, no overlap.
-    const SLOT_H = 28;
-    const EDGE_PAD = 4; // how far the first whale sits from the chart edge
+    // Whales now live ENTIRELY OUTSIDE the chart canvas — YES in the
+    // 70px spacer above the SVG, NO in the matching 70px spacer below
+    // it. The SVG itself stays clean so the price band is never
+    // obscured.
+    //
+    // Pixel coordinates (relative to the chart-canvas div, which has
+    // overflow:visible so negative + super-large y values render into
+    // the parent's spacer regions):
+    //   YES slot 0 centre = -SPACER_PAD - DIAMETER/2    (highest)
+    //   YES slot 1 centre = slot 0 - SLOT_GAP
+    //   …
+    //   NO  slot 0 centre = H + SPACER_PAD + DIAMETER/2  (lowest)
+    //   NO  slot 1 centre = slot 0 + SLOT_GAP
+    const SPACER_PAD = 8;                  // gap from chart edge
+    const SLOT_GAP = DIAMETER + 2;         // 22 — gives ~3 slots inside the 70px spacer
 
-    // Group by bucketIdx within each side, stack from the relevant edge.
     const placeStack = (
       ranked: Whale[],
-      anchorTop: boolean,                  // true = stack down from top
-    ): (Whale & { d: number })[] => {
-      const byBucket = new Map<number, (Whale & { d: number })[]>();
+      anchorTop: boolean,
+    ): (Whale & { d: number; outline: number })[] => {
+      const byBucket = new Map<number, (Whale & { d: number; outline: number })[]>();
       for (const w of ranked) {
-        const d = diameterFor(w.usd);
         const arr = byBucket.get(w.bucketIdx) ?? [];
-        arr.push({ ...w, d });
+        arr.push({ ...w, d: DIAMETER, outline: outlineFor(w.usd) });
         byBucket.set(w.bucketIdx, arr);
       }
-      const out: (Whale & { d: number })[] = [];
+      const out: (Whale & { d: number; outline: number })[] = [];
       for (const arr of byBucket.values()) {
-        // Largest whale sits at the edge; smaller ones stack inward.
+        // Biggest trade sits closest to the chart edge so it reads as
+        // the most prominent; smaller stacks recede into the spacer.
         arr.sort((a, b) => b.usd - a.usd);
         arr.forEach((w, idx) => {
           if (anchorTop) {
-            // Slot N's TOP edge = EDGE_PAD + N*SLOT_H. Centre = top + d/2.
-            const slotTop = EDGE_PAD + idx * SLOT_H;
-            out.push({ ...w, y: slotTop + w.d / 2 });
+            // Slot 0 is the LOWEST in the top spacer (closest to chart
+            // top), subsequent slots go HIGHER (further from chart).
+            const y = -SPACER_PAD - DIAMETER / 2 - idx * SLOT_GAP;
+            out.push({ ...w, y });
           } else {
-            // Slot N's BOTTOM edge = H - EDGE_PAD - N*SLOT_H. Centre = bottom - d/2.
-            const slotBottom = H - EDGE_PAD - idx * SLOT_H;
-            out.push({ ...w, y: slotBottom - w.d / 2 });
+            const y = H + SPACER_PAD + DIAMETER / 2 + idx * SLOT_GAP;
+            out.push({ ...w, y });
           }
         });
       }
@@ -1797,7 +1810,7 @@ function RiverChart({
   // chart already shows full depth with proper price/size info.
 
   return (
-    <div className="panel" style={{ minHeight: 540 }}>
+    <div className="panel" style={{ minHeight: 610 }}>
       <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
         <span className="ptitle">Probability river</span>
         <span className="psub ml-3">live · computed from BTC mark vs strike</span>
@@ -1820,12 +1833,13 @@ function RiverChart({
         </div>
       </div>
       <div className="p-3 flex flex-col">
-        {/* The 70px spacer above the chart is a "whale stack zone" — whales
-            pushed up by collision avoidance render into this space. The
-            chart-canvas div below keeps its original 420px height + positioning,
-            so the SVG and all child absolute-positioning math stays unchanged.
-            overflow: visible lets whales (when forced very high) render into
-            this zone instead of clipping. */}
+        {/* 70px spacer ABOVE the chart — hosts the YES whale stack. The
+            chart-canvas div below keeps its original 420px height +
+            positioning, so the SVG and all child absolute-positioning math
+            stays unchanged. overflow:visible on chart-canvas lets whale
+            divs (which the memo positions with negative y) render UP into
+            this zone, and equivalent positive y values render DOWN into
+            the matching spacer below. */}
         <div style={{ height: 70 }} />
         <div className="relative" style={{ height: 420, overflow: "visible" }}>
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "calc(100% - 32px)", height: "100%", display: "block" }}>
@@ -1974,15 +1988,15 @@ function RiverChart({
             )}
           </svg>
 
-          {/* ── Trade-flow icons — icon only, no chip label. Details on hover.
-                Bigger circle = more $$. Stacking handled in the whales memo. ── */}
+          {/* ── Trade-flow icons — all SAME diameter, outline thickness
+                scales with USD. Live in the spacers above (YES) and below
+                (NO) the chart canvas, never inside the price band. The
+                memo computed w.y as ABSOLUTE PIXELS relative to the
+                chart-canvas top edge (negative = above chart, > H = below)
+                so we use `top: ${y}px` here, not the old fractional %. */}
           {whales.map((w, i) => {
             const isBuy = w.side === "B" || w.side === "buy";
             const sizeFactor = Math.min(1, w.usd / maxWhaleUsd);
-            // Use the diameter the slot-stacking math computed so the
-            // rendered circle's bottom edge actually lands at its slot's
-            // bottom. Two different formulas here used to make small
-            // whales drift visually higher than large ones.
             const px = w.d;
             const usdStr = w.usd >= 1000 ? `$${(w.usd / 1000).toFixed(1)}K` : `$${w.usd.toFixed(0)}`;
             return (
@@ -1991,14 +2005,14 @@ function RiverChart({
                 className="absolute"
                 style={{
                   left: `${(w.x / W) * 100}%`,
-                  top: `${(w.y / H) * 100}%`,
+                  top: `${w.y}px`,
                   transform: "translate(-50%, -50%)",
                   width: px,
                   height: px,
                   borderRadius: "50%",
                   background: "var(--background)",
-                  border: `2px solid ${isBuy ? "var(--hl-green)" : "var(--hl-red)"}`,
-                  boxShadow: `0 0 ${8 + sizeFactor * 12}px ${
+                  border: `${w.outline}px solid ${isBuy ? "var(--hl-green)" : "var(--hl-red)"}`,
+                  boxShadow: `0 0 ${6 + sizeFactor * 10}px ${
                     isBuy ? "rgba(74,222,128,0.4)" : "rgba(248,113,113,0.4)"
                   }`,
                   display: "flex",
@@ -2206,6 +2220,11 @@ function RiverChart({
           )}
           {/* HIP-4 horizontal label removed — the green river IS the HIP-4 mark. */}
         </div>
+
+        {/* 70px spacer BELOW the chart — hosts the NO whale stack
+            (mirror of the spacer above). overflow:visible on the canvas
+            allows the whale divs (y > H) to render down into this area. */}
+        <div style={{ height: 70 }} />
 
         {/* Legend removed — line colors + chip labels at line endpoints
             carry the meaning on the chart itself; cross-venue prices
