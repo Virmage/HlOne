@@ -1149,6 +1149,8 @@ export default function PredictPage() {
         <BucketMarketView
           market={bucketMarket}
           btcMark={btcMark}
+          btcCandles={candles}
+          settleTs={settleTs}
           now={now}
           isConnected={isConnected}
           address={address ?? null}
@@ -1349,6 +1351,7 @@ function RiverChart({
   marketCandles,
   btcMark,
   strike,
+  extraStrikes,
   settleTs,
   now,
   yesCents,
@@ -1368,6 +1371,10 @@ function RiverChart({
   marketCandles: Candle[];
   btcMark: number | null;
   strike: number | null;
+  // Extra strike thresholds rendered as additional yellow dashed lines
+  // alongside the primary `strike` line. Used by the bucket market view
+  // to draw both the lower AND upper boundary of a price range.
+  extraStrikes?: { value: number; label?: string }[];
   settleTs: number;
   now: number;
   yesCents: number;
@@ -1404,7 +1411,12 @@ function RiverChart({
   // those bounds — the BTC endpoint chip rendered as a half-clipped box
   // at the chart's top edge). Always includes strike + live mark with 8%
   // padding so nothing sits flush against the edge.
-  const { btcYMin, btcYMax, strikeY } = useMemo(() => {
+  // Pre-key the extras for the dependency array so the memo recomputes
+  // when bucket boundaries change without re-renders forcing every prop
+  // to be referentially stable. Using JSON.stringify is fine here — the
+  // array is always 0-2 items long.
+  const extrasKey = JSON.stringify(extraStrikes ?? []);
+  const { btcYMin, btcYMax, strikeY, extraStrikesY } = useMemo(() => {
     const prices: number[] = [];
     for (const c of btcCandles) {
       if (c.t < tMin || c.t > tMax) continue;
@@ -1413,6 +1425,10 @@ function RiverChart({
     }
     if (btcMark != null) prices.push(btcMark);
     if (strike != null) prices.push(strike);
+    // Extras participate in y-axis fit so both bucket boundaries are
+    // always visible (no clipping for ranges where BTC sits well above
+    // or below the band).
+    if (extraStrikes) for (const e of extraStrikes) if (Number.isFinite(e.value)) prices.push(e.value);
     const min = prices.length ? Math.min(...prices) : (strike ?? 80000) - 1500;
     const max = prices.length ? Math.max(...prices) : (strike ?? 80000) + 1500;
     const span = Math.max(800, max - min);
@@ -1420,8 +1436,14 @@ function RiverChart({
     const yMin = min - pad;
     const yMax = max + pad;
     const sY = strike != null ? H - ((strike - yMin) / (yMax - yMin)) * H : H / 2;
-    return { btcYMin: yMin, btcYMax: yMax, strikeY: sY };
-  }, [btcCandles, btcMark, strike, tMin, tMax]);
+    const extrasY = (extraStrikes ?? []).map((e) => ({
+      value: e.value,
+      label: e.label,
+      y: H - ((e.value - yMin) / (yMax - yMin)) * H,
+    }));
+    return { btcYMin: yMin, btcYMax: yMax, strikeY: sY, extraStrikesY: extrasY };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [btcCandles, btcMark, strike, tMin, tMax, extrasKey]);
   const btcToY = (price: number) => {
     const t = (price - btcYMin) / (btcYMax - btcYMin);
     return H - Math.max(0, Math.min(1, t)) * H;
@@ -1761,6 +1783,22 @@ function RiverChart({
                 />
               </>
             )}
+            {/* Extra strike lines (e.g. the upper bound of a bucket range) —
+                same visual treatment as the primary strike so both boundaries
+                of a "between $X and $Y" market read as one pair. */}
+            {extraStrikesY?.map((e, i) => (
+              <line
+                key={i}
+                x1="0"
+                y1={e.y}
+                x2={W}
+                y2={e.y}
+                stroke="#f5a524"
+                strokeWidth="1"
+                strokeDasharray="4,4"
+                opacity="0.4"
+              />
+            ))}
 
             {/* Volume bars from HIP-4 candles — sits at the chart bottom,
                 coloured by candle direction (close >= open). Tells you where
@@ -1990,8 +2028,16 @@ function RiverChart({
               <span style={{ position: "absolute", top: "0%", left: 4 }}>${Math.round(btcYMax).toLocaleString()}</span>
               <span style={{ position: "absolute", top: "25%", left: 4 }}>${Math.round(btcYMin + (btcYMax - btcYMin) * 0.75).toLocaleString()}</span>
               <span style={{ position: "absolute", top: `${(strikeY / H) * 100}%`, left: 4, color: "var(--hl-yellow)", fontWeight: 700, transform: "translateY(-50%)", opacity: 1 }}>
-                ${strike.toLocaleString()} ◀ strike
+                ${strike.toLocaleString()} ◀ {extraStrikesY?.length ? "lower" : "strike"}
               </span>
+              {extraStrikesY?.map((e, i) => (
+                <span
+                  key={i}
+                  style={{ position: "absolute", top: `${(e.y / H) * 100}%`, left: 4, color: "var(--hl-yellow)", fontWeight: 700, transform: "translateY(-50%)", opacity: 1 }}
+                >
+                  ${e.value.toLocaleString()} ◀ {e.label ?? "upper"}
+                </span>
+              ))}
               <span style={{ position: "absolute", top: "75%", left: 4 }}>${Math.round(btcYMin + (btcYMax - btcYMin) * 0.25).toLocaleString()}</span>
               <span style={{ position: "absolute", bottom: 0, left: 4 }}>${Math.round(btcYMin).toLocaleString()}</span>
             </div>
@@ -2693,14 +2739,16 @@ function SumRow({ l, v, cls = "", total = false }: { l: string; v: string; cls?:
 }
 
 // ─── BucketMarketView ─────────────────────────────────────────────────────
-// Renders the HIP-4 priceBucket market: multi-outcome range question where
-// 3+ buckets cover the strike ladder. YES probabilities across all buckets
-// sum to ~$1.00 since one bucket MUST settle to $1 at expiry.
-//
-// Layout: header strip with bucket chips → stacked area chart → order panel.
+// The HIP-4 priceBucket market is rendered as a dropdown picker + the SAME
+// chart used by the binary market. Each named outcome is a YES/NO contract
+// on "Will BTC settle in range X?". When the user picks a bucket the chart
+// renders that bucket's YES probability over time exactly like the binary,
+// with one or two dashed yellow strike lines marking the range boundaries.
 function BucketMarketView({
   market,
   btcMark,
+  btcCandles,
+  settleTs,
   now,
   isConnected,
   address,
@@ -2709,23 +2757,91 @@ function BucketMarketView({
 }: {
   market: BucketMarket | null;
   btcMark: number | null;
+  btcCandles: Candle[];
+  settleTs: number;
   now: number;
   isConnected: boolean;
   address: string | null;
   timeframe: "1H" | "6H" | "24H";
   setTimeframe: (tf: "1H" | "6H" | "24H") => void;
 }) {
-  // Colour palette for buckets — staggered hue so each band is distinguishable
-  // when stacked. Same palette used in chart and chips so they read together.
-  const BUCKET_COLORS = ["#4ade80", "#f5a524", "#a371f7", "#fb7185", "#22d3ee", "#facc15"];
-
-  // Order panel state
   const [selectedBucketIdx, setSelectedBucketIdx] = useState(0);
-  const [orderSide, setOrderSide] = useState<"yes" | "no">("yes");
+  const [tradeSide, setTradeSide] = useState<"yes" | "no">("yes");
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [stake, setStake] = useState("100");
   const [limitPx, setLimitPx] = useState("");
   const [orderStatus, setOrderStatus] = useState<{ kind: "idle" | "pending" | "success" | "error"; message?: string }>({ kind: "idle" });
+  const [bucketTrades, setBucketTrades] = useState<HyperOddTrade[]>([]);
+  const [selectedWhale, setSelectedWhale] = useState<{ side: string; sideContext: "yes" | "no"; px: number; usd: number; count: number; time: number } | null>(null);
+
+  const selectedBucket = market?.buckets[selectedBucketIdx] ?? null;
+  const selectedYesCoin = selectedBucket?.yesCoin ?? null;
+
+  // Trades for the chart's whale icons. Server already streams every
+  // HIP-4 coin's trades; we just filter to the selected bucket's YES + NO
+  // coins client-side so the chart can flip whales via the YES/NO toggle.
+  useEffect(() => {
+    if (!selectedBucket) return;
+    let cancelled = false;
+    const yesC = selectedBucket.yesCoin;
+    const noC = selectedBucket.noCoin;
+    const fetchTrades = async () => {
+      try {
+        const res = await fetch(`/api/market/predict-trades?limit=2000`);
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          trades: { coin: string; px: number; sz: number; side: string; time: number; tid: number }[];
+        };
+        if (cancelled || !Array.isArray(data.trades)) return;
+        const filtered = data.trades
+          .filter((t) => t.coin === yesC || t.coin === noC)
+          .map((t) => ({
+            coin: t.coin,
+            px: String(t.px),
+            sz: String(t.sz),
+            side: t.side,
+            time: t.time,
+            tid: t.tid,
+          } as HyperOddTrade));
+        setBucketTrades(filtered);
+      } catch { /* ignore */ }
+    };
+    fetchTrades();
+    const id = setInterval(fetchTrades, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [selectedBucket]);
+
+  // probSeries for the chart — each candle's close is the YES probability
+  // (0..1) at that timestamp, exactly like the binary's market candles.
+  const probSeries = useMemo(() => {
+    if (!selectedBucket) return [] as { x: number; p: number }[];
+    return selectedBucket.candles
+      .map((c) => ({ x: c.t, p: parseFloat(c.c) }))
+      .filter((d) => Number.isFinite(d.p));
+  }, [selectedBucket]);
+
+  // Strike values for the chart's yellow dashed lines + y-axis fit:
+  //   index 0      "Below X"  → primary line at X, no extra
+  //   index last   "Above X"  → primary line at X, no extra
+  //   else         "X – Y"    → primary at X (lower), extra line at Y (upper)
+  const { primaryStrike, extraStrikes, rangeDesc } = useMemo(() => {
+    if (!market || !selectedBucket) {
+      return { primaryStrike: null as number | null, extraStrikes: [] as { value: number; label: string }[], rangeDesc: "" };
+    }
+    const idx = selectedBucket.index;
+    const ts = market.thresholds;
+    if (idx === 0) {
+      return { primaryStrike: ts[0], extraStrikes: [], rangeDesc: `Below $${ts[0].toLocaleString()}` };
+    }
+    if (idx === ts.length) {
+      return { primaryStrike: ts[ts.length - 1], extraStrikes: [], rangeDesc: `Above $${ts[ts.length - 1].toLocaleString()}` };
+    }
+    return {
+      primaryStrike: ts[idx - 1],
+      extraStrikes: [{ value: ts[idx], label: "upper" }],
+      rangeDesc: `$${ts[idx - 1].toLocaleString()} – $${ts[idx].toLocaleString()}`,
+    };
+  }, [market, selectedBucket]);
 
   if (!market || market.buckets.length === 0) {
     return (
@@ -2735,423 +2851,298 @@ function BucketMarketView({
     );
   }
 
-  const selectedBucket = market.buckets[selectedBucketIdx] ?? market.buckets[0];
-
-  // Sum of YES probs across all buckets — should be ~1 if the market is
-  // well-arbed. Display the deviation so traders can spot mispricings.
+  const yesCents = selectedBucket?.yesPrice != null ? Math.round(selectedBucket.yesPrice * 100) : 0;
+  const noCents = 100 - yesCents;
+  // probSum lets the user sanity-check that all buckets are well-arbed
+  // (should sum to ~$1.00 since exactly one bucket MUST hit at expiry).
   const probSum = market.buckets.reduce((s, b) => s + (b.yesPrice ?? 0), 0);
 
   return (
-    <main className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3" style={{ gridTemplateColumns: "1fr 320px", alignItems: "start" }}>
-      <div className="grid gap-3" style={{ gridAutoRows: "min-content" }}>
-        {/* Header strip — question + each bucket chip */}
-        <div className="px-3 py-3" style={{ borderBottom: "1px solid var(--hl-border)" }}>
-          <h1 className="text-[22px] font-bold tracking-tight mb-3">
-            In which range does {market.underlying} close today?
+    <>
+      {/* Header strip — picker + stats row, mirrors the binary's market strip */}
+      <div className="max-w-[1440px] mx-auto px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          <h1 className="text-[22px] font-bold tracking-tight leading-tight">
+            BTC price range on {market.expiryMs ? new Date(market.expiryMs).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "expiry"}?
           </h1>
-          <div className="flex flex-wrap gap-2">
+          <select
+            value={selectedBucketIdx}
+            onChange={(e) => setSelectedBucketIdx(parseInt(e.target.value, 10))}
+            className="px-3 py-1.5 text-[13px] mono font-semibold"
+            style={{
+              background: "var(--hl-surface)",
+              border: "1px solid var(--hl-accent)",
+              color: "var(--hl-accent)",
+              borderRadius: 3,
+            }}
+          >
             {market.buckets.map((b, idx) => {
               const cents = b.yesPrice != null ? Math.round(b.yesPrice * 100) : null;
-              const color = BUCKET_COLORS[idx % BUCKET_COLORS.length];
-              const containsMark =
-                btcMark != null &&
-                (idx === 0
-                  ? btcMark < market.thresholds[0]
-                  : idx === market.thresholds.length
-                    ? btcMark >= market.thresholds[market.thresholds.length - 1]
-                    : btcMark >= market.thresholds[idx - 1] && btcMark < market.thresholds[idx]);
               return (
-                <button
-                  key={b.outcomeId}
-                  onClick={() => setSelectedBucketIdx(idx)}
-                  className="px-3 py-2 text-left flex flex-col gap-0.5"
-                  style={{
-                    background: selectedBucketIdx === idx ? "rgba(0,240,255,0.06)" : "var(--hl-surface)",
-                    border: `1px solid ${selectedBucketIdx === idx ? "var(--hl-accent)" : "var(--hl-border)"}`,
-                    borderRadius: 4,
-                    boxShadow: containsMark ? `0 0 0 1px ${color} inset` : "none",
-                    minWidth: 140,
-                  }}
-                  title={containsMark ? `BTC mark $${btcMark?.toLocaleString()} is currently in this bucket` : undefined}
-                >
-                  <span className="text-[10px] mono" style={{ color }}>
-                    {b.label}{containsMark ? " · LIVE" : ""}
-                  </span>
-                  <span className="mono font-bold text-[18px]" style={{ color: "var(--foreground)" }}>
-                    {cents != null ? `${cents}%` : "—"}
-                  </span>
-                  <span className="text-[9px] mono" style={{ color: "var(--hl-muted)" }}>
-                    {b.yesCoin}
-                  </span>
-                </button>
+                <option key={b.outcomeId} value={idx}>
+                  {b.label}{cents != null ? `  ·  ${cents}% YES` : ""}
+                </option>
               );
             })}
-          </div>
-          {/* Sum-of-probs sanity check */}
-          <div className="text-[10px] mt-2" style={{ color: Math.abs(probSum - 1) > 0.05 ? "var(--hl-yellow)" : "var(--hl-muted)" }}>
-            Sum of YES across buckets: <b className="mono">{(probSum * 100).toFixed(1)}%</b>
-            {Math.abs(probSum - 1) > 0.05 && <> · arb opportunity (one side mispriced)</>}
-          </div>
+          </select>
         </div>
 
-        {/* Stacked area chart */}
-        <div className="panel p-3">
-          <div className="flex items-center mb-2">
-            <span className="ptitle">Bucket probability over time</span>
-            <div className="ml-auto flex gap-1">
-              {(["1H", "6H", "24H"] as const).map((tf) => (
-                <button
-                  key={tf}
-                  onClick={() => setTimeframe(tf)}
-                  className="px-2 py-0.5 text-[10px] mono"
-                  style={{
-                    color: timeframe === tf ? "var(--hl-accent)" : "var(--hl-muted)",
-                    background: timeframe === tf ? "rgba(0,240,255,0.08)" : "transparent",
-                    border: `1px solid ${timeframe === tf ? "var(--hl-accent)" : "var(--hl-border)"}`,
-                    borderRadius: 3,
-                  }}
-                >
-                  {tf}
-                </button>
-              ))}
-            </div>
-          </div>
-          <StackedBucketChart market={market} colors={BUCKET_COLORS} now={now} />
-        </div>
-
-        {/* Settles + countdown */}
-        <div className="panel p-3 flex items-center text-[11px]">
-          <span style={{ color: "var(--hl-muted)" }}>Settles in</span>
-          <b className="mono ml-2" style={{ color: "var(--hl-yellow)", fontSize: 14 }}>
-            {fmtCountdown(market.expiryMs - now)}
-          </b>
-          <span className="ml-auto" style={{ color: "var(--hl-muted)" }}>
-            At expiry one bucket settles to $1, the rest to $0.
-          </span>
+        <div className="flex items-stretch flex-wrap text-[13px]">
+          <Stat label="YES" value={`${yesCents}¢`} cls="text-[var(--hl-green)]" />
+          <Stat label="NO" value={`${noCents}¢`} cls="text-[var(--hl-red)]" />
+          <Stat label="BTC mark" value={btcMark ? `$${btcMark.toLocaleString(undefined, { maximumFractionDigits: 1 })}` : "—"} cls="" />
+          <Stat label="Range" value={rangeDesc || "—"} cls="" />
+          <Stat label="Settles" value={fmtCountdown(market.expiryMs - now)} cls="text-[var(--hl-yellow)]" />
+          <Stat
+            label="Bucket sum"
+            value={`${(probSum * 100).toFixed(0)}%`}
+            cls={Math.abs(probSum - 1) > 0.05 ? "text-[var(--hl-yellow)]" : "text-[var(--hl-muted)]"}
+          />
         </div>
       </div>
 
-      {/* Order panel — minimal MVP: bucket-pre-selected from chip click,
-          pick YES/NO, market/limit, stake. Reuses the same hl-exchange
-          flow as the binary panel. */}
-      <div className="panel p-3 flex flex-col gap-2">
-        <div className="flex items-center" style={{ borderBottom: "1px solid var(--hl-border)", paddingBottom: 8 }}>
-          <span className="ptitle">Trade bucket</span>
-          <span className="psub ml-auto mono">{selectedBucket.yesCoin}/{selectedBucket.noCoin}</span>
-        </div>
-        <div className="text-[11px]" style={{ color: "var(--hl-text)" }}>
-          <b className="mono">{selectedBucket.label}</b>{" "}
-          <span style={{ color: "var(--hl-muted)" }}>· {selectedBucket.yesPrice != null ? `${Math.round(selectedBucket.yesPrice * 100)}%` : "—"} YES</span>
-        </div>
-
-        {/* YES / NO toggle */}
-        <div className="grid grid-cols-2 gap-2 mt-1">
-          <button
-            onClick={() => setOrderSide("yes")}
-            className="py-2 text-[12px] mono font-semibold"
-            style={{
-              background: orderSide === "yes" ? "rgba(74,222,128,0.15)" : "var(--hl-surface)",
-              border: `1px solid ${orderSide === "yes" ? "var(--hl-green)" : "var(--hl-border)"}`,
-              color: orderSide === "yes" ? "var(--hl-green)" : "var(--hl-muted)",
-              borderRadius: 3,
-            }}
-          >
-            YES
-          </button>
-          <button
-            onClick={() => setOrderSide("no")}
-            className="py-2 text-[12px] mono font-semibold"
-            style={{
-              background: orderSide === "no" ? "rgba(248,113,113,0.15)" : "var(--hl-surface)",
-              border: `1px solid ${orderSide === "no" ? "var(--hl-red)" : "var(--hl-border)"}`,
-              color: orderSide === "no" ? "var(--hl-red)" : "var(--hl-muted)",
-              borderRadius: 3,
-            }}
-          >
-            NO
-          </button>
+      {/* Main grid — chart left, order panel right (same as binary) */}
+      <main className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3" style={{ gridTemplateColumns: "1fr 320px", alignItems: "start" }}>
+        <div className="grid gap-3" style={{ gridAutoRows: "min-content" }}>
+          <RiverChart
+            timeframe={timeframe}
+            setTimeframe={setTimeframe}
+            probSeries={probSeries}
+            fairProbSeries={[] /* σ√t range-probability not modelled yet — empty */}
+            btcCandles={btcCandles}
+            marketCandles={selectedBucket?.candles ?? []}
+            btcMark={btcMark}
+            strike={primaryStrike}
+            extraStrikes={extraStrikes}
+            settleTs={settleTs}
+            now={now}
+            yesCents={yesCents}
+            trades={bucketTrades}
+            hip4Coin={selectedYesCoin}
+            tradeSide={tradeSide}
+            onWhaleClick={setSelectedWhale}
+            limitOrderCents={null}
+            limitOrderSide={null}
+            limitOrderTypedCents={null}
+          />
         </div>
 
-        {/* Market / Limit toggle */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* Order panel — anchored to the chosen bucket */}
+        <div className="panel p-3 flex flex-col gap-2">
+          <div className="flex items-center" style={{ borderBottom: "1px solid var(--hl-border)", paddingBottom: 8 }}>
+            <span className="ptitle">Trade range</span>
+            <span className="psub ml-auto mono">{selectedBucket?.yesCoin}/{selectedBucket?.noCoin}</span>
+          </div>
+          <div className="text-[11px]" style={{ color: "var(--hl-text)" }}>
+            <b className="mono">{selectedBucket?.label}</b>{" "}
+            <span style={{ color: "var(--hl-muted)" }}>· {yesCents}¢ YES · {noCents}¢ NO</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <button
+              onClick={() => setTradeSide("yes")}
+              className="py-2 text-[12px] mono font-semibold"
+              style={{
+                background: tradeSide === "yes" ? "rgba(74,222,128,0.15)" : "var(--hl-surface)",
+                border: `1px solid ${tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-border)"}`,
+                color: tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-muted)",
+                borderRadius: 3,
+              }}
+            >
+              YES
+            </button>
+            <button
+              onClick={() => setTradeSide("no")}
+              className="py-2 text-[12px] mono font-semibold"
+              style={{
+                background: tradeSide === "no" ? "rgba(248,113,113,0.15)" : "var(--hl-surface)",
+                border: `1px solid ${tradeSide === "no" ? "var(--hl-red)" : "var(--hl-border)"}`,
+                color: tradeSide === "no" ? "var(--hl-red)" : "var(--hl-muted)",
+                borderRadius: 3,
+              }}
+            >
+              NO
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setOrderType("market")}
+              className="py-1.5 text-[11px] mono"
+              style={{
+                background: orderType === "market" ? "var(--hl-accent)" : "var(--hl-surface)",
+                color: orderType === "market" ? "var(--background)" : "var(--hl-muted)",
+                border: `1px solid ${orderType === "market" ? "var(--hl-accent)" : "var(--hl-border)"}`,
+                borderRadius: 3,
+              }}
+            >
+              Market
+            </button>
+            <button
+              onClick={() => setOrderType("limit")}
+              className="py-1.5 text-[11px] mono"
+              style={{
+                background: orderType === "limit" ? "var(--hl-accent)" : "var(--hl-surface)",
+                color: orderType === "limit" ? "var(--background)" : "var(--hl-muted)",
+                border: `1px solid ${orderType === "limit" ? "var(--hl-accent)" : "var(--hl-border)"}`,
+                borderRadius: 3,
+              }}
+            >
+              Limit
+            </button>
+          </div>
+
+          <label className="text-[10px]" style={{ color: "var(--hl-muted)" }}>Stake (USD)</label>
+          <input
+            type="number"
+            value={stake}
+            onChange={(e) => setStake(e.target.value)}
+            className="mono text-[14px] px-2 py-1.5"
+            style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 3 }}
+          />
+
+          {orderType === "limit" && (
+            <>
+              <label className="text-[10px]" style={{ color: "var(--hl-muted)" }}>Limit price (¢)</label>
+              <input
+                type="number"
+                value={limitPx}
+                onChange={(e) => setLimitPx(e.target.value)}
+                placeholder="0-100"
+                className="mono text-[14px] px-2 py-1.5"
+                style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 3 }}
+              />
+            </>
+          )}
+
+          {(() => {
+            const yesPx = selectedBucket?.yesPrice ?? 0;
+            const sidePx = tradeSide === "yes" ? yesPx : 1 - yesPx;
+            const usd = parseFloat(stake) || 0;
+            const shares = sidePx > 0 ? Math.floor(usd / sidePx) : 0;
+            return (
+              <div className="text-[10px] mt-1" style={{ color: "var(--hl-muted)" }}>
+                ≈ <b className="mono">{shares.toLocaleString()}</b> shares · payout if {tradeSide.toUpperCase()} wins:{" "}
+                <b className="mono" style={{ color: "var(--hl-green)" }}>${shares.toLocaleString()}</b>
+              </div>
+            );
+          })()}
+
           <button
-            onClick={() => setOrderType("market")}
-            className="py-1.5 text-[11px] mono"
+            disabled={!isConnected || orderStatus.kind === "pending" || parseFloat(stake) <= 0 || !selectedBucket}
+            onClick={async () => {
+              if (!isConnected || !address || !selectedBucket) {
+                setOrderStatus({ kind: "error", message: "Connect wallet first" });
+                return;
+              }
+              const asset = tradeSide === "yes" ? selectedBucket.yesCoin : selectedBucket.noCoin;
+              const yesPx = selectedBucket.yesPrice;
+              const sidePx = yesPx != null ? (tradeSide === "yes" ? yesPx : 1 - yesPx) : null;
+              if (sidePx == null || sidePx <= 0) {
+                setOrderStatus({ kind: "error", message: "Side price unavailable" });
+                return;
+              }
+              const usd = parseFloat(stake);
+              const shares = Math.max(1, Math.floor(usd / sidePx));
+              const lpx = parseFloat(limitPx);
+              const limitPrice = orderType === "limit" && Number.isFinite(lpx) && lpx > 0 ? lpx / 100 : undefined;
+
+              setOrderStatus({ kind: "pending" });
+              try {
+                const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+                  import("@wagmi/core"),
+                  import("@/lib/hl-exchange"),
+                  import("@/config/wagmi"),
+                ]);
+                const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+                if (!walletClient) throw new Error("Wallet client not available");
+                const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+                if (agentResult.error || !agentResult.agentKey) throw new Error(agentResult.error || "Agent setup failed");
+                const builderApproved = await exchange.checkBuilderApproval(address as string);
+                if (!builderApproved) {
+                  const approval = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
+                  if (!approval.success) throw new Error(approval.error || "Builder fee approval failed");
+                }
+                const res = await exchange.placeOrder(agentResult.agentKey, address as `0x${string}`, {
+                  asset,
+                  isBuy: true,
+                  size: shares,
+                  orderType,
+                  limitPrice,
+                  slippageBps: orderType === "market" ? 200 : undefined,
+                });
+                if (res.success) {
+                  setOrderStatus({ kind: "success", message: `Filled ${res.filledSize ?? "?"} @ ${res.avgPrice ?? "?"}¢` });
+                } else {
+                  setOrderStatus({ kind: "error", message: res.error ?? "Order failed" });
+                }
+              } catch (err) {
+                setOrderStatus({ kind: "error", message: err instanceof Error ? err.message : "Order threw" });
+              }
+            }}
+            className="py-2 text-[12px] mono font-bold mt-1"
             style={{
-              background: orderType === "market" ? "var(--hl-accent)" : "var(--hl-surface)",
-              color: orderType === "market" ? "var(--background)" : "var(--hl-muted)",
-              border: `1px solid ${orderType === "market" ? "var(--hl-accent)" : "var(--hl-border)"}`,
+              background: tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-red)",
+              color: "var(--background)",
               borderRadius: 3,
+              opacity: !isConnected || orderStatus.kind === "pending" || parseFloat(stake) <= 0 ? 0.4 : 1,
             }}
           >
-            Market
+            {orderStatus.kind === "pending"
+              ? "Placing…"
+              : isConnected
+                ? `${orderType === "market" ? "Buy" : "Place limit"} ${tradeSide.toUpperCase()} · ${selectedBucket?.label}`
+                : "Connect wallet"}
           </button>
-          <button
-            onClick={() => setOrderType("limit")}
-            className="py-1.5 text-[11px] mono"
-            style={{
-              background: orderType === "limit" ? "var(--hl-accent)" : "var(--hl-surface)",
-              color: orderType === "limit" ? "var(--background)" : "var(--hl-muted)",
-              border: `1px solid ${orderType === "limit" ? "var(--hl-accent)" : "var(--hl-border)"}`,
-              borderRadius: 3,
-            }}
-          >
-            Limit
-          </button>
+
+          {orderStatus.kind === "success" && (
+            <div className="text-[10px] mono" style={{ color: "var(--hl-green)" }}>{orderStatus.message}</div>
+          )}
+          {orderStatus.kind === "error" && (
+            <div className="text-[10px] mono" style={{ color: "var(--hl-red)" }}>{orderStatus.message}</div>
+          )}
         </div>
+      </main>
 
-        {/* Stake input (USD) */}
-        <label className="text-[10px]" style={{ color: "var(--hl-muted)" }}>Stake (USD)</label>
-        <input
-          type="number"
-          value={stake}
-          onChange={(e) => setStake(e.target.value)}
-          className="mono text-[14px] px-2 py-1.5"
-          style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 3 }}
-        />
-
-        {/* Limit price (cents 0-100) */}
-        {orderType === "limit" && (
-          <>
-            <label className="text-[10px]" style={{ color: "var(--hl-muted)" }}>Limit price (¢)</label>
-            <input
-              type="number"
-              value={limitPx}
-              onChange={(e) => setLimitPx(e.target.value)}
-              placeholder="0-100"
-              className="mono text-[14px] px-2 py-1.5"
-              style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 3 }}
-            />
-          </>
-        )}
-
-        {/* Estimated shares preview */}
-        {(() => {
-          const price = orderSide === "yes" ? (selectedBucket.yesPrice ?? 0) : 1 - (selectedBucket.yesPrice ?? 0);
-          const usd = parseFloat(stake) || 0;
-          const shares = price > 0 ? Math.floor(usd / price) : 0;
-          const payoutIfWin = shares; // $1 per share on win
-          return (
-            <div className="text-[10px] mt-1" style={{ color: "var(--hl-muted)" }}>
-              ≈ <b className="mono">{shares.toLocaleString()}</b> shares · payout if {orderSide.toUpperCase()} wins: <b className="mono" style={{ color: "var(--hl-green)" }}>${payoutIfWin.toLocaleString()}</b>
+      {/* Whale details modal — driven by local state since the parent's
+          modal is binary-scoped. Same shape as the binary's whale modal. */}
+      {selectedWhale && (() => {
+        const w = selectedWhale;
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+            onClick={() => setSelectedWhale(null)}
+          >
+            <div
+              className="max-w-[440px] w-full p-5 text-[12px] leading-relaxed"
+              style={{ background: "var(--hl-surface)", border: "1px solid var(--hl-border)", color: "var(--foreground)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-baseline mb-3">
+                <h2 className="text-[16px] font-bold tracking-tight">🐋 Whale fill</h2>
+                <button onClick={() => setSelectedWhale(null)} className="ml-auto text-[20px] leading-none">×</button>
+              </div>
+              <div className="grid gap-2">
+                <BucketWhaleRow label="Side" value={`${(w.side === "B" || w.side === "buy") ? "BUY" : "SELL"} ${w.sideContext.toUpperCase()}`} />
+                <BucketWhaleRow label="Price" value={`${(w.px * 100).toFixed(2)}¢`} />
+                <BucketWhaleRow label="Notional" value={`$${w.usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
+                <BucketWhaleRow label="Trade count" value={`${w.count}`} />
+                <BucketWhaleRow label="When" value={new Date(w.time).toLocaleString()} />
+              </div>
             </div>
-          );
-        })()}
-
-        {/* Place order */}
-        <button
-          disabled={!isConnected || orderStatus.kind === "pending" || parseFloat(stake) <= 0}
-          onClick={async () => {
-            if (!isConnected || !address) {
-              setOrderStatus({ kind: "error", message: "Connect wallet first" });
-              return;
-            }
-            // Resolve coin + price for the chosen side
-            const asset = orderSide === "yes" ? selectedBucket.yesCoin : selectedBucket.noCoin;
-            const liveSidePrice = orderSide === "yes"
-              ? selectedBucket.yesPrice
-              : (selectedBucket.yesPrice != null ? 1 - selectedBucket.yesPrice : null);
-            if (liveSidePrice == null || liveSidePrice <= 0) {
-              setOrderStatus({ kind: "error", message: "Side price unavailable" });
-              return;
-            }
-            const usd = parseFloat(stake);
-            const shares = Math.max(1, Math.floor(usd / liveSidePrice));
-            const lpx = parseFloat(limitPx);
-            const limitPrice = orderType === "limit" && Number.isFinite(lpx) && lpx > 0 ? lpx / 100 : undefined;
-
-            setOrderStatus({ kind: "pending" });
-            try {
-              const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
-                import("@wagmi/core"),
-                import("@/lib/hl-exchange"),
-                import("@/config/wagmi"),
-              ]);
-              const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
-              if (!walletClient) throw new Error("Wallet client not available");
-              const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
-              if (agentResult.error || !agentResult.agentKey) throw new Error(agentResult.error || "Agent setup failed");
-              const builderApproved = await exchange.checkBuilderApproval(address as string);
-              if (!builderApproved) {
-                const approval = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
-                if (!approval.success) throw new Error(approval.error || "Builder fee approval failed");
-              }
-              const res = await exchange.placeOrder(agentResult.agentKey, address as `0x${string}`, {
-                asset,
-                isBuy: true,
-                size: shares,
-                orderType,
-                limitPrice,
-                slippageBps: orderType === "market" ? 200 : undefined,
-              });
-              if (res.success) {
-                setOrderStatus({ kind: "success", message: `Filled ${res.filledSize ?? "?"} @ ${res.avgPrice ?? "?"}¢` });
-              } else {
-                setOrderStatus({ kind: "error", message: res.error ?? "Order failed" });
-              }
-            } catch (err) {
-              setOrderStatus({ kind: "error", message: err instanceof Error ? err.message : "Order threw" });
-            }
-          }}
-          className="py-2 text-[12px] mono font-bold mt-1"
-          style={{
-            background: orderSide === "yes" ? "var(--hl-green)" : "var(--hl-red)",
-            color: "var(--background)",
-            borderRadius: 3,
-            opacity: !isConnected || orderStatus.kind === "pending" || parseFloat(stake) <= 0 ? 0.4 : 1,
-          }}
-        >
-          {orderStatus.kind === "pending"
-            ? "Placing…"
-            : isConnected
-              ? `${orderType === "market" ? "Buy" : "Place limit"} ${orderSide.toUpperCase()} · ${selectedBucket.label}`
-              : "Connect wallet"}
-        </button>
-
-        {orderStatus.kind === "success" && (
-          <div className="text-[10px] mono" style={{ color: "var(--hl-green)" }}>{orderStatus.message}</div>
-        )}
-        {orderStatus.kind === "error" && (
-          <div className="text-[10px] mono" style={{ color: "var(--hl-red)" }}>{orderStatus.message}</div>
-        )}
-      </div>
-    </main>
+          </div>
+        );
+      })()}
+    </>
   );
 }
 
-// ─── StackedBucketChart ───────────────────────────────────────────────────
-// Three (or more) cumulative SVG areas stacked bottom-to-top so the band
-// thicknesses encode each bucket's YES probability over time. Heights are
-// normalized so the chart always fills 0..100% — easier to read which
-// bucket has the lead than to fight for vertical room.
-function StackedBucketChart({
-  market,
-  colors,
-  now,
-}: {
-  market: BucketMarket;
-  colors: string[];
-  now: number;
-}) {
-  const W = 800;
-  const H = 340;
-
-  // Determine time window from union of all bucket candles. If a bucket
-  // has no candles yet (fresh contract), fall back to a 24h window
-  // anchored on `now` (passed in from the parent's ticking clock so
-  // render stays pure — `Date.now()` here would be an impure call).
-  const allTimes = market.buckets.flatMap((b) => b.candles.map((c) => c.t));
-  const tMin = allTimes.length ? Math.min(...allTimes) : now - 24 * 3600_000;
-  const tMaxRaw = allTimes.length ? Math.max(...allTimes) : now;
-  const tMax = Math.max(tMaxRaw, now);
-
-  // Build a sorted union of all timestamps across buckets so we can
-  // sample each bucket at every t. For buckets missing a sample at t we
-  // use the most recent prior close (forward-fill).
-  const timeSet = new Set<number>();
-  for (const b of market.buckets) for (const c of b.candles) timeSet.add(c.t);
-  const times = [...timeSet].sort((a, b) => a - b);
-
-  // For each bucket, build a Map<t, close-as-yes-prob 0..1>.
-  const bucketSeries = market.buckets.map((b) => {
-    const map = new Map<number, number>();
-    for (const c of b.candles) {
-      const close = parseFloat(c.c);
-      if (Number.isFinite(close)) map.set(c.t, close);
-    }
-    return map;
-  });
-
-  // Walk times left-to-right, forward-filling each bucket. At each t,
-  // normalize so the buckets sum to 1 (defends against thin liquidity
-  // making a single bucket print outside its normalized range).
-  type Row = { t: number; cumulative: number[] };
-  const rows: Row[] = [];
-  const lastVals = new Array(market.buckets.length).fill(0);
-  for (const t of times) {
-    for (let i = 0; i < market.buckets.length; i++) {
-      const v = bucketSeries[i].get(t);
-      if (v != null) lastVals[i] = v;
-    }
-    const sum = lastVals.reduce((s, v) => s + v, 0);
-    const norm = sum > 0 ? lastVals.map((v) => v / sum) : lastVals.slice();
-    const cumulative: number[] = [];
-    let acc = 0;
-    for (const v of norm) {
-      acc += v;
-      cumulative.push(acc);
-    }
-    rows.push({ t, cumulative });
-  }
-
-  const xFor = (t: number) => ((t - tMin) / (tMax - tMin)) * W;
-  // We want bucket 0 at the bottom of the chart — but in SVG y grows
-  // downward. So y for cumulative=0 is H (bottom), for cumulative=1 is 0.
-  const yFor = (cum: number) => H - cum * H;
-
-  // For each bucket build an area path: bottom = cumulative-of-prior,
-  // top = cumulative-of-self. First bucket's bottom is 0 (chart floor).
-  const paths = market.buckets.map((_, i) => {
-    if (!rows.length) return "";
-    const topPoints = rows.map((r) => `${xFor(r.t).toFixed(1)},${yFor(r.cumulative[i]).toFixed(1)}`);
-    const bottomPoints = rows
-      .slice()
-      .reverse()
-      .map((r) => {
-        const prev = i === 0 ? 0 : r.cumulative[i - 1];
-        return `${xFor(r.t).toFixed(1)},${yFor(prev).toFixed(1)}`;
-      });
-    return `M ${topPoints.join(" L ")} L ${bottomPoints.join(" L ")} Z`;
-  });
-
-  // "Now" line
-  const nowX = now > 0 ? xFor(now) : null;
-
+function BucketWhaleRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="relative" style={{ height: H }}>
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" width="100%" height="100%">
-        {/* Background grid — horizontal 25/50/75 reference lines */}
-        {[0.25, 0.5, 0.75].map((p) => (
-          <line
-            key={p}
-            x1={0}
-            x2={W}
-            y1={H - p * H}
-            y2={H - p * H}
-            stroke="var(--hl-border)"
-            strokeDasharray="2 4"
-            opacity={0.5}
-          />
-        ))}
-        {/* Stacked areas */}
-        {paths.map((d, i) => (
-          <path
-            key={market.buckets[i].outcomeId}
-            d={d}
-            fill={colors[i % colors.length]}
-            opacity={0.55}
-            stroke={colors[i % colors.length]}
-            strokeWidth={1.2}
-          />
-        ))}
-        {/* "Now" marker */}
-        {nowX != null && (
-          <line x1={nowX} x2={nowX} y1={0} y2={H} stroke="var(--hl-accent)" strokeDasharray="3 3" opacity={0.8} />
-        )}
-      </svg>
-      {/* Right-side labels per bucket — show current normalized probability */}
-      <div className="absolute right-1 top-1 flex flex-col gap-1 text-[10px] mono">
-        {market.buckets.map((b, i) => {
-          const cents = b.yesPrice != null ? Math.round(b.yesPrice * 100) : null;
-          return (
-            <div key={b.outcomeId} className="flex items-center gap-1">
-              <span style={{ width: 10, height: 10, background: colors[i % colors.length], opacity: 0.55, borderRadius: 2 }} />
-              <span style={{ color: "var(--hl-muted)" }}>{b.label}</span>
-              <span className="font-bold" style={{ color: colors[i % colors.length] }}>{cents != null ? `${cents}%` : "—"}</span>
-            </div>
-          );
-        })}
-      </div>
+    <div className="flex justify-between text-[11px]">
+      <span style={{ color: "var(--hl-muted)" }}>{label}</span>
+      <span className="mono">{value}</span>
     </div>
   );
 }
