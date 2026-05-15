@@ -74,6 +74,8 @@ function pruneOld() {
 
 function handleTrades(payload: unknown) {
   if (!Array.isArray(payload) || !activeCoin) return;
+  const yesNum = activeCoin.slice(1, -1);
+  const coinNo = `#${yesNum}1`;
   let appended = 0;
   for (const raw of payload as Array<{
     coin?: string;
@@ -84,7 +86,9 @@ function handleTrades(payload: unknown) {
     tid?: number;
     hash?: string;
   }>) {
-    if (!raw || raw.coin !== activeCoin) continue;
+    if (!raw) continue;
+    // Accept both #N0 (YES) and #N1 (NO) trades; coin field preserved.
+    if (raw.coin !== activeCoin && raw.coin !== coinNo) continue;
     if (typeof raw.tid !== "number" || seenTids.has(raw.tid)) continue;
     if (typeof raw.px !== "string" || typeof raw.sz !== "string") continue;
     const px = parseFloat(raw.px);
@@ -128,13 +132,14 @@ function connectWs() {
     ws = sock;
 
     sock.on("open", () => {
-      console.log(`[predict-trades] WS open, subscribing to ${activeCoin}`);
-      sock.send(
-        JSON.stringify({
-          method: "subscribe",
-          subscription: { type: "trades", coin: activeCoin },
-        }),
-      );
+      if (!activeCoin) return;
+      // Subscribe to BOTH YES and NO trade channels for the active outcome.
+      // YES coin name is "#<outcome>0"; NO is "#<outcome>1" (flip last char).
+      const yesNum = activeCoin.slice(1, -1);
+      const coinNo = `#${yesNum}1`;
+      console.log(`[predict-trades] WS open, subscribing to ${activeCoin} + ${coinNo}`);
+      sock.send(JSON.stringify({ method: "subscribe", subscription: { type: "trades", coin: activeCoin } }));
+      sock.send(JSON.stringify({ method: "subscribe", subscription: { type: "trades", coin: coinNo } }));
     });
 
     sock.on("message", (raw) => {

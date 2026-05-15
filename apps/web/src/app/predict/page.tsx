@@ -470,19 +470,18 @@ export default function PredictPage() {
       if (cancelled) return;
       try {
         ws = new WebSocket(HL_WS);
+        // Compute the NO-side coin from the YES coin: "#400" → "#401"
+        // The last digit is the side index (0=YES, 1=NO); flip it.
+        const yesNum = hip4Coin.slice(1, -1); // outcome ID part
+        const hip4CoinNo = `#${yesNum}1`;
+
         ws.onopen = () => {
-          ws?.send(
-            JSON.stringify({
-              method: "subscribe",
-              subscription: { type: "l2Book", coin: hip4Coin },
-            }),
-          );
-          ws?.send(
-            JSON.stringify({
-              method: "subscribe",
-              subscription: { type: "trades", coin: hip4Coin },
-            }),
-          );
+          // Book stays on the YES coin (that's what the order book panel shows)
+          ws?.send(JSON.stringify({ method: "subscribe", subscription: { type: "l2Book", coin: hip4Coin } }));
+          // Subscribe to BOTH YES and NO trade streams so the chart can flip
+          // between them based on the user's trade-side selection.
+          ws?.send(JSON.stringify({ method: "subscribe", subscription: { type: "trades", coin: hip4Coin } }));
+          ws?.send(JSON.stringify({ method: "subscribe", subscription: { type: "trades", coin: hip4CoinNo } }));
           if (!cancelled) setHyperodd((s) => ({ ...s, wsConnected: true }));
         };
         ws.onmessage = (ev) => {
@@ -497,10 +496,10 @@ export default function PredictPage() {
                 asks: (levels[1] as BookLevel[]) ?? [],
               }));
             } else if (msg.channel === "trades" && Array.isArray(msg.data)) {
-              // append new trades — they arrive as arrays of trade objects.
-              // Cap accumulated state at 500 entries to avoid memory bloat.
+              // Accept trades from either #N0 (YES) or #N1 (NO) — coin tag
+              // is preserved on each trade so the chart can filter by side.
               const incoming = (msg.data as HyperOddTrade[]).filter(
-                (t) => t && t.coin === hip4Coin,
+                (t) => t && (t.coin === hip4Coin || t.coin === hip4CoinNo),
               );
               if (incoming.length > 0) {
                 setHyperodd((s) => {
@@ -822,6 +821,7 @@ export default function PredictPage() {
                 : null
             }
             trades={hyperodd.trades}
+            hip4Coin={hyperodd.hip4Coin}
             tradeSide={side}
             onWhaleClick={setSelectedWhale}
             limitOrderCents={
@@ -1153,6 +1153,7 @@ function RiverChart({
   kalshiCents,
   polyCents,
   trades,
+  hip4Coin,
   tradeSide,
   onWhaleClick,
   limitOrderCents,
@@ -1173,6 +1174,7 @@ function RiverChart({
   kalshiCents: number | null;
   polyCents: number | null;
   trades: HyperOddTrade[];
+  hip4Coin: string | null;  // e.g. "#400" — used to derive the NO coin "#401"
   tradeSide: "yes" | "no";  // filters whales to the side the user is trading
   onWhaleClick: (w: { side: string; px: number; usd: number; count: number; time: number }) => void;
   limitOrderCents: number | null;       // in YES-space (for line position)
@@ -1290,116 +1292,90 @@ function RiverChart({
   //    naturally widens and the chart shows more fine-grained flow.
   const whales = useMemo(() => {
     type Whale = { x: number; y: number; usd: number; px: number; side: string; count: number; time: number };
-    const slots = new Map<number, Whale>(); // keyed by candle.t
 
-    // All whales anchor on the YES line at the trade's actual YES price.
-    // Green border (BUY) and red border (SELL) carry the direction info —
-    // putting buys and sells on different lines (YES vs NO mirror) ended
-    // up hiding the sells at the opposite side of the chart.
+    // Which coin's flow we care about, derived from the user's trade-side
+    // toggle. YES toggle → trades on #N0 (the YES contract). NO toggle →
+    // trades on #N1 (the separately-tradeable NO contract). The two are
+    // distinct markets with their own order books and trade events.
+    const wantedCoin = hip4Coin && tradeSide === "yes"
+      ? hip4Coin
+      : hip4Coin
+        ? `#${hip4Coin.slice(1, -1)}1`
+        : null;
 
-    // Layer 1: candle-based whales for the whole window (gives 24h coverage).
-    for (const c of marketCandles) {
-      if (c.t < tMin || c.t > tMax) continue;
-      const open = parseFloat(c.o);
-      const close = parseFloat(c.c);
-      const vol = parseFloat(c.v);
-      if (!Number.isFinite(vol) || vol <= 0) continue;
-      const avgPx = (open + close) / 2;
-      const usd = vol * avgPx;
-      const midTime = c.t + (15 * 60 * 1000) / 2;
-      const isBuyYes = close >= open;
-      slots.set(c.t, {
-        x: ((midTime - tMin) / (tMax - tMin)) * W,
-        y: H - close * H, // YES line
-        usd,
-        px: close,
-        side: isBuyYes ? "B" : "A",
-        count: Math.round(vol),
-        time: midTime,
-      });
-    }
+    // 5-minute time buckets per side. Aggregating tighter cleans up the
+    // "looks random" feeling — each whale represents a 5-min slice of
+    // flow, so they line up at predictable bucket midpoints rather than
+    // scattered random fill times.
+    const BUCKET_MS = 5 * 60 * 1000;
+    type Agg = { tSum: number; pxSum: number; usd: number; count: number; side: string };
+    const buckets = new Map<string, Agg>();
 
-    // Layer 2: WS-trade buckets at finer granularity (60s) for slots
-    // where we have real trade data. These replace the parent candle's
-    // whale with a more precise (time, price) point.
-    if (trades.length > 0) {
-      type Agg = { tSum: number; pxSum: number; usd: number; count: number; side: string };
-      const buckets = new Map<string, Agg>();
-      for (const t of trades) {
-        if (t.time < tMin || t.time > tMax) continue;
-        const px = parseFloat(t.px);
-        const sz = parseFloat(t.sz);
-        if (!Number.isFinite(px) || !Number.isFinite(sz)) continue;
-        const key = `${t.side}:${Math.floor(t.time / 60_000)}`;
-        const usd = px * sz;
-        const b = buckets.get(key);
-        if (b) {
-          b.tSum += t.time;
-          b.pxSum += px;
-          b.usd += usd;
-          b.count += 1;
-        } else {
-          buckets.set(key, { tSum: t.time, pxSum: px, usd, count: 1, side: t.side });
-        }
-      }
-      // Insert WS buckets keyed by a synthetic time so they don't clash
-      // with candle keys. Use a high-resolution key (60s bucket × 1000)
-      // to keep them distinct.
-      let i = 1;
-      for (const a of buckets.values()) {
-        const t = a.tSum / a.count;
-        const px = a.pxSum / a.count;
-        slots.set(-i++, {
-          x: ((t - tMin) / (tMax - tMin)) * W,
-          y: H - px * H, // YES line — color carries the BUY/SELL direction
-          usd: a.usd,
-          px,
-          side: a.side,
-          count: a.count,
-          time: t,
-        });
+    for (const t of trades) {
+      if (!wantedCoin || t.coin !== wantedCoin) continue;
+      if (t.time < tMin || t.time > tMax) continue;
+      const px = parseFloat(t.px);
+      const sz = parseFloat(t.sz);
+      if (!Number.isFinite(px) || !Number.isFinite(sz)) continue;
+      const key = `${t.side}:${Math.floor(t.time / BUCKET_MS)}`;
+      const usd = px * sz;
+      const b = buckets.get(key);
+      if (b) {
+        b.tSum += t.time;
+        b.pxSum += px;
+        b.usd += usd;
+        b.count += 1;
+      } else {
+        buckets.set(key, { tSum: t.time, pxSum: px, usd, count: 1, side: t.side });
       }
     }
 
-    // Filter to only the whales relevant to the user's current trade side.
-    //   YES selected → show BUY whales (people buying YES, "B" side)
-    //   NO  selected → show SELL whales (people selling YES, "A" side =
-    //                   effectively buying NO at 1−price)
-    // Keeps the chart focused on the flow that informs your direction.
-    const wantSide = tradeSide === "yes" ? "B" : "A";
-    const filtered = [...slots.values()].filter(
-      (w) => w.side === wantSide || (wantSide === "B" && w.side === "buy") || (wantSide === "A" && w.side === "sell"),
-    );
+    const raw: Whale[] = [...buckets.values()].map((a) => {
+      const t = a.tSum / a.count;
+      const px = a.pxSum / a.count;
+      // For NO-side trades on #N1, prices are 0..1 in NO-space. To keep
+      // the chart axis consistent (YES probability on the right), we
+      // mirror NO prices to YES space (1 - px) for the y-position.
+      const yesPx = tradeSide === "yes" ? px : 1 - px;
+      return {
+        x: ((t - tMin) / (tMax - tMin)) * W,
+        y: H - yesPx * H,
+        usd: a.usd,
+        px,
+        side: a.side,
+        count: a.count,
+        time: t,
+      };
+    });
 
-    // Take top 7, then collision-avoid by stacking UPWARD only — biggest
-    // whales sit ON the wave at the true (time, price), smaller ones in
-    // the same x-bucket stack upward into the 70px gutter zone above the
-    // chart. Each whale's "time coverage" scales with its icon diameter
-    // (USD-weighted): a bigger whale covers a wider time slot, so any
-    // whale within that slot is treated as overlapping and pushed up.
-    const maxUsd = filtered.reduce((m, w) => Math.max(m, w.usd), 1);
-    const diameterFor = (usd: number) => 14 + Math.min(1, usd / maxUsd) * 14; // 14-28px
-    const ranked = filtered.sort((a, b) => b.usd - a.usd).slice(0, 7);
+    // Top 10 by USD, then stack within same x-bucket: biggest pins to
+    // its (time, price), smaller ones in the same 5-min slot stack
+    // upward by exactly one icon diameter, ensuring crisp vertical
+    // stacks instead of random scatter.
+    const maxUsd = raw.reduce((m, w) => Math.max(m, w.usd), 1);
+    const diameterFor = (usd: number) => 14 + Math.min(1, usd / maxUsd) * 14;
+    const ranked = raw.sort((a, b) => b.usd - a.usd).slice(0, 10);
+
     const placed: (Whale & { d: number })[] = [];
     for (const w of ranked) {
-      let y = w.y;
       const dW = diameterFor(w.usd);
+      // Snap x to bucket center so same-bucket whales share a column
+      const bucketX = w.x;
+      let y = w.y;
       for (let attempt = 0; attempt < 12; attempt++) {
-        const collides = placed.some((p) => {
-          // x-gap based on the LARGER of the two whales' diameters + 4px padding
-          const gapX = Math.max(p.d, dW) + 4;
-          const gapY = Math.max(p.d, dW) + 4;
-          return Math.abs(p.x - w.x) < gapX && Math.abs(p.y - y) < gapY;
-        });
+        // Same-column collision = same x (within 2px); push up by exactly
+        // one diameter to form a clean stack.
+        const collides = placed.some(
+          (p) => Math.abs(p.x - bucketX) < 2 && Math.abs(p.y - y) < dW + 2,
+        );
         if (!collides) break;
-        y -= dW + 4; // step up by the current whale's own diameter
+        y -= dW + 2;
       }
-      // Clamp so a whale can't escape into the next-day's chart row above
       y = Math.max(-70, y);
-      placed.push({ ...w, y, d: dW });
+      placed.push({ ...w, x: bucketX, y, d: dW });
     }
     return placed;
-  }, [trades, marketCandles, tMin, tMax, tradeSide]);
+  }, [trades, hip4Coin, tMin, tMax, tradeSide]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
 
   // ── Volume profile — one thin bar per HIP-4 candle, scaled by the candle's
