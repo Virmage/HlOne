@@ -24,8 +24,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SEEN_PATH = join(__dirname, "seen-jobs.json");
 const RESULTS_PATH = join(__dirname, "latest-results.json");
 const CACHE_PATH = join(__dirname, "career-cache.json");
+const EMAIL_STATE_PATH = join(__dirname, "email-state.json");
 
 const EMAIL_TO = "jack@craitve.com";
+
+// ── Email cadence ─────────────────────────────────────────────────────
+// Send at most ONE daily email (only when there's a "big change") and ONE
+// weekly digest (always, every 7 days). Saves jack from getting an empty
+// "no new matches" email every other day.
+const DAILY_BIG_CHANGE = {
+  totalNew: 5,    // ≥5 new jobs across all sections, OR
+  apacNew: 1,     // ≥1 new APAC job, OR
+  sectionNew: 3,  // ≥3 new jobs in any single section
+};
+const WEEKLY_DAYS = 7; // force a digest every N days regardless
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 // ── Title keywords ──
@@ -538,6 +550,53 @@ function dedup(jobs) {
 // ══════════════════════════════════════════════════
 //  EMAIL
 // ══════════════════════════════════════════════════
+//  Email summary (top of the email — readable in 5s)
+// ══════════════════════════════════════════════════
+/**
+ * Build the summary block that appears AT THE TOP of every email. The goal
+ * is "skim and stop" — if Jack reads only this block, he should already
+ * know whether there's anything to dig into.
+ *
+ * Sections:
+ *   - One-line headline (total + APAC count)
+ *   - Top picks (up to 5 jobs, APAC-first, then any section)
+ *   - Per-section breakdown counts
+ */
+function buildSummary({ ai, crypto, advertising, kind, daysCovered }) {
+  const all = [...ai, ...crypto, ...advertising];
+  const apac = all.filter(j => isAPAC(j.location));
+  const remote = all.filter(j => !isAPAC(j.location));
+
+  let s = "";
+  s += `SUMMARY\n`;
+  s += `${"=".repeat(50)}\n\n`;
+  s += `  ${kind === "weekly" ? `Weekly digest (last ${daysCovered}d)` : "Today"}: `;
+  s += `${all.length} new job${all.length !== 1 ? "s" : ""}`;
+  if (apac.length) s += `  ·  ${apac.length} APAC`;
+  if (remote.length) s += `  ·  ${remote.length} remote`;
+  s += "\n\n";
+
+  // Top picks — APAC first (Jack's preference for Sydney), then any
+  // remote. Cap at 5 so the summary stays scannable.
+  const topPicks = [...apac, ...remote].slice(0, 5);
+  if (topPicks.length) {
+    s += `  Top picks:\n`;
+    for (const j of topPicks) {
+      s += `    > ${j.title} — ${j.company}\n`;
+      s += `      ${j.location}  ·  ${j.source}\n`;
+    }
+    s += "\n";
+  }
+
+  // Per-section counts so Jack can see at a glance which category moved
+  s += `  By section:\n`;
+  s += `    Startups / AI:        ${ai.length}\n`;
+  s += `    Crypto:               ${crypto.length}\n`;
+  s += `    Advertising (Sydney): ${advertising.length}\n`;
+  return s;
+}
+
+// ══════════════════════════════════════════════════
 function formatSection(title, jobs) {
   if (!jobs.length) return `\n${"=".repeat(50)}\n  ${title}\n${"=".repeat(50)}\n\n  No new jobs found.\n`;
 
@@ -661,21 +720,117 @@ async function main() {
   await writeFile(SEEN_PATH, JSON.stringify(seen, null, 2));
   await writeFile(RESULTS_PATH, JSON.stringify({ timestamp: new Date().toISOString(), ai: newAI, crypto: newCrypto, advertising: newAd }, null, 2));
 
-  // ── Email ──
+  // ── Email cadence: at most ONE daily (big-changes only) + ONE weekly digest ──
+  //
+  // State file remembers the last time we sent each kind of email and
+  // accumulates new-jobs that have appeared since the last weekly. When
+  // a daily fires, those jobs are sent now AND kept in the pending list
+  // so they're still included in the next weekly's "everything you
+  // might have missed" summary.
+  const state = await loadJSON(EMAIL_STATE_PATH, {
+    lastDailyDate: null,   // "YYYY-MM-DD" of last daily send
+    lastWeeklyTs: null,    // ISO timestamp of last weekly send
+    pendingJobs: { ai: [], crypto: [], advertising: [] },
+  });
+
+  // Dedupe helper for the pending pool — by title+company key
+  const dedupByKey = (arr) => {
+    const seenKey = new Set();
+    return arr.filter(j => {
+      const k = `${(j.title || "").toLowerCase().trim()}|${(j.company || "").toLowerCase().trim()}`;
+      if (seenKey.has(k)) return false;
+      seenKey.add(k);
+      return true;
+    });
+  };
+  state.pendingJobs.ai = dedupByKey([...(state.pendingJobs.ai || []), ...newAI]);
+  state.pendingJobs.crypto = dedupByKey([...(state.pendingJobs.crypto || []), ...newCrypto]);
+  state.pendingJobs.advertising = dedupByKey([...(state.pendingJobs.advertising || []), ...newAd]);
+
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const daysSinceWeekly = state.lastWeeklyTs
+    ? (Date.now() - new Date(state.lastWeeklyTs).getTime()) / 86400_000
+    : Infinity;
+
+  // "Big change" gates the daily email. Any of:
+  //   - ≥5 new jobs across all sections
+  //   - ≥1 new APAC job
+  //   - ≥3 new jobs in any single section
+  const apacNew = [...newAI, ...newCrypto, ...newAd].filter(j => isAPAC(j.location)).length;
+  const sectionMax = Math.max(newAI.length, newCrypto.length, newAd.length);
+  const isBigChange = (
+    totalNew >= DAILY_BIG_CHANGE.totalNew ||
+    apacNew >= DAILY_BIG_CHANGE.apacNew ||
+    sectionMax >= DAILY_BIG_CHANGE.sectionNew
+  );
+
   const date = new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  let emailBody = `Job Scanner Report - ${date}\n`;
-  emailBody += `Found ${totalNew} new job${totalNew !== 1 ? "s" : ""}\n`;
-  emailBody += formatSection("STARTUPS / AI (Remote)", newAI);
-  emailBody += formatSection("CRYPTO (Remote)", newCrypto);
-  emailBody += formatSection("ADVERTISING AGENCY (Sydney)", newAd);
-  emailBody += `\n${"=".repeat(50)}\nTotal jobs tracked: ${Object.keys(seen).length}\nNext scan in 2 days.\n`;
+  const shouldSendWeekly = daysSinceWeekly >= WEEKLY_DAYS;
+  const shouldSendDaily = !shouldSendWeekly && isBigChange && state.lastDailyDate !== today;
 
-  const subject = totalNew > 0
-    ? `${totalNew} New Creative/Brand Jobs - ${date}`
-    : `Job Scan Complete - No New Matches - ${date}`;
+  let sent = false;
+  if (shouldSendWeekly) {
+    // Weekly: send EVERYTHING in the pending pool, even items that
+    // already went out in a daily — this is the "make sure I haven't
+    // missed anything" digest.
+    const wAI = state.pendingJobs.ai;
+    const wCrypto = state.pendingJobs.crypto;
+    const wAd = state.pendingJobs.advertising;
+    const wTotal = wAI.length + wCrypto.length + wAd.length;
+    const summary = buildSummary({
+      ai: wAI, crypto: wCrypto, advertising: wAd,
+      kind: "weekly",
+      daysCovered: Math.round(daysSinceWeekly),
+    });
+    let body = `Job Scanner — Weekly Digest · ${date}\n\n`;
+    body += summary;
+    body += "\n";
+    body += formatSection("STARTUPS / AI (Remote)", wAI);
+    body += formatSection("CRYPTO (Remote)", wCrypto);
+    body += formatSection("ADVERTISING AGENCY (Sydney)", wAd);
+    body += `\n${"=".repeat(50)}\nTotal jobs tracked: ${Object.keys(seen).length}\n`;
+    const subject = wTotal > 0
+      ? `[Weekly] ${wTotal} new creative/brand jobs — ${date}`
+      : `[Weekly] No new matches this week — ${date}`;
+    sendEmail(subject, body);
+    sent = true;
+    // Reset pending + bump both timestamps so the next daily threshold
+    // is measured from a fresh slate.
+    state.pendingJobs = { ai: [], crypto: [], advertising: [] };
+    state.lastWeeklyTs = new Date().toISOString();
+    state.lastDailyDate = today;
+  } else if (shouldSendDaily) {
+    // Daily: just TODAY's jobs (not the full pending pool — the weekly
+    // is the right vehicle for the catch-up rollup).
+    const summary = buildSummary({
+      ai: newAI, crypto: newCrypto, advertising: newAd,
+      kind: "daily",
+      daysCovered: 1,
+    });
+    let body = `Job Scanner — Daily Update · ${date}\n\n`;
+    body += summary;
+    body += "\n";
+    body += formatSection("STARTUPS / AI (Remote)", newAI);
+    body += formatSection("CRYPTO (Remote)", newCrypto);
+    body += formatSection("ADVERTISING AGENCY (Sydney)", newAd);
+    body += `\n${"=".repeat(50)}\nTotal jobs tracked: ${Object.keys(seen).length}\n`;
+    body += `Next weekly digest in ${Math.max(0, Math.round(WEEKLY_DAYS - daysSinceWeekly))}d.\n`;
+    const subject = `${totalNew} new creative/brand job${totalNew !== 1 ? "s" : ""} — ${date}`;
+    sendEmail(subject, body);
+    sent = true;
+    state.lastDailyDate = today;
+  } else {
+    // Skip email — accumulate quietly. Log so cron output still shows
+    // whether the run did its job.
+    console.log(
+      `\nEmail SKIPPED — ${totalNew} new today (APAC ${apacNew}, max section ${sectionMax}). ` +
+      `Pending pool: AI ${state.pendingJobs.ai.length}, Crypto ${state.pendingJobs.crypto.length}, Ad ${state.pendingJobs.advertising.length}. ` +
+      `Next weekly in ~${Math.max(0, (WEEKLY_DAYS - daysSinceWeekly).toFixed(1))}d.`
+    );
+  }
 
-  sendEmail(subject, emailBody);
-  console.log("\nDone.");
+  await writeFile(EMAIL_STATE_PATH, JSON.stringify(state, null, 2));
+  console.log(`\nDone. Email sent: ${sent}.`);
 }
 
 main().catch(console.error);
