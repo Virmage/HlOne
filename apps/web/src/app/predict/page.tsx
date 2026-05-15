@@ -1351,18 +1351,22 @@ function RiverChart({
       });
     }
 
-    // Top 12 by USD globally, then stack within same bucket index.
+    // Top 12 by USD globally. Whale diameter scales by USD but is
+    // RENDERED within a fixed-size slot, so smaller whales just look
+    // smaller in the same slot rather than shifting the stack baseline.
     const maxUsd = raw.reduce((m, w) => Math.max(m, w.usd), 1);
     const diameterFor = (usd: number) => 12 + Math.min(1, usd / maxUsd) * 14; // 12-26px
     const ranked = raw.sort((a, b) => b.usd - a.usd).slice(0, 12);
 
+    // Fixed slot size — biggest possible whale + a 2px gap. Every slot
+    // is the same height regardless of which whale lands in it, so the
+    // lowest whale of every bucket sits at exactly the same distance
+    // from the line, and stacks above never overlap.
+    const SLOT_H = 28; // 26px max-diameter + 2px gap
+
     // Group by bucketIdx so same-column whales stack as a vertical line.
     // No adjacent-bucket collision detection — every bucket independently
-    // anchors to the line so adjacent stacks just resume from the line,
-    // which is exactly the visual the user asked for ("next bucket back
-    // close to line again"). If two adjacent buckets visually overlap
-    // because the columns are tight, that reads as a busy zone rather
-    // than a confusing drift upwards.
+    // anchors to the line so adjacent stacks just resume from the line.
     const byBucket = new Map<number, (Whale & { d: number })[]>();
     for (const w of ranked) {
       const d = diameterFor(w.usd);
@@ -1373,15 +1377,18 @@ function RiverChart({
     const placed: (Whale & { d: number })[] = [];
     for (const arr of byBucket.values()) {
       arr.sort((a, b) => b.usd - a.usd);
-      // Largest at the bottom of the stack (closest to the line),
-      // smaller ones stack above. baseY is the line-anchored y, then
-      // every subsequent whale climbs by its diameter + 2px gap.
-      const baseY = arr[0].y;
-      let stackY = baseY;
-      for (const w of arr) {
-        placed.push({ ...w, y: stackY });
-        stackY -= w.d + 2;
-      }
+      // baseY = line y at the bucket centre (with LINE_OFFSET already
+      // baked in by lineYAt). Treat that as the BOTTOM of slot 0; place
+      // each whale centred inside its slot so smaller whales stay
+      // bottom-aligned to a consistent line-distance, then larger ones
+      // stack above by exactly SLOT_H each — never overlapping.
+      const baseBottom = arr[0].y; // slot 0 bottom
+      arr.forEach((w, idx) => {
+        const slotBottom = baseBottom - idx * SLOT_H;
+        // Render code centres at y, so the whale's bottom edge sits at
+        // y + d/2. For bottom-alignment, place centre at slotBottom - d/2.
+        placed.push({ ...w, y: slotBottom - w.d / 2 });
+      });
     }
     return placed;
   }, [trades, marketCandles, hip4Coin, tMin, tMax, tradeSide, probSeries, fairProbSeries]);
@@ -1587,7 +1594,11 @@ function RiverChart({
           {whales.map((w, i) => {
             const isBuy = w.side === "B" || w.side === "buy";
             const sizeFactor = Math.min(1, w.usd / maxWhaleUsd);
-            const px = 14 + sizeFactor * 14; // 14-28px diameter
+            // Use the diameter the slot-stacking math computed so the
+            // rendered circle's bottom edge actually lands at its slot's
+            // bottom. Two different formulas here used to make small
+            // whales drift visually higher than large ones.
+            const px = w.d;
             const usdStr = w.usd >= 1000 ? `$${(w.usd / 1000).toFixed(1)}K` : `$${w.usd.toFixed(0)}`;
             return (
               <div
