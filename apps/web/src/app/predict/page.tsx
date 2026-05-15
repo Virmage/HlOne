@@ -1304,7 +1304,7 @@ function RiverChart({
           : 2 * 60 * 1000;             // 1h view → 2-min columns
     // Vertical offset above the price line so whales don't sit on
     // top of the YES/NO river itself.
-    const LINE_OFFSET = 14;
+    const LINE_OFFSET = 30;
 
     // Which coin's trades we care about, per the user's trade-side toggle.
     const wantedCoin = hip4Coin && tradeSide === "yes"
@@ -1392,7 +1392,7 @@ function RiverChart({
 
     // Top 12 by USD globally, then stack within same bucket index.
     const maxUsd = raw.reduce((m, w) => Math.max(m, w.usd), 1);
-    const diameterFor = (usd: number) => 14 + Math.min(1, usd / maxUsd) * 14;
+    const diameterFor = (usd: number) => 12 + Math.min(1, usd / maxUsd) * 14; // 12-26px
     const ranked = raw.sort((a, b) => b.usd - a.usd).slice(0, 12);
 
     // Group by bucketIdx so same-column whales stack as a vertical line.
@@ -1404,14 +1404,30 @@ function RiverChart({
       byBucket.set(w.bucketIdx, arr);
     }
     const placed: (Whale & { d: number })[] = [];
-    for (const [, arr] of byBucket) {
-      // Biggest in the bucket anchors at the trade's actual price (y);
-      // subsequent whales stack vertically upward by one diameter each.
+    // Sort buckets left-to-right so earlier whales are placed first
+    // and adjacent-bucket whales can push up off them if they collide.
+    const sortedBuckets = [...byBucket.entries()].sort((a, b) => a[0] - b[0]);
+    for (const [, arr] of sortedBuckets) {
       arr.sort((a, b) => b.usd - a.usd);
       let stackY = arr[0].y;
       for (const w of arr) {
-        placed.push({ ...w, y: stackY });
-        stackY -= w.d + 2;
+        // If a whale in an ADJACENT bucket overlaps horizontally with
+        // an already-placed whale at the same y, push this one up
+        // until the conflict clears. Same-bucket whales just continue
+        // the vertical stack.
+        let y = stackY;
+        for (let attempt = 0; attempt < 16; attempt++) {
+          const collides = placed.some(
+            (p) =>
+              p.bucketIdx !== w.bucketIdx &&
+              Math.abs(p.x - w.x) < (p.d + w.d) / 2 + 2 &&
+              Math.abs(p.y - y) < (p.d + w.d) / 2 + 2,
+          );
+          if (!collides) break;
+          y -= w.d + 2;
+        }
+        placed.push({ ...w, y });
+        stackY = y - w.d - 2;
       }
     }
     return placed;
