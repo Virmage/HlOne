@@ -1242,6 +1242,33 @@ function RiverChart({
     // top of the YES/NO river itself.
     const LINE_OFFSET = 30;
 
+    // ── Baseline anchor: look up the YES line's y at any given time.
+    //    Crucially, every whale anchors to the LINE position at its
+    //    bucket centre — not the whale's own trade price. That keeps
+    //    the bottom of each stack hugging the line consistently, so
+    //    every new bucket resets to "just above the line" instead of
+    //    drifting up/down with the trade's exact fill price.
+    const series = probSeries.length ? probSeries : fairProbSeries;
+    const lineYAt = (timeMs: number): number => {
+      if (!series.length) return H / 2 - LINE_OFFSET;
+      // Linear search is fine here — series is ≤ ~150 points per timeframe
+      // and the whales array is small.
+      if (timeMs <= series[0].x) return H - series[0].p * H - LINE_OFFSET;
+      if (timeMs >= series[series.length - 1].x) return H - series[series.length - 1].p * H - LINE_OFFSET;
+      for (let i = 1; i < series.length; i++) {
+        if (series[i].x >= timeMs) {
+          const a = series[i - 1];
+          const b = series[i];
+          const t = (timeMs - a.x) / (b.x - a.x || 1);
+          const p = a.p + (b.p - a.p) * t;
+          // For NO toggle, the visible line is (1 - p), so flip baseline.
+          const yp = tradeSide === "yes" ? p : 1 - p;
+          return H - yp * H - LINE_OFFSET;
+        }
+      }
+      return H - series[series.length - 1].p * H - LINE_OFFSET;
+    };
+
     // Which coin's trades we care about, per the user's trade-side toggle.
     const wantedCoin = hip4Coin && tradeSide === "yes"
       ? hip4Coin
@@ -1250,7 +1277,7 @@ function RiverChart({
         : null;
 
     // Bucket by (time-slot, side). Each (slot, side) pair gets its own
-    // whale so a 15-min slot with both buys AND sells produces TWO
+    // whale so a 30-min slot with both buys AND sells produces TWO
     // whales that share the same x-column and stack vertically.
     type Agg = { tSum: number; pxSum: number; usd: number; count: number; side: string; bucketIdx: number };
     const buckets = new Map<string, Agg>();
@@ -1277,28 +1304,27 @@ function RiverChart({
 
     const raw: Whale[] = [];
 
-    // Trade-derived whales — up to 2 per bucket (one buy + one sell)
+    // Trade-derived whales — up to 2 per bucket (one buy + one sell).
+    // The y is anchored to the line, NOT the trade's individual fill price,
+    // so every bucket's base sits at a consistent distance above the line.
     for (const b of buckets.values()) {
-      // Center x on bucket midpoint so same-bucket whales share a column
       const bucketCenter = (b.bucketIdx + 0.5) * BUCKET_MS;
-      const t = bucketCenter; // collapse to exact bucket midpoint
       const px = b.pxSum / b.count;
-      const yesPx = tradeSide === "yes" ? px : 1 - px;
       raw.push({
-        x: ((t - tMin) / (tMax - tMin)) * W,
-        y: H - yesPx * H - LINE_OFFSET, // sit slightly above the line
+        x: ((bucketCenter - tMin) / (tMax - tMin)) * W,
+        y: lineYAt(bucketCenter),
         usd: b.usd,
         px,
         side: b.side,
         count: b.count,
-        time: t,
+        time: bucketCenter,
         bucketIdx: b.bucketIdx,
       });
     }
 
     // Candle-volume fallback for buckets where the WS has no data.
     // Renders as one whale per slot with the candle's direction (inverted
-    // for NO toggle).
+    // for NO toggle). Same line-anchored baseline.
     const seenBuckets = new Set([...buckets.values()].map((b) => b.bucketIdx));
     for (const c of marketCandles) {
       if (c.t < tMin || c.t > tMax) continue;
@@ -1313,10 +1339,9 @@ function RiverChart({
       const bucketCenter = (bucketIdx + 0.5) * BUCKET_MS;
       const isBullYes = close >= open;
       const isBuyForSide = tradeSide === "yes" ? isBullYes : !isBullYes;
-      const yesPx = tradeSide === "yes" ? close : 1 - close;
       raw.push({
         x: ((bucketCenter - tMin) / (tMax - tMin)) * W,
-        y: H - yesPx * H - LINE_OFFSET, // sit slightly above the line
+        y: lineYAt(bucketCenter),
         usd,
         px: close,
         side: isBuyForSide ? "B" : "A",
@@ -1332,6 +1357,12 @@ function RiverChart({
     const ranked = raw.sort((a, b) => b.usd - a.usd).slice(0, 12);
 
     // Group by bucketIdx so same-column whales stack as a vertical line.
+    // No adjacent-bucket collision detection — every bucket independently
+    // anchors to the line so adjacent stacks just resume from the line,
+    // which is exactly the visual the user asked for ("next bucket back
+    // close to line again"). If two adjacent buckets visually overlap
+    // because the columns are tight, that reads as a busy zone rather
+    // than a confusing drift upwards.
     const byBucket = new Map<number, (Whale & { d: number })[]>();
     for (const w of ranked) {
       const d = diameterFor(w.usd);
@@ -1340,34 +1371,20 @@ function RiverChart({
       byBucket.set(w.bucketIdx, arr);
     }
     const placed: (Whale & { d: number })[] = [];
-    // Sort buckets left-to-right so earlier whales are placed first
-    // and adjacent-bucket whales can push up off them if they collide.
-    const sortedBuckets = [...byBucket.entries()].sort((a, b) => a[0] - b[0]);
-    for (const [, arr] of sortedBuckets) {
+    for (const arr of byBucket.values()) {
       arr.sort((a, b) => b.usd - a.usd);
-      let stackY = arr[0].y;
+      // Largest at the bottom of the stack (closest to the line),
+      // smaller ones stack above. baseY is the line-anchored y, then
+      // every subsequent whale climbs by its diameter + 2px gap.
+      const baseY = arr[0].y;
+      let stackY = baseY;
       for (const w of arr) {
-        // If a whale in an ADJACENT bucket overlaps horizontally with
-        // an already-placed whale at the same y, push this one up
-        // until the conflict clears. Same-bucket whales just continue
-        // the vertical stack.
-        let y = stackY;
-        for (let attempt = 0; attempt < 16; attempt++) {
-          const collides = placed.some(
-            (p) =>
-              p.bucketIdx !== w.bucketIdx &&
-              Math.abs(p.x - w.x) < (p.d + w.d) / 2 + 2 &&
-              Math.abs(p.y - y) < (p.d + w.d) / 2 + 2,
-          );
-          if (!collides) break;
-          y -= w.d + 2;
-        }
-        placed.push({ ...w, y });
-        stackY = y - w.d - 2;
+        placed.push({ ...w, y: stackY });
+        stackY -= w.d + 2;
       }
     }
     return placed;
-  }, [trades, marketCandles, hip4Coin, tMin, tMax, tradeSide]);
+  }, [trades, marketCandles, hip4Coin, tMin, tMax, tradeSide, probSeries, fairProbSeries]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
 
   // ── Volume profile — one thin bar per HIP-4 candle, scaled by the candle's
