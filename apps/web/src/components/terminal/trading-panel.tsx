@@ -210,8 +210,21 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         return true;
       };
 
-      // Step 3: Set leverage (signed locally with agent key — no popup)
-      if (!leverageSet) {
+      // Spot trading uses an entirely different code path on HL — different
+      // asset-index space (10000 + universe index), no leverage, no margin
+      // mode. Route SPOT orders through placeSpotOrder and SKIP the
+      // setLeverage step that would otherwise blow up with "Unknown asset:
+      // @230" because the perp asset-meta cache doesn't include spot codes.
+      const isSpot = !!overview?.isSpot;
+      // The spot token is the BASE of the pair (e.g. "USDH/USDC" → "USDH").
+      // displayName is set on overview for spot; fall back to coin so we at
+      // least surface a meaningful error if something weird is selected.
+      const spotToken = isSpot
+        ? (overview?.displayName?.split("/")[0] ?? coin)
+        : null;
+
+      // Step 3: Set leverage — perp-only.
+      if (!isSpot && !leverageSet) {
         dlog(`[trade] Setting leverage to ${leverage}x (${marginMode})...`);
         let levResult = await exchange.setLeverage(agentKey, address as `0x${string}`, coin, leverage, marginMode === "cross");
         if (!levResult.success && levResult.error === exchange.STALE_AGENT_MSG) {
@@ -226,25 +239,33 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
         setLeverageSet(true);
       }
 
-      // Step 4: Place order (signed locally with agent key — no popup)
-      dlog("[trade] Placing order...");
+      // Step 4: Place order — spot vs perp use different endpoints.
+      dlog(`[trade] Placing ${isSpot ? "spot" : "perp"} order...`);
       const orderStart = Date.now();
-      let result = await exchange.placeOrder(agentKey, address as `0x${string}`, {
-        asset: coin,
-        isBuy: side === "long",
-        size: sizeNum,
-        orderType,
-        limitPrice: orderType === "limit" ? parseFloat(limitPrice) : undefined,
-        reduceOnly,
-        slippageBps: 50,
-      });
+      const placeOrderForRoute = async () => {
+        if (isSpot && spotToken) {
+          return exchange.placeSpotOrder(agentKey, address as `0x${string}`, {
+            token: spotToken,
+            isBuy: side === "long",
+            size: sizeNum,
+            orderType,
+            limitPrice: orderType === "limit" ? parseFloat(limitPrice) : undefined,
+          });
+        }
+        return exchange.placeOrder(agentKey, address as `0x${string}`, {
+          asset: coin,
+          isBuy: side === "long",
+          size: sizeNum,
+          orderType,
+          limitPrice: orderType === "limit" ? parseFloat(limitPrice) : undefined,
+          reduceOnly,
+          slippageBps: 50,
+        });
+      };
+      let result = await placeOrderForRoute();
       if (!result.success && result.error === exchange.STALE_AGENT_MSG) {
         if (await refreshAgent()) {
-          result = await exchange.placeOrder(agentKey, address as `0x${string}`, {
-            asset: coin, isBuy: side === "long", size: sizeNum, orderType,
-            limitPrice: orderType === "limit" ? parseFloat(limitPrice) : undefined,
-            reduceOnly, slippageBps: 50,
-          });
+          result = await placeOrderForRoute();
         }
       }
       const latencyMs = Date.now() - orderStart;
@@ -273,7 +294,7 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
     } finally {
       setSubmitting(false);
     }
-  }, [address, coin, side, sizeNum, orderType, limitPrice, leverage, marginMode, leverageSet, builderApproved, reduceOnly]);
+  }, [address, coin, side, sizeNum, orderType, limitPrice, leverage, marginMode, leverageSet, builderApproved, reduceOnly, overview?.isSpot, overview?.displayName]);
 
   const coinHasOptions = hasDeriveOptions(displayCoin);
 
