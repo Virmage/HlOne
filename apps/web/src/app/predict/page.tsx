@@ -821,6 +821,7 @@ export default function PredictPage() {
                 : null
             }
             limitOrderSide={orderType === "limit" && parseFloat(limitPx) > 0 ? side : null}
+            limitOrderTypedCents={orderType === "limit" && parseFloat(limitPx) > 0 ? parseFloat(limitPx) : null}
           />
           <LiveOrderBook hyperodd={hyperodd} fairCents={fairCents} now={now} />
         </div>
@@ -1074,6 +1075,7 @@ function RiverChart({
   onWhaleClick,
   limitOrderCents,
   limitOrderSide,
+  limitOrderTypedCents,
 }: {
   probSeries: { x: number; p: number }[];
   fairProbSeries: { x: number; p: number }[];
@@ -1088,8 +1090,9 @@ function RiverChart({
   polyCents: number | null;
   trades: HyperOddTrade[];
   onWhaleClick: (w: { side: string; px: number; usd: number; count: number; time: number }) => void;
-  limitOrderCents: number | null;
+  limitOrderCents: number | null;       // in YES-space (for line position)
   limitOrderSide: "yes" | "no" | null;
+  limitOrderTypedCents: number | null;  // raw user input (for chip text)
 }) {
   const W = 800;
   const H = 420; // bumped from 360 to give whales more vertical room
@@ -1412,6 +1415,26 @@ function RiverChart({
 
             {points && <polyline fill="none" stroke="#4ade80" strokeWidth="2.4" points={points} />}
 
+            {/* NO line — mirror of YES (probabilities sum to 100¢), drawn
+                slightly thinner + lower opacity so YES stays the primary read.
+                Lets you read the NO price directly without inverting. */}
+            {points && (
+              <polyline
+                fill="none"
+                stroke="#f87171"
+                strokeWidth="1.6"
+                opacity="0.55"
+                points={points
+                  .split(" ")
+                  .map((pt) => {
+                    const [x, y] = pt.split(",");
+                    // mirror y around the chart's vertical midpoint (H/2)
+                    return `${x},${H - parseFloat(y)}`;
+                  })
+                  .join(" ")}
+              />
+            )}
+
             {/* NOW vertical line */}
             {nowX != null && nowX > 0 && nowX < W && (
               <>
@@ -1509,6 +1532,31 @@ function RiverChart({
               }}
             >
               YES · {yesCents}¢
+            </div>
+          )}
+          {/* NO endpoint label (red) — mirrors YES at (100 - yesCents)
+              on the right y-axis. */}
+          {nowX != null && (
+            <div
+              className="absolute mono"
+              style={{
+                left: `${(nowX / W) * 100}%`,
+                top: `${((H - endY) / H) * 100}%`,
+                transform: "translate(8px, -50%)",
+                background: "var(--hl-red)",
+                color: "#2a0606",
+                padding: "3px 8px",
+                borderRadius: 3,
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: 0.3,
+                whiteSpace: "nowrap",
+                pointerEvents: "none",
+                zIndex: 5,
+                boxShadow: "0 0 10px rgba(248,113,113,0.5)",
+              }}
+            >
+              NO · {100 - yesCents}¢
             </div>
           )}
           {/* BTC mark endpoint label — true orange (#fb923c) to actually
@@ -1618,7 +1666,7 @@ function RiverChart({
                 boxShadow: "0 0 8px rgba(0,240,255,0.6)",
               }}
             >
-              YOUR LIMIT · {limitOrderCents.toFixed(1)}¢ {limitOrderSide?.toUpperCase()}
+              YOUR LIMIT · {(limitOrderTypedCents ?? limitOrderCents).toFixed(1)}¢ {limitOrderSide?.toUpperCase()}
             </div>
           )}
           {/* HIP-4 horizontal label removed — the green river IS the HIP-4 mark. */}
@@ -1627,7 +1675,11 @@ function RiverChart({
         <div className="flex flex-wrap gap-4 mt-2 pt-2 text-[10px] items-center" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
           <span className="inline-flex items-center gap-1.5">
             <span style={{ width: 18, height: 3, background: "var(--hl-green)", display: "inline-block", borderRadius: 1 }}></span>
-            <b style={{ color: "var(--hl-green)" }}>YES probability</b> <span style={{ color: "var(--hl-muted)" }}>· right axis 0¢-100¢</span>
+            <b style={{ color: "var(--hl-green)" }}>YES</b> <span style={{ color: "var(--hl-muted)" }}>· right axis 0¢-100¢</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5" title="NO is the inverse of YES: NO = 100 − YES. Both sides sum to $1 at settle.">
+            <span style={{ width: 18, height: 2, background: "var(--hl-red)", display: "inline-block", borderRadius: 1, opacity: 0.7 }}></span>
+            <b style={{ color: "var(--hl-red)" }}>NO</b> <span style={{ color: "var(--hl-muted)" }}>· 100 − YES</span>
           </span>
           <span className="inline-flex items-center gap-1.5" title="What the YES price 'should' be given BTC's path + 65% annual vol. Gap to market = trade signal. Hidden in last 15min when math breaks.">
             <span style={{ display: "inline-flex", gap: 2 }}>
