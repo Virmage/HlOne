@@ -17,7 +17,7 @@ import { cacheGet, cacheSet, isRedisConnected } from "../services/cache.js";
 import { getNewsFeedCached, getCoinNews, type NewsPost } from "../services/crypto-panic.js";
 import { getAllSocialMetricsCached, getSocialMetricsCached, type SocialMetrics } from "../services/lunar-crush.js";
 import { getLargeTradesCached } from "../services/trade-tape.js";
-import { getPredictionTrades, getActivePredictionCoin } from "../services/prediction-trades.js";
+import { getPredictionTrades, getPredictionTradesForCoin, getActivePredictionCoin, getActivePredictionCoins } from "../services/prediction-trades.js";
 import { getMacroDataCached } from "../services/macro-data.js";
 import { getTopTraderFills } from "../services/top-trader-fills.js";
 import { getLiquidationHeatmap } from "../services/liquidation-heatmap.js";
@@ -773,13 +773,20 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
    * the page (which HL's recentTrades doesn't, since it only returns the
    * last ~30 seconds).
    */
-  app.get<{ Querystring: { limit?: string } }>(
+  app.get<{ Querystring: { limit?: string; coin?: string } }>(
     "/predict-trades",
     async (req) => {
       const limit = Math.min(Math.max(1, parseInt(req.query.limit || "500") || 500), 5000);
+      // Optional ?coin filter — when the client only cares about one
+      // market (binary or a specific bucket), we can avoid shipping the
+      // full firehose.
+      const coinFilter = typeof req.query.coin === "string" && /^#\d+[01]$/.test(req.query.coin)
+        ? req.query.coin
+        : null;
       return {
-        coin: getActivePredictionCoin(),
-        trades: getPredictionTrades(limit),
+        coin: getActivePredictionCoin(),       // primary binary YES coin (back-compat)
+        coins: getActivePredictionCoins(),     // every HIP-4 coin we're subscribed to
+        trades: coinFilter ? getPredictionTradesForCoin(coinFilter, limit) : getPredictionTrades(limit),
         timestamp: Date.now(),
       };
     },

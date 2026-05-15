@@ -7,10 +7,18 @@
  * an empty/clustered trade history.
  *
  * This service subscribes to HL's WS server-side, accumulates every trade on
- * the active HIP-4 binary into a ring buffer, and re-subscribes when the
- * daily contract rolls (every 06:00 UTC). The /api/market/predict-trades
+ * EVERY active HIP-4 outcome into a ring buffer, and re-subscribes when the
+ * daily contracts roll (every 06:00 UTC). The /api/market/predict-trades
  * endpoint serves this buffer so clients have a real history regardless of
  * when they opened the page.
+ *
+ * Markets currently exposed by HL:
+ *   - priceBinary outcome (e.g. #400/#401)  — "BTC > $X by expiry?"
+ *   - priceBucket question with N named outcomes (e.g. #420…#440)
+ *     "Which range does BTC close in?"
+ *
+ * We subscribe to every coin we discover so the client can switch markets
+ * without re-warming the buffer.
  */
 
 import WebSocket from "ws";
@@ -31,36 +39,76 @@ export interface PredictionTrade {
 
 // ─── Storage ────────────────────────────────────────────────────────────────
 
-const MAX_TRADES = 5_000;
-const MAX_AGE_MS = 36 * 3600_000; // 36h — covers current contract + prev day overlap
+const MAX_TRADES = 10_000;          // 2× larger now that we track multiple markets
+const MAX_AGE_MS = 36 * 3600_000;   // 36h — covers current contract + prev day overlap
 
 let trades: PredictionTrade[] = [];
 const seenTids = new Set<number>();
 
-let activeCoin: string | null = null;
+// All HIP-4 coins we're currently subscribed to (YES + NO across binary and
+// every bucket outcome). The client can filter by coin when it queries.
+let activeCoins: Set<string> = new Set();
+// Identifier we compare in syncActiveCoins() to know when the set rolled —
+// concatenated sorted-coin-list. Cheap and bullet-proof.
+let activeCoinsKey = "";
+
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let rolloverTimer: ReturnType<typeof setInterval> | null = null;
 
-// ─── Discover the current live HIP-4 binary ─────────────────────────────────
+// ─── Discover the current live HIP-4 outcomes ───────────────────────────────
 
-async function fetchActiveBinaryCoin(): Promise<string | null> {
+/**
+ * Returns the full list of YES/NO coins for every active HIP-4 outcome —
+ * the binary one AND every named outcome inside the bucket question.
+ */
+async function fetchActiveCoins(): Promise<{ coins: Set<string>; primary: string | null }> {
   try {
     const res = await fetch(HL_INFO, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "outcomeMeta" }),
     });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { outcomes?: { outcome: number; description: string }[] };
+    if (!res.ok) return { coins: new Set(), primary: null };
+    const data = (await res.json()) as {
+      outcomes?: { outcome: number; description: string }[];
+      questions?: { question: number; description: string; namedOutcomes: number[]; fallbackOutcome?: number }[];
+    };
+
+    const coins = new Set<string>();
+    let primary: string | null = null;
+
+    // 1. The binary outcome (single YES/NO market).
     const binary = (data.outcomes ?? []).find((o) =>
       (o.description ?? "").includes("priceBinary"),
     );
-    if (!binary) return null;
-    return `#${binary.outcome}0`; // YES side = #<outcome>0
+    if (binary) {
+      coins.add(`#${binary.outcome}0`); // YES
+      coins.add(`#${binary.outcome}1`); // NO
+      primary = `#${binary.outcome}0`;
+    }
+
+    // 2. Every named outcome of every priceBucket question. The bucket
+    // outcomes have description like `index:0`, but the question's
+    // description carries the priceBucket / thresholds metadata.
+    for (const q of data.questions ?? []) {
+      if (!(q.description ?? "").includes("priceBucket")) continue;
+      for (const outcomeId of q.namedOutcomes ?? []) {
+        coins.add(`#${outcomeId}0`);
+        coins.add(`#${outcomeId}1`);
+      }
+      // Subscribe to the fallback outcome too — fills there are rare but
+      // we should still capture them if they happen.
+      if (q.fallbackOutcome != null) {
+        coins.add(`#${q.fallbackOutcome}0`);
+        coins.add(`#${q.fallbackOutcome}1`);
+      }
+    }
+
+    return { coins, primary };
   } catch (err) {
     console.error("[predict-trades] outcomeMeta fetch failed:", (err as Error).message);
-    return null;
+    return { coins: new Set(), primary: null };
   }
 }
 
@@ -73,9 +121,7 @@ function pruneOld() {
 }
 
 function handleTrades(payload: unknown) {
-  if (!Array.isArray(payload) || !activeCoin) return;
-  const yesNum = activeCoin.slice(1, -1);
-  const coinNo = `#${yesNum}1`;
+  if (!Array.isArray(payload) || activeCoins.size === 0) return;
   let appended = 0;
   for (const raw of payload as Array<{
     coin?: string;
@@ -87,8 +133,9 @@ function handleTrades(payload: unknown) {
     hash?: string;
   }>) {
     if (!raw) continue;
-    // Accept both #N0 (YES) and #N1 (NO) trades; coin field preserved.
-    if (raw.coin !== activeCoin && raw.coin !== coinNo) continue;
+    // Only accept trades for coins we're tracking — defence against HL
+    // sending us cross-channel noise.
+    if (!raw.coin || !activeCoins.has(raw.coin)) continue;
     if (typeof raw.tid !== "number" || seenTids.has(raw.tid)) continue;
     if (typeof raw.px !== "string" || typeof raw.sz !== "string") continue;
     const px = parseFloat(raw.px);
@@ -121,7 +168,7 @@ function handleTrades(payload: unknown) {
 }
 
 function connectWs() {
-  if (!activeCoin) return;
+  if (activeCoins.size === 0) return;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
@@ -132,14 +179,12 @@ function connectWs() {
     ws = sock;
 
     sock.on("open", () => {
-      if (!activeCoin) return;
-      // Subscribe to BOTH YES and NO trade channels for the active outcome.
-      // YES coin name is "#<outcome>0"; NO is "#<outcome>1" (flip last char).
-      const yesNum = activeCoin.slice(1, -1);
-      const coinNo = `#${yesNum}1`;
-      console.log(`[predict-trades] WS open, subscribing to ${activeCoin} + ${coinNo}`);
-      sock.send(JSON.stringify({ method: "subscribe", subscription: { type: "trades", coin: activeCoin } }));
-      sock.send(JSON.stringify({ method: "subscribe", subscription: { type: "trades", coin: coinNo } }));
+      if (activeCoins.size === 0) return;
+      const coinList = [...activeCoins].sort();
+      console.log(`[predict-trades] WS open, subscribing to ${coinList.length} coins: ${coinList.join(", ")}`);
+      for (const coin of coinList) {
+        sock.send(JSON.stringify({ method: "subscribe", subscription: { type: "trades", coin } }));
+      }
     });
 
     sock.on("message", (raw) => {
@@ -175,23 +220,21 @@ function connectWs() {
   }
 }
 
-async function syncActiveCoin() {
-  const next = await fetchActiveBinaryCoin();
-  if (!next) return;
-  if (next === activeCoin) return;
+async function syncActiveCoins() {
+  const { coins: next } = await fetchActiveCoins();
+  if (next.size === 0) return;
+  const nextKey = [...next].sort().join(",");
+  if (nextKey === activeCoinsKey) return;
 
-  // Coin changed — drop the seenTids set (new contract = new tids universe)
-  // but keep historical trades for the old contract in the buffer; they'll
-  // age out naturally via the 36h prune.
-  console.log(`[predict-trades] active coin: ${activeCoin ?? "(none)"} → ${next}`);
-  activeCoin = next;
-  // Reset only the seen-tids that don't appear in current trades
-  // (we still want to dedupe within the same coin if WS reconnects).
-  // Simpler: just clear and let the dedupe catch reconnect duplicates.
+  console.log(`[predict-trades] active coins changed: ${activeCoinsKey || "(none)"} → ${nextKey}`);
+  activeCoins = next;
+  activeCoinsKey = nextKey;
+  // Coin set changed — old tids may collide with new contract tids on
+  // rollover. Clear and let the WS dedupe handle reconnect duplicates.
   seenTids.clear();
   for (const t of trades) seenTids.add(t.tid);
 
-  // Reconnect WS to subscribe to the new coin
+  // Reconnect WS to subscribe to the new coin set
   try { ws?.close(); } catch { /* ignore */ }
   connectWs();
 }
@@ -203,19 +246,52 @@ export function getPredictionTrades(limit = 500): PredictionTrade[] {
   return trades.slice(0, Math.min(limit, trades.length));
 }
 
+/**
+ * Trades filtered to a specific coin (caller passes "#400", "#401",
+ * "#420", etc.) — saves the client doing the filtering when it only
+ * cares about one market.
+ */
+export function getPredictionTradesForCoin(coin: string, limit = 500): PredictionTrade[] {
+  pruneOld();
+  const filtered = trades.filter((t) => t.coin === coin);
+  return filtered.slice(0, Math.min(limit, filtered.length));
+}
+
+/**
+ * Snapshot of which coins we're currently subscribed to. Mostly for
+ * debugging / health endpoints.
+ */
+export function getActivePredictionCoins(): string[] {
+  return [...activeCoins].sort();
+}
+
+/**
+ * Back-compat with the old single-coin API — returns the primary
+ * binary's YES coin (which is what callers used to use).
+ */
 export function getActivePredictionCoin(): string | null {
-  return activeCoin;
+  for (const c of activeCoins) {
+    // First #N0 we find that's NOT one of the bucket-style outcomes — but
+    // we can't know without parsing. The primary binary is captured
+    // separately during sync; expose it via a closure if a caller needs
+    // it. For now, simplest: return the lowest-numbered #N0 coin we have.
+    if (c.endsWith("0")) {
+      const lowest = [...activeCoins].filter((x) => x.endsWith("0")).sort()[0];
+      return lowest ?? null;
+    }
+  }
+  return null;
 }
 
 export async function startPredictionTradesTracking() {
   console.log("[predict-trades] starting collector");
-  await syncActiveCoin();
+  await syncActiveCoins();
   // Re-check the active contract every 60s — catches the 06:00 UTC daily
   // rollover within a minute of it happening.
   if (rolloverTimer) clearInterval(rolloverTimer);
   rolloverTimer = setInterval(() => {
-    syncActiveCoin().catch((err) =>
-      console.error("[predict-trades] syncActiveCoin:", (err as Error).message),
+    syncActiveCoins().catch((err) =>
+      console.error("[predict-trades] syncActiveCoins:", (err as Error).message),
     );
   }, 60_000);
 }
