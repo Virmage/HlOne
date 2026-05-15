@@ -77,9 +77,24 @@ export async function getFundingHistory(coin: string, startTime: number, endTime
   return infoRequest({ type: "fundingHistory", coin, startTime, ...(endTime ? { endTime } : {}) });
 }
 
-/** Get OHLCV candle data (max 5000 candles) */
-// Server-side candle cache — avoids hitting HL API on every interval switch
+/** Get OHLCV candle data (max 5000 candles).
+ *
+ * Server-side candle cache with hard size cap + LRU eviction.
+ *
+ * History: this used to be `new Map()` with TTL on entries but no eviction.
+ * Every unique `${coin}:${interval}` key was written forever — and we have
+ * a LOT of coin churn: ~250 perps × 9 intervals + ~60 spot × 9 + ~350 HIP-3
+ * × 9 + the daily-rolling HIP-4 outcome IDs (#400, #410, #420, etc.) means
+ * thousands of unique keys, each holding up to 5000 candle objects (~300
+ * bytes each, ~1.5 MB per entry max). Left untouched, it grew to several
+ * GB and OOM-killed the process.
+ *
+ * Fix: LRU. JS Map preserves insertion order — on a cache hit we delete +
+ * re-set so the entry becomes "most recently used"; on overflow we drop
+ * the first (oldest) entry until we're back under the cap.
+ */
 const candleCache = new Map<string, { data: Candle[]; time: number }>();
+const CANDLE_CACHE_MAX = 400;  // ~1.5MB worst-case × 400 = ~600MB ceiling
 const CANDLE_TTL: Record<string, number> = {
   "5m": 10_000,   // 10s for fast intervals
   "15m": 15_000,
@@ -94,11 +109,34 @@ export async function getCandleSnapshot(coin: string, interval: string, startTim
   const key = `${coin}:${interval}`;
   const cached = candleCache.get(key);
   const ttl = CANDLE_TTL[interval] || 30_000;
-  if (cached && Date.now() - cached.time < ttl) return cached.data;
+  if (cached && Date.now() - cached.time < ttl) {
+    // LRU touch — mark as most-recently-used by re-inserting.
+    candleCache.delete(key);
+    candleCache.set(key, cached);
+    return cached.data;
+  }
 
   const data = await infoRequest({ type: "candleSnapshot", req: { coin, interval, startTime, ...(endTime ? { endTime } : {}) } });
+  // Drop expired entry so the re-set below moves it to the end of the
+  // insertion order (treated as fresh by the LRU eviction loop).
+  if (cached) candleCache.delete(key);
   candleCache.set(key, { data, time: Date.now() });
+
+  // Evict oldest until under the cap. Map iteration is insertion order,
+  // so `keys().next().value` is the least-recently-touched key.
+  while (candleCache.size > CANDLE_CACHE_MAX) {
+    const oldest = candleCache.keys().next().value;
+    if (oldest === undefined) break;
+    candleCache.delete(oldest);
+  }
+
   return data;
+}
+
+/** Diagnostic — exposed for the /api/market/system-health endpoint so we
+ * can watch the cache size in production without sshing in. */
+export function getCandleCacheStats() {
+  return { size: candleCache.size, cap: CANDLE_CACHE_MAX };
 }
 
 /** Get recent trades for a coin */

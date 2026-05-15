@@ -184,8 +184,70 @@ export async function runWhaleCheck(): Promise<void> {
       isFirstRun = false;
       console.log(`[whale-tracker] First run complete — seeded ${events.length} existing whale positions`);
     }
+
+    // ── Memory hygiene ─────────────────────────────────────────────────
+    // The top-100 leaderboard rotates over time — whales drop off, new
+    // ones appear. Without pruning, every address we ever saw stays in
+    // previousPositions forever (and addressEventTimes /
+    // addressCoinBurst, etc.). Each entry is small but on long uptime
+    // they cumulatively cost real heap. Run a cheap sweep after every
+    // whale-check.
+    pruneStaleAddressState(new Set(whales.map(w => w.address.toLowerCase())));
   } finally {
     isRunning = false;
+  }
+}
+
+/**
+ * Sweep per-address state Maps that grow unbounded as new addresses
+ * appear on the leaderboard.
+ *
+ * - previousPositions: keep only addresses in the CURRENT top-100. An
+ *   address that dropped off the leaderboard is no longer being tracked
+ *   for position changes, so its old position map is dead weight.
+ * - addressEventTimes / addressCoinBurst: drop entries whose newest
+ *   activity is older than 2× the relevant window. Anything older is
+ *   already past the lookback used by isLikelyBot / coin-burst.
+ * - knownBots / mmByDiversity stay forever — they're tiny (just address
+ *   strings) and the "is this a bot" signal should be sticky.
+ */
+function pruneStaleAddressState(currentTop100: Set<string>) {
+  let droppedPos = 0;
+  for (const addr of previousPositions.keys()) {
+    if (!currentTop100.has(addr)) {
+      previousPositions.delete(addr);
+      droppedPos++;
+    }
+  }
+
+  const now = Date.now();
+  const STALE_EVENT_MS = 2 * BOT_WINDOW_MS;     // 2h
+  const STALE_BURST_MS = 4 * BURST_WINDOW_MS;   // 8min
+
+  let droppedEvents = 0;
+  for (const [addr, times] of addressEventTimes) {
+    const newest = times.length ? times[times.length - 1] : 0;
+    if (now - newest > STALE_EVENT_MS) {
+      addressEventTimes.delete(addr);
+      droppedEvents++;
+    }
+  }
+
+  let droppedBurst = 0;
+  for (const [addr, info] of addressCoinBurst) {
+    if (now - info.firstSeen > STALE_BURST_MS) {
+      addressCoinBurst.delete(addr);
+      droppedBurst++;
+    }
+  }
+
+  if (droppedPos + droppedEvents + droppedBurst > 0) {
+    console.log(
+      `[whale-tracker] memory sweep: -${droppedPos} prev-positions, ` +
+      `-${droppedEvents} event-time entries, -${droppedBurst} coin-burst entries ` +
+      `(remaining: pos ${previousPositions.size}, ev ${addressEventTimes.size}, ` +
+      `burst ${addressCoinBurst.size}, bots ${knownBots.size}, mm ${mmByDiversity.size})`
+    );
   }
 }
 

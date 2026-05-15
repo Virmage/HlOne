@@ -23,6 +23,12 @@ export interface TopTraderFill {
 
 // Cache: coin -> fills[]
 const fillsCache = new Map<string, TopTraderFill[]>();
+// Cap the number of coins kept in cache — the top traders touch many
+// niche assets over 30 days and without this bound the cache grows
+// indefinitely (each coin entry up to MAX_FILLS_PER_COIN × ~200 bytes).
+// We keep the coins with the most-recent fill activity; the rest are
+// dropped and their fills remain on disk only.
+const MAX_COINS_IN_CACHE = 80;
 let lastFetchTime = 0;
 const CACHE_TTL = 30 * 60_000; // 30 min
 const TOP_TRADER_COUNT = 50;
@@ -200,6 +206,24 @@ async function refreshTopTraderFills(): Promise<void> {
       } else {
         unique.sort((a, b) => a.time - b.time);
         fillsCache.set(coin, unique);
+      }
+    }
+
+    // Cap the COIN count too — top traders touch many niche assets and
+    // without this bound the cache grows indefinitely. Keep the coins
+    // with the most-recent fill activity (the ones likely to still be
+    // queried) and drop the rest.
+    if (fillsCache.size > MAX_COINS_IN_CACHE) {
+      const coinsByRecency = [...fillsCache.entries()]
+        .map(([coin, fills]) => ({
+          coin,
+          newest: fills.length ? fills[fills.length - 1].time : 0,
+        }))
+        .sort((a, b) => b.newest - a.newest);
+      const drop = coinsByRecency.slice(MAX_COINS_IN_CACHE);
+      for (const { coin } of drop) fillsCache.delete(coin);
+      if (drop.length) {
+        console.log(`[top-trader-fills] memory cap: dropped ${drop.length} stale coins, kept ${fillsCache.size}`);
       }
     }
 
