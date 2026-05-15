@@ -822,6 +822,7 @@ export default function PredictPage() {
                 : null
             }
             trades={hyperodd.trades}
+            tradeSide={side}
             onWhaleClick={setSelectedWhale}
             limitOrderCents={
               orderType === "limit" && parseFloat(limitPx) > 0
@@ -1152,6 +1153,7 @@ function RiverChart({
   kalshiCents,
   polyCents,
   trades,
+  tradeSide,
   onWhaleClick,
   limitOrderCents,
   limitOrderSide,
@@ -1171,6 +1173,7 @@ function RiverChart({
   kalshiCents: number | null;
   polyCents: number | null;
   trades: HyperOddTrade[];
+  tradeSide: "yes" | "no";  // filters whales to the side the user is trading
   onWhaleClick: (w: { side: string; px: number; usd: number; count: number; time: number }) => void;
   limitOrderCents: number | null;       // in YES-space (for line position)
   limitOrderSide: "yes" | "no" | null;
@@ -1358,15 +1361,25 @@ function RiverChart({
       }
     }
 
+    // Filter to only the whales relevant to the user's current trade side.
+    //   YES selected → show BUY whales (people buying YES, "B" side)
+    //   NO  selected → show SELL whales (people selling YES, "A" side =
+    //                   effectively buying NO at 1−price)
+    // Keeps the chart focused on the flow that informs your direction.
+    const wantSide = tradeSide === "yes" ? "B" : "A";
+    const filtered = [...slots.values()].filter(
+      (w) => w.side === wantSide || (wantSide === "B" && w.side === "buy") || (wantSide === "A" && w.side === "sell"),
+    );
+
     // Take top 7, then collision-avoid by stacking UPWARD only — biggest
     // whales sit ON the wave at the true (time, price), smaller ones in
     // the same x-bucket stack upward into the 70px gutter zone above the
     // chart. Each whale's "time coverage" scales with its icon diameter
     // (USD-weighted): a bigger whale covers a wider time slot, so any
     // whale within that slot is treated as overlapping and pushed up.
-    const maxUsd = [...slots.values()].reduce((m, w) => Math.max(m, w.usd), 1);
+    const maxUsd = filtered.reduce((m, w) => Math.max(m, w.usd), 1);
     const diameterFor = (usd: number) => 14 + Math.min(1, usd / maxUsd) * 14; // 14-28px
-    const ranked = [...slots.values()].sort((a, b) => b.usd - a.usd).slice(0, 7);
+    const ranked = filtered.sort((a, b) => b.usd - a.usd).slice(0, 7);
     const placed: (Whale & { d: number })[] = [];
     for (const w of ranked) {
       let y = w.y;
@@ -1386,7 +1399,7 @@ function RiverChart({
       placed.push({ ...w, y, d: dW });
     }
     return placed;
-  }, [trades, marketCandles, tMin, tMax]);
+  }, [trades, marketCandles, tMin, tMax, tradeSide]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
 
   // ── Volume profile — one thin bar per HIP-4 candle, scaled by the candle's
@@ -1842,7 +1855,8 @@ function RiverChart({
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span style={{ fontSize: 12 }}>🐋</span>
-            <b>biggest trade flow</b> <span style={{ color: "var(--hl-muted)" }}>· green=buy YES · red=sell · server-collected since boot</span>
+            <b>{tradeSide === "yes" ? "biggest YES buys" : "biggest NO buys"}</b>
+            <span style={{ color: "var(--hl-muted)" }}>· follows your trade side · flip YES/NO to swap</span>
           </span>
           {kalshiCents != null && (
             <span className="inline-flex items-center gap-1" title="Linearly interpolated at HIP-4's strike">
