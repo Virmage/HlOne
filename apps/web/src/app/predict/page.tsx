@@ -1,27 +1,17 @@
 "use client";
 
 /**
- * Predictions prototype — single-market view (BTC daily binary).
+ * Predictions — single-market view for the live HIP-4 BTC daily binary.
  *
- * What's REAL:
- *  - Live BTC mark price from /info `allMids` (polled every 3s)
- *  - 24h of 15m candles from /info `candleSnapshot` → drawn as the probability river
- *  - YES probability is computed live from BTC mark vs strike using a simple
- *    GBM-implied formula (24h-realized vol × √(time-to-settle / 24h)). When BTC
- *    moves, the probability moves.
- *  - Time-to-settle is computed from now → next 23:59 UTC.
- *
- * What's SYNTHETIC (to swap when HIP-4 endpoint ships):
- *  - YES/NO order book — derived from synthetic YES with depth scaled by recent BTC volume
- *  - Whale tape — placeholder rows; will swap to existing whale-feed filtered to this market
- *  - Sharp/square — placeholder; existing HLOne classifier doesn't yet ingest HIP-4 outcome flow
- *  - Trade execution — UI-only, no order placement
- *
- * Access: route is unlinked from main nav. Open via /predict?preview=1 on the
- * predict-prototype branch (Vercel preview URL).
+ * Wired to:
+ *  - allMids / candleSnapshot / l2Book / recentTrades on HL mainnet
+ *  - WS trades stream for live whale flow (server collector + client subscribe)
+ *  - Kalshi BTC daily + Polymarket strike-ladder via /api/predict/compare
+ *  - placeOrder() in hl-exchange.ts for actual trade execution (1.5 bps builder fee)
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useSafeAccount } from "@/hooks/use-safe-account";
 
 const HL_INFO = "https://api.hyperliquid.xyz/info";
 const HL_WS = "wss://api.hyperliquid.xyz/ws";
@@ -195,6 +185,8 @@ export default function PredictPage() {
   const [limitPx, setLimitPx] = useState<string>("");
   const [showRules, setShowRules] = useState(false);
   const [timeframe, setTimeframe] = useState<"1H" | "6H" | "24H">("24H");
+  const [orderStatus, setOrderStatus] = useState<{ kind: "idle" | "pending" | "success" | "error"; message?: string }>({ kind: "idle" });
+  const { address, isConnected } = useSafeAccount();
   const [selectedWhale, setSelectedWhale] = useState<{
     side: string;
     px: number;
@@ -681,9 +673,8 @@ export default function PredictPage() {
           ● LIVE · HIP-4 MAINNET
         </span>
         <span style={{ color: "var(--hl-text)" }}>
-          Book + trades + 24h chart pulled live from the real HIP-4 outcome market{" "}
-          <code className="mono" style={{ color: "var(--hl-accent)" }}>{hyperodd.hip4Coin ?? "loading…"}</code> on HL mainnet. Trade
-          execution still disabled — prototype is a reader.
+          HIP-4 outcome market{" "}
+          <code className="mono" style={{ color: "var(--hl-accent)" }}>{hyperodd.hip4Coin ?? "loading…"}</code>
         </span>
         <span
           className="ml-auto mono text-[10px]"
@@ -863,6 +854,76 @@ export default function PredictPage() {
             shares={shares}
             maxPayout={maxPayout}
             profit={profit}
+            orderStatus={orderStatus}
+            onSubmit={async () => {
+              if (!isConnected || !address) {
+                setOrderStatus({ kind: "error", message: "Connect wallet first" });
+                return;
+              }
+              if (!hyperodd.hip4Outcome) {
+                setOrderStatus({ kind: "error", message: "Market not loaded yet" });
+                return;
+              }
+              // YES side → outcome side 0 ("#<outcome>0"); NO → side 1.
+              const sideIdx = side === "yes" ? 0 : 1;
+              const asset = `#${hyperodd.hip4Outcome}${sideIdx}`;
+              // HL outcome shares are priced 0..1; user types cents.
+              const lpx = parseFloat(limitPx);
+              const limitPrice =
+                orderType === "limit" && Number.isFinite(lpx) && lpx > 0
+                  ? lpx / 100
+                  : undefined;
+
+              setOrderStatus({ kind: "pending" });
+              try {
+                const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+                  import("@wagmi/core"),
+                  import("@/lib/hl-exchange"),
+                  import("@/config/wagmi"),
+                ]);
+                const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+                if (!walletClient) throw new Error("Wallet client not available");
+
+                // Ensure agent wallet (one-time MetaMask popup if not approved)
+                const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+                if (agentResult.error || !agentResult.agentKey) {
+                  throw new Error(agentResult.error || "Agent setup failed");
+                }
+
+                // Ensure builder fee approval (one-time popup)
+                const builderApproved = await exchange.checkBuilderApproval(address as string);
+                if (!builderApproved) {
+                  const approval = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
+                  if (!approval.success) throw new Error(approval.error || "Builder fee approval failed");
+                }
+
+                const res = await exchange.placeOrder(
+                  agentResult.agentKey,
+                  address as `0x${string}`,
+                  {
+                    asset,
+                    isBuy: true, // always buying YES or NO shares (HL outcome model)
+                    size: Math.max(1, Math.floor(shares)),
+                    orderType,
+                    limitPrice,
+                    slippageBps: orderType === "market" ? 200 : undefined,
+                  },
+                );
+                if (res.success) {
+                  setOrderStatus({
+                    kind: "success",
+                    message: `Filled ${res.filledSize ?? "?"} @ ${res.avgPrice ?? "?"}¢`,
+                  });
+                } else {
+                  setOrderStatus({ kind: "error", message: res.error ?? "Order failed" });
+                }
+              } catch (err) {
+                setOrderStatus({
+                  kind: "error",
+                  message: err instanceof Error ? err.message : "Order threw",
+                });
+              }
+            }}
           />
           <div className="panel">
             <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
@@ -887,7 +948,7 @@ export default function PredictPage() {
               <br />
               <b style={{ color: "var(--foreground)" }}>Computed:</b> HLOne fair-value (σ√t at 65% annual vol vs live BTC) — shown for comparison.
               <br />
-              <b style={{ color: "var(--foreground)" }}>Disabled:</b> trade execution.
+              <b style={{ color: "var(--foreground)" }}>Trading:</b> live via your connected wallet · 1.5 bps builder fee · settles to USDH at expiry.
             </div>
           </div>
         </div>
@@ -2028,6 +2089,8 @@ function TradePanel({
   shares,
   maxPayout,
   profit,
+  orderStatus,
+  onSubmit,
 }: {
   yesCents: number;
   noCents: number;
@@ -2045,6 +2108,8 @@ function TradePanel({
   shares: number;
   maxPayout: number;
   profit: number;
+  orderStatus: { kind: "idle" | "pending" | "success" | "error"; message?: string };
+  onSubmit: () => void;
 }) {
   const fillPriceCents = side === "yes" ? effectiveYesPx * 100 : (1 - effectiveYesPx) * 100;
   const bestForSide = side === "yes" ? liveYesAsk * 100 : (1 - liveYesBid) * 100;
@@ -2172,16 +2237,53 @@ function TradePanel({
 
         <button
           className="py-2.5 text-[13px] font-bold tracking-wide"
-          style={{ background: side === "yes" ? "var(--hl-green)" : "var(--hl-red)", color: "#001d0c", border: "none" }}
-          onClick={() => alert("Execution wiring lands in the next iteration. Order shape is final.")}
+          style={{
+            background: orderStatus.kind === "pending"
+              ? "var(--hl-muted)"
+              : side === "yes" ? "var(--hl-green)" : "var(--hl-red)",
+            color: "#001d0c",
+            border: "none",
+            cursor: orderStatus.kind === "pending" ? "wait" : "pointer",
+            opacity: orderStatus.kind === "pending" ? 0.7 : 1,
+          }}
+          disabled={orderStatus.kind === "pending"}
+          onClick={onSubmit}
         >
-          {orderType === "market"
-            ? `${side === "yes" ? "Buy YES" : "Buy NO"} @ market`
-            : `${side === "yes" ? "Buy YES" : "Buy NO"} @ ${parseFloat(limitPx || "0").toFixed(1)}¢`
-          }
+          {orderStatus.kind === "pending"
+            ? "Placing order…"
+            : orderType === "market"
+              ? `${side === "yes" ? "Buy YES" : "Buy NO"} @ market`
+              : `${side === "yes" ? "Buy YES" : "Buy NO"} @ ${parseFloat(limitPx || "0").toFixed(1)}¢`}
         </button>
+
+        {/* Inline order status */}
+        {orderStatus.kind === "success" && (
+          <div
+            className="text-[10px] px-2 py-1.5"
+            style={{
+              background: "rgba(74,222,128,0.1)",
+              border: "1px solid rgba(74,222,128,0.35)",
+              color: "var(--hl-green)",
+            }}
+          >
+            ✓ {orderStatus.message ?? "Order placed"}
+          </div>
+        )}
+        {orderStatus.kind === "error" && (
+          <div
+            className="text-[10px] px-2 py-1.5"
+            style={{
+              background: "rgba(248,113,113,0.1)",
+              border: "1px solid rgba(248,113,113,0.35)",
+              color: "var(--hl-red)",
+            }}
+          >
+            ✗ {orderStatus.message ?? "Order failed"}
+          </div>
+        )}
+
         <div className="text-[9px] text-center tracking-wide" style={{ color: "var(--hl-muted)" }}>
-          Execution disabled in prototype · settles 06:00 UTC tomorrow
+          Settles 06:00 UTC tomorrow · 1.5 bps builder fee
         </div>
       </div>
     </div>
