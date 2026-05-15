@@ -10,7 +10,7 @@
  *  - placeOrder() in hl-exchange.ts for actual trade execution (1.5 bps builder fee)
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
 const HL_INFO = "https://api.hyperliquid.xyz/info";
@@ -2564,6 +2564,7 @@ function CompareStrip({
   now: number;
   expiryTier: "none" | "soon" | "imminent";
 }) {
+  const [showHelp, setShowHelp] = useState(false);
   // Freshness — how long ago was the cross-venue compare data fetched?
   // Freshness timer removed — it ticked every second and the changing width
   // of "3s ago" → "12s ago" → "1m ago" caused the cross-venue strip to
@@ -2612,8 +2613,32 @@ function CompareStrip({
         alignItems: "center",
       }}
     >
-      <span className="cellL" style={{ color: "var(--hl-accent)", fontWeight: 600, letterSpacing: 0.6 }}>
-        Cross-venue
+      <span className="flex items-center gap-1.5">
+        <span className="cellL" style={{ color: "var(--hl-accent)", fontWeight: 600, letterSpacing: 0.6 }}>
+          Cross-venue
+        </span>
+        <button
+          onClick={() => setShowHelp(true)}
+          aria-label="How to read this strip"
+          title="How to read this strip"
+          className="mono"
+          style={{
+            width: 16,
+            height: 16,
+            borderRadius: "50%",
+            border: "1px solid var(--hl-accent)",
+            color: "var(--hl-accent)",
+            background: "transparent",
+            fontSize: 10,
+            lineHeight: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          ?
+        </button>
       </span>
 
       {/* HIP-4 LIVE — visual anchor for everything else. */}
@@ -2713,6 +2738,79 @@ function CompareStrip({
           </span>
         )}
       </div>
+      {showHelp && <CompareStripHelp onClose={() => setShowHelp(false)} />}
+    </div>
+  );
+}
+
+// Plain-English explainer for the cross-venue strip. Triggered by the
+// "?" button next to "Cross-venue" — opens a modal with what each
+// column is, how to read the gap, and what to do with that signal.
+function CompareStripHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="max-w-[640px] w-full p-6 text-[13px] leading-relaxed"
+        style={{ background: "var(--hl-surface)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 4 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-baseline mb-4">
+          <h2 className="text-[16px] font-bold tracking-tight">How to read the cross-venue strip</h2>
+          <button onClick={onClose} className="ml-auto text-[22px] leading-none" style={{ color: "var(--hl-muted)" }}>×</button>
+        </div>
+
+        <p className="mb-3" style={{ color: "var(--hl-text)" }}>
+          The strip compares the SAME question — &ldquo;Will BTC settle above $X by today&rsquo;s 06:00 UTC?&rdquo; — across every venue we can pull pricing from. Each number is the current YES probability on that venue. The gaps tell you where the prices disagree.
+        </p>
+
+        <div className="grid gap-3">
+          <ExplainRow
+            color="var(--hl-accent)"
+            label="HIP-4 (anchor)"
+            body={<>
+              The LIVE market on Hyperliquid — the only price you can actually trade. Every other column is shown as <i>its</i> gap vs this one. If HIP-4 says 64%, that&rsquo;s what you pay to buy YES right now.
+            </>}
+          />
+          <ExplainRow
+            color="var(--hl-yellow)"
+            label="Kalshi"
+            body={<>
+              Same question on Kalshi (US-regulated prediction market). <code className="mono" style={{ color: "var(--hl-yellow)" }}>+32% vs HIP-4</code> means Kalshi YES is priced 32 percentage points <i>higher</i> than HIP-4 — Kalshi traders think YES is much more likely. Big gaps are potential cross-venue arb: buy on the cheap side, sell on the expensive side, hedge until expiry. Caveat: settle times differ across venues so part of the gap is structural, not free money.
+            </>}
+          />
+          <ExplainRow
+            color="var(--hl-purple)"
+            label="Polymarket"
+            body={<>
+              Same question on Polymarket (off-shore crypto-collateralised prediction market). Read the gap the same way as Kalshi. The <code className="mono">↗</code> opens the source market so you can verify.
+            </>}
+          />
+          <ExplainRow
+            color="var(--hl-green)"
+            label="Implied prob (σ·√t · 65% vol)"
+            body={<>
+              A THEORETICAL fair value, not a venue. Computed from BTC&rsquo;s current spot + a 65% annualised volatility assumption (basic Black-Scholes / GBM). <code className="mono" style={{ color: "var(--hl-muted)" }}>(mkt 64%)</code> is what HIP-4 actually prints. If implied says 56% and the market says 64%, the market is pricing YES at a premium to &ldquo;fair&rdquo; — a mean-reversion signal. NOT a direct arb (you can&rsquo;t trade theory). Becomes useless in the last ~30 min before settle, where the model collapses to ~0 information.
+            </>}
+          />
+        </div>
+
+        <div className="mt-4 pt-3 text-[11px]" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
+          <b>Strike alignment.</b> Kalshi and Polymarket rarely list the exact strike HIP-4 trades. We pick the two surrounding strikes from each venue&rsquo;s ladder and linearly interpolate to HIP-4&rsquo;s strike, so comparison is apples-to-apples. Hover any % to see the interpolation source.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExplainRow({ color, label, body }: { color: string; label: string; body: ReactNode }) {
+  return (
+    <div className="grid gap-1" style={{ gridTemplateColumns: "140px 1fr", alignItems: "baseline" }}>
+      <span className="mono font-bold" style={{ color }}>{label}</span>
+      <span style={{ color: "var(--hl-text)" }}>{body}</span>
     </div>
   );
 }
