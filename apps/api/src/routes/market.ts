@@ -625,12 +625,22 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
 
       tokenDetailInFlight.set(cacheKey, flight);
       const result = await flight.finally(() => tokenDetailInFlight.delete(cacheKey));
+      // LRU set — remove first so the re-set lands at the back of
+      // insertion order (most-recently-used position).
+      if (tokenDetailCache.has(cacheKey)) tokenDetailCache.delete(cacheKey);
       tokenDetailCache.set(cacheKey, { data: result, fetchedAt: Date.now() });
       cacheSet(`token:${cacheKey}`, result, TOKEN_DETAIL_CACHE_TTL).catch(() => {});
-      // Evict stale entries (keep cache bounded)
-      if (tokenDetailCache.size > 100) {
-        const cutoff = Date.now() - TOKEN_DETAIL_CACHE_TTL * 3;
-        for (const [k, v] of tokenDetailCache) { if (v.fetchedAt < cutoff) tokenDetailCache.delete(k); }
+      // Hard LRU cap. The previous version only removed entries older
+      // than 30s — but each HIP-4 outcome coin (#400…#491) × 8 intervals
+      // is a separate key, and they're rewritten faster than they
+      // expire, so the cache grew without bound (each entry holds a
+      // multi-MB response). Drop oldest insertion-ordered entries until
+      // under cap, regardless of freshness.
+      const TOKEN_DETAIL_CACHE_MAX = 60;
+      while (tokenDetailCache.size > TOKEN_DETAIL_CACHE_MAX) {
+        const oldest = tokenDetailCache.keys().next().value;
+        if (oldest === undefined) break;
+        tokenDetailCache.delete(oldest);
       }
       return result;
     },
