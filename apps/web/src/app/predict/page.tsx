@@ -753,39 +753,12 @@ export default function PredictPage() {
           <Stat label="Settles" value={fmtCountdown(settleTs - now)} cls="text-[var(--hl-yellow)]" />
         </div>
 
-        <div
-          className="mt-2 px-3 py-2 flex items-center gap-3 text-[11px]"
-          style={{ background: "rgba(245,165,36,0.06)", border: "1px solid rgba(245,165,36,0.18)", borderRadius: 4 }}
-        >
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--hl-yellow)", boxShadow: "0 0 10px var(--hl-yellow)" }} />
-          <span>
-            <b className="mono">BTC mark</b> on HyperCore: <b className="mono">{btcMark ? `$${btcMark.toFixed(2)}` : "…"}</b>
-          </span>
-          <span style={{ color: "var(--hl-muted)" }}>→</span>
-          <span>
-            {distance > 0
-              ? <>needs <b className="mono" style={{ color: "var(--hl-yellow)" }}>+${distance.toFixed(0)} ({distancePct.toFixed(2)}%)</b> to settle <b style={{ color: "var(--hl-green)" }}>YES</b></>
-              : <>currently <b className="mono" style={{ color: "var(--hl-green)" }}>${Math.abs(distance).toFixed(0)} above</b> strike — must hold for <b style={{ color: "var(--hl-green)" }}>YES</b></>}
-          </span>
-          <span
-            className="ml-auto"
-            style={{
-              color: "var(--hl-muted)",
-              opacity: expiryTier === "imminent" ? 0.4 : 1,
-              textDecoration: expiryTier === "imminent" ? "line-through" : "none",
-            }}
-            title={
-              expiryTier === "imminent"
-                ? "Unreliable — σ√t collapses to ~0 near expiry. Trust the live HIP-4 mark instead."
-                : undefined
-            }
-          >
-            Implied prob: <b className="mono" style={{ color: "var(--hl-green)" }}>{(yesProb * 100).toFixed(1)}%</b> · σ·√t at 65% annual vol (theory; market is {yesCents}%)
-          </span>
-        </div>
+        {/* BTC settle-target widget removed — distance and BTC mark are
+            already in the stats row above; implied-prob line moved into
+            the cross-venue strip in place of the Best Arb cell. */}
 
         {/* Compare strip — HLOne implied vs HL testnet (HyperOdd) vs Kalshi vs Polymarket */}
-        <CompareStrip fairCents={fairCents} compare={compare} strike={strike} hyperodd={hyperodd} now={now} />
+        <CompareStrip yesProb={yesProb} compare={compare} strike={strike} hyperodd={hyperodd} now={now} expiryTier={expiryTier} />
       </div>
 
       {/* main grid */}
@@ -803,24 +776,6 @@ export default function PredictPage() {
             settleTs={settleTs}
             now={now}
             yesCents={yesCents}
-            kalshiCents={
-              compare?.kalshi.available
-                ? compare.kalshi.interpolatedYes != null
-                  ? Math.round(compare.kalshi.interpolatedYes * 100)
-                  : compare.kalshi.last != null
-                    ? Math.round(compare.kalshi.last * 100)
-                    : null
-                : null
-            }
-            polyCents={
-              compare?.polymarket.available
-                ? compare.polymarket.interpolatedYes != null
-                  ? Math.round(compare.polymarket.interpolatedYes * 100)
-                  : compare.polymarket.yesPrice != null
-                    ? Math.round(compare.polymarket.yesPrice * 100)
-                    : null
-                : null
-            }
             trades={hyperodd.trades}
             hip4Coin={hyperodd.hip4Coin}
             tradeSide={side}
@@ -936,23 +891,8 @@ export default function PredictPage() {
               No position. Drag the dot on the chart to set a price.
             </div>
           </div>
-          <div className="panel">
-            <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
-              <span className="ptitle">Disclosure</span>
-            </div>
-            <div className="p-3 text-[11px] leading-relaxed" style={{ color: "var(--hl-muted)" }}>
-              <b style={{ color: "var(--hl-green)" }}>HIP-4 went live on mainnet.</b> First market:{" "}
-              <code className="mono" style={{ color: "var(--hl-accent)" }}>{hyperodd.hip4Coin ?? "loading…"}</code> — &quot;BTC closes above
-              ${hyperodd.hip4Strike?.toLocaleString() ?? "—"} by{" "}
-              {hyperodd.hip4ExpiryMs ? new Date(hyperodd.hip4ExpiryMs).toUTCString().slice(0, 22) : "—"} UTC&quot;.
-              <br /><br />
-              <b style={{ color: "var(--foreground)" }}>Real:</b> live YES mark, full L2 book (20 levels each side), 24h candle history, recent trades, Kalshi BTC daily, Polymarket strike-ladder, BTC mark.
-              <br />
-              <b style={{ color: "var(--foreground)" }}>Computed:</b> HLOne fair-value (σ√t at 65% annual vol vs live BTC) — shown for comparison.
-              <br />
-              <b style={{ color: "var(--foreground)" }}>Trading:</b> live via your connected wallet · 1.5 bps builder fee · settles to USDH at expiry.
-            </div>
-          </div>
+          {/* Disclosure panel removed — the LIVE banner up top covers
+              the essential context. */}
         </div>
       </main>
 
@@ -1151,8 +1091,6 @@ function RiverChart({
   settleTs,
   now,
   yesCents,
-  kalshiCents,
-  polyCents,
   trades,
   hip4Coin,
   tradeSide,
@@ -1172,8 +1110,6 @@ function RiverChart({
   settleTs: number;
   now: number;
   yesCents: number;
-  kalshiCents: number | null;
-  polyCents: number | null;
   trades: HyperOddTrade[];
   hip4Coin: string | null;  // e.g. "#400" — used to derive the NO coin "#401"
   tradeSide: "yes" | "no";  // filters whales to the side the user is trading
@@ -1850,66 +1786,9 @@ function RiverChart({
           {/* HIP-4 horizontal label removed — the green river IS the HIP-4 mark. */}
         </div>
 
-        <div className="flex flex-wrap gap-4 mt-2 pt-2 text-[10px] items-center" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
-          <span className="inline-flex items-center gap-1.5">
-            <span style={{ width: 18, height: 3, background: "var(--hl-green)", display: "inline-block", borderRadius: 1 }}></span>
-            <b style={{ color: "var(--hl-green)" }}>YES</b> <span style={{ color: "var(--hl-muted)" }}>· right axis 0¢-100¢</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5" title="NO is the inverse of YES: NO = 100 − YES. Both sides sum to $1 at settle.">
-            <span style={{ width: 18, height: 2, background: "var(--hl-red)", display: "inline-block", borderRadius: 1, opacity: 0.7 }}></span>
-            <b style={{ color: "var(--hl-red)" }}>NO</b> <span style={{ color: "var(--hl-muted)" }}>· 100 − YES</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5" title="What the YES price 'should' be given BTC's path + 65% annual vol. Gap to market = trade signal. Hidden in last 15min when math breaks.">
-            <span style={{ display: "inline-flex", gap: 2 }}>
-              <span style={{ width: 5, height: 1.5, background: "#a371f7", opacity: 0.7 }}></span>
-              <span style={{ width: 5, height: 1.5, background: "#a371f7", opacity: 0.7 }}></span>
-            </span>
-            <b style={{ color: "#a371f7" }}>σ√t fair value</b> <span style={{ color: "var(--hl-muted)" }}>· reference</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5" title="Solid orange line — live BTC mark over the last 24h. The underlying that drives the YES probability.">
-            <span style={{ width: 20, height: 3, background: "#fb923c", display: "inline-block", borderRadius: 1 }}></span>
-            <b style={{ color: "#fb923c" }}>orange line = BTC price</b> <span style={{ color: "var(--hl-muted)" }}>· left axis $</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5" title="Horizontal dashed YELLOW line at the strike price. BTC above this line at expiry = YES wins.">
-            <span style={{ display: "inline-flex", gap: 2 }}>
-              <span style={{ width: 5, height: 1.5, background: "var(--hl-yellow)", opacity: 0.55 }}></span>
-              <span style={{ width: 5, height: 1.5, background: "var(--hl-yellow)", opacity: 0.55 }}></span>
-            </span>
-            <b style={{ color: "var(--hl-yellow)", opacity: 0.85 }}>yellow dashed = strike</b> <span style={{ color: "var(--hl-muted)" }}>· settle threshold</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span style={{ display: "inline-flex", gap: 1 }}>
-              <span style={{ width: 3, height: 10, background: "var(--hl-green)", opacity: 0.4 }} />
-              <span style={{ width: 3, height: 6, background: "var(--hl-red)", opacity: 0.4 }} />
-              <span style={{ width: 3, height: 12, background: "var(--hl-green)", opacity: 0.4 }} />
-            </span>
-            <b>volume bars</b> <span style={{ color: "var(--hl-muted)" }}>· per 15min candle</span>
-          </span>
-          <span className="inline-flex items-center gap-2" title="Flow for the side you're trading. Toggle YES/NO in the order panel to swap.">
-            <span style={{ fontSize: 12 }}>🐋</span>
-            <span className="inline-flex items-center gap-1">
-              <span style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid var(--hl-green)", background: "var(--background)", display: "inline-block" }}></span>
-              <b style={{ color: "var(--hl-green)" }}>BUY {tradeSide.toUpperCase()}</b>
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid var(--hl-red)", background: "var(--background)", display: "inline-block" }}></span>
-              <b style={{ color: "var(--hl-red)" }}>SELL {tradeSide.toUpperCase()}</b>
-            </span>
-            <span style={{ color: "var(--hl-muted)" }}>· flip side to swap</span>
-          </span>
-          {kalshiCents != null && (
-            <span className="inline-flex items-center gap-1" title="Linearly interpolated at HIP-4's strike">
-              Kalshi <b className="mono" style={{ color: "var(--hl-yellow)" }}>{kalshiCents}%</b>
-              <span style={{ color: "var(--hl-muted)" }}>@ HL strike (interp)</span>
-            </span>
-          )}
-          {polyCents != null && (
-            <span className="inline-flex items-center gap-1" title="Linearly interpolated at HIP-4's strike">
-              Polymarket <b className="mono" style={{ color: "var(--hl-purple)" }}>{polyCents}%</b>
-              <span style={{ color: "var(--hl-muted)" }}>@ HL strike (interp)</span>
-            </span>
-          )}
-        </div>
+        {/* Legend removed — line colors + chip labels at line endpoints
+            carry the meaning on the chart itself; cross-venue prices
+            live in the strip above. */}
       </div>
     </div>
   );
@@ -2339,17 +2218,19 @@ function TradePanel({
 }
 
 function CompareStrip({
-  fairCents,
+  yesProb,
   compare,
   strike,
   hyperodd,
   now,
+  expiryTier,
 }: {
-  fairCents: number;  // σ√t fair value (HLOne implied — what THEORY says)
+  yesProb: number;          // σ√t fair value, exact 0..1 (for display precision)
   compare: CompareData | null;
   strike: number | null;
   hyperodd: HyperOddState;
   now: number;
+  expiryTier: "none" | "soon" | "imminent";
 }) {
   // Freshness — how long ago was the cross-venue compare data fetched?
   // Freshness timer removed — it ticked every second and the changing width
@@ -2378,38 +2259,15 @@ function CompareStrip({
 
   const hyperoddCents = hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : null;
 
-  // ── Edge logic ─────────────────────────────────────────────────────────
+  // ── Gap logic ──────────────────────────────────────────────────────────
   // Anchor: the LIVE HIP-4 market price (the actual thing we're trading).
-  // Every other reading is shown as its gap vs HIP-4 live, in percentage
-  // points. Two flavours:
-  //   1. fairGap = HLOne σ√t fair value vs market — "theory says cheap/rich"
-  //      A mean-reversion signal; meaningful, not directly arb-able.
-  //   2. kalshiGap / polyGap = same-question venue vs market — cross-venue
-  //      arb. If Kalshi YES is 30% while HIP-4 YES is 50%, buy YES on Kalshi
-  //      cheaper, hedge on HIP-4. Tradeable (assuming you've got accounts
-  //      on both venues + similar settle times).
-  //
-  // The "best arb" callout picks the largest absolute gap across Kalshi
-  // and Polymarket only — HLOne fair is theoretical, not a venue you can
-  // trade against. Time-aware threshold: tighter near expiry where pin
-  // risk dominates and small noise can produce misleading EDGE flags.
-  const fairGap = hyperoddCents != null ? fairCents - hyperoddCents : null;
+  // Each cross-venue cell shows its gap vs HIP-4 live in percentage points
+  // via <GapChip>. The σ√t Implied prob (theory) lives in its own cell at
+  // the end of the strip — no GapChip there because it's a continuous
+  // theoretical value, not a discrete venue with an arb opportunity.
   const kalshiGap = hyperoddCents != null && kalshiCents != null ? kalshiCents - hyperoddCents : null;
   const polyGap = hyperoddCents != null && polyCents != null ? polyCents - hyperoddCents : null;
-
-  const arbCandidates: { name: string; gap: number; color: string }[] = [];
-  if (kalshiGap != null) arbCandidates.push({ name: "Kalshi", gap: kalshiGap, color: "var(--hl-yellow)" });
-  if (polyGap != null) arbCandidates.push({ name: "Polymarket", gap: polyGap, color: "var(--hl-purple)" });
-  arbCandidates.sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
-  const bestArb = arbCandidates[0];
-
-  // Time-aware threshold — looser near expiry where pin risk creates noise
-  const minsToSettleHere = compare ? Math.max(0, (compare.fetchedAt + 0 - now) / 60_000) : 0;
-  void minsToSettleHere; // (placeholder if we want to use it later)
-  // For now keep threshold simple: 3pp baseline. UI separately dims the
-  // arb chip during the imminent expiry tier (handled at page level).
-  const edgeThreshold = 3;
-  const isArb = bestArb != null && Math.abs(bestArb.gap) >= edgeThreshold;
+  void now; // freshness timer removed; param kept for parent compat.
 
   return (
     <div
@@ -2418,7 +2276,7 @@ function CompareStrip({
         background: "rgba(0,240,255,0.04)",
         border: "1px solid rgba(0,240,255,0.18)",
         borderRadius: 4,
-        gridTemplateColumns: "auto 1fr 1fr 1fr 1fr auto",
+        gridTemplateColumns: "auto 1fr 1fr 1fr auto",
         alignItems: "center",
       }}
     >
@@ -2442,13 +2300,6 @@ function CompareStrip({
         ) : (
           <span style={{ color: "var(--hl-muted)", fontSize: 11 }}>loading…</span>
         )}
-      </div>
-
-      {/* HLOne σ√t implied probability — gap is theory-vs-market */}
-      <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
-        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Implied prob</span>
-        <span className="mono font-bold" style={{ color: "var(--hl-green)", fontSize: 14 }}>{fairCents}%</span>
-        <GapChip gap={fairGap} suffix="theory" />
       </div>
 
       {/* Kalshi — gap is venue-vs-market (tradeable arb) */}
@@ -2503,47 +2354,31 @@ function CompareStrip({
         )}
       </div>
 
-      {/* Best arb — the largest absolute venue-vs-market gap */}
-      <div className="flex items-center gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
-        {bestArb != null ? (
-          <>
-            <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Best arb</span>
-            <span className="mono" style={{ color: bestArb.color, fontSize: 11, fontWeight: 600 }}>{bestArb.name}</span>
-            <span
-              className="mono font-bold"
-              style={{
-                color: isArb ? (bestArb.gap < 0 ? "var(--hl-green)" : "var(--hl-red)") : "var(--hl-muted)",
-                fontSize: 14,
-              }}
-              title={
-                bestArb.gap < 0
-                  ? `${bestArb.name} is ${Math.abs(bestArb.gap)}% CHEAPER than HIP-4 — buy YES on ${bestArb.name}, short YES / buy NO on HIP-4 to hedge.`
-                  : `${bestArb.name} is ${bestArb.gap}% MORE EXPENSIVE than HIP-4 — sell YES on ${bestArb.name}, buy YES on HIP-4 to hedge.`
-              }
-            >
-              {bestArb.gap >= 0 ? "+" : ""}
-              {bestArb.gap}%
-            </span>
-            {isArb && (
-              <span
-                className="mono"
-                style={{
-                  fontSize: 9,
-                  padding: "1px 6px",
-                  borderRadius: 2,
-                  background: "rgba(245,165,36,0.18)",
-                  color: "var(--hl-yellow)",
-                  fontWeight: 700,
-                  letterSpacing: 0.5,
-                }}
-                title={`Cross-venue mispricing ≥ ${edgeThreshold}% · settle times differ across venues, so part of the gap is structural, not arb.`}
-              >
-                ARB
-              </span>
-            )}
-          </>
-        ) : (
-          <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>—</span>
+      {/* σ√t implied probability — replaces the Best Arb cell. Mirrors
+          the old "Implied prob: X% σ·√t at 65% annual vol" line that
+          previously lived in the BTC settle-target widget. */}
+      <div
+        className="flex items-center gap-2 px-2 border-l"
+        style={{
+          borderColor: "var(--hl-border)",
+          opacity: expiryTier === "imminent" ? 0.4 : 1,
+          textDecoration: expiryTier === "imminent" ? "line-through" : "none",
+        }}
+        title={
+          expiryTier === "imminent"
+            ? "Unreliable — σ√t collapses to ~0 near expiry. Trust the live HIP-4 mark."
+            : `Theoretical YES probability from BTC mark vs strike at 65% annualised vol. Market currently prints ${hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : "—"}%.`
+        }
+      >
+        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Implied prob</span>
+        <span className="mono font-bold" style={{ color: "var(--hl-green)", fontSize: 14 }}>
+          {(yesProb * 100).toFixed(1)}%
+        </span>
+        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>σ·√t · 65% vol</span>
+        {hyperodd.mark != null && (
+          <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>
+            (mkt {Math.round(hyperodd.mark * 100)}%)
+          </span>
         )}
       </div>
     </div>

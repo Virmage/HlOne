@@ -755,7 +755,24 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
         </thead>
         <tbody>
           {positions.map((p) => {
-            const displayCoin = p.coin.includes(":") ? p.coin.split(":")[1] : p.coin;
+            // HIP-4 outcome coins use the `#<outcome><side>` shape — side `0`
+            // is YES, side `1` is NO. Detect them so we can swap the row's
+            // labels + price formatting; the underlying data is otherwise
+            // the same shape as any other HL perp position.
+            const hip4Match = /^#(\d+)([01])$/.exec(p.coin);
+            const isHip4 = !!hip4Match;
+            const hip4Side: "YES" | "NO" | null = isHip4 ? (hip4Match![2] === "0" ? "YES" : "NO") : null;
+            // Display "Prediction" for HIP-4; keep existing spot/perp logic
+            // (`:` separator for HIP-3 proxy assets) otherwise.
+            const displayCoin = isHip4
+              ? "Prediction"
+              : p.coin.includes(":") ? p.coin.split(":")[1] : p.coin;
+            // HIP-4 outcome prices live in 0..1 land — render as cents so the
+            // user reads "62¢" not "$0.62". Everything else stays in dollars.
+            const fmtPx = (v: number) =>
+              isHip4
+                ? `${Math.round(v * 100)}¢`
+                : `$${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
             const pnl = p.unrealizedPnl ?? 0;
             const roe = (p.returnOnEquity ?? 0) * 100;
             const posVal = p.positionValue ?? 0;
@@ -768,13 +785,32 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
 
             return (
               <tr key={p.coin} className="border-b border-[var(--hl-border)] border-opacity-30 hover:bg-[var(--hl-surface)] transition-colors relative">
-                {/* Asset + side + leverage */}
+                {/* Asset + side + leverage (HIP-4 rows show YES/NO instead of L/S leverage) */}
                 <td className="py-1.5 pr-2">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-[var(--foreground)] cursor-pointer hover:underline" onClick={() => onSelectToken?.(p.coin)}>{displayCoin}</span>
-                    <span className={`px-1 py-0.5 rounded text-[8px] font-bold ${p.side === "long" ? "bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)]" : "bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)]"}`}>
-                      {p.side === "long" ? "L" : "S"} {p.leverage ?? 0}x
-                    </span>
+                    {isHip4 ? (
+                      <a
+                        href="/predict"
+                        className="font-medium text-[var(--foreground)] hover:underline"
+                        title={`Open ${p.coin} in the prediction market`}
+                      >
+                        {displayCoin}
+                      </a>
+                    ) : (
+                      <span className="font-medium text-[var(--foreground)] cursor-pointer hover:underline" onClick={() => onSelectToken?.(p.coin)}>{displayCoin}</span>
+                    )}
+                    {isHip4 ? (
+                      <span
+                        className={`px-1 py-0.5 rounded text-[8px] font-bold ${hip4Side === "YES" ? "bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)]" : "bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)]"}`}
+                        title={`${hip4Side} side of ${p.coin}`}
+                      >
+                        {hip4Side}
+                      </span>
+                    ) : (
+                      <span className={`px-1 py-0.5 rounded text-[8px] font-bold ${p.side === "long" ? "bg-[rgba(80,210,193,0.15)] text-[var(--hl-green)]" : "bg-[rgba(240,88,88,0.15)] text-[var(--hl-red)]"}`}>
+                        {p.side === "long" ? "L" : "S"} {p.leverage ?? 0}x
+                      </span>
+                    )}
                   </div>
                 </td>
                 {/* Size */}
@@ -782,24 +818,26 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
                 {/* Value (USDC) */}
                 <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">${posVal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                 {/* Entry */}
-                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--hl-muted)]">${(p.entryPx ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--hl-muted)]">{fmtPx(p.entryPx ?? 0)}</td>
                 {/* Mark */}
-                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">{mark > 0 ? `$${mark.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--foreground)]">{mark > 0 ? fmtPx(mark) : "—"}</td>
                 {/* PnL (ROE %) */}
                 <td className={`py-1.5 pr-2 text-right tabular-nums font-medium ${pnlColor}`}>
                   {pnl >= 0 ? "+" : ""}${pnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   <span className="text-[9px] ml-0.5 opacity-70">({roe >= 0 ? "+" : ""}{roe.toFixed(1)}%)</span>
                 </td>
-                {/* Liq. price */}
-                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--hl-muted)]">{p.liquidationPx ? `$${p.liquidationPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</td>
-                {/* Margin (type) */}
+                {/* Liq. price — HIP-4 binaries can't liquidate, they settle 0/1 */}
+                <td className="py-1.5 pr-2 text-right tabular-nums text-[var(--hl-muted)]">{isHip4 ? "—" : p.liquidationPx ? `$${p.liquidationPx.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}</td>
+                {/* Margin (type) — HIP-4 settles by binary outcome, no margin type */}
                 <td className="py-1.5 pr-2 text-right tabular-nums">
                   <span className="text-[var(--foreground)]">${margin.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                  <span className="text-[9px] text-[var(--hl-muted)] ml-0.5">{p.leverageType || "cross"}</span>
+                  {!isHip4 && <span className="text-[9px] text-[var(--hl-muted)] ml-0.5">{p.leverageType || "cross"}</span>}
                 </td>
-                {/* TP / SL */}
+                {/* TP / SL — N/A for binary HIP-4 outcomes (they settle 0/1) */}
                 <td className="py-1.5 pr-2 text-right tabular-nums text-[10px]">
-                  {(() => {
+                  {isHip4 ? (
+                    <span className="text-[var(--hl-muted)]">—</span>
+                  ) : (() => {
                     const trig = triggerOrders[p.coin];
                     if (!trig?.tp && !trig?.sl) return <span className="text-[var(--hl-muted)]">—</span>;
                     return (
@@ -813,32 +851,49 @@ function PositionsTab({ positions, loading, error, closing, closingAll, tpSlMode
                 {/* Actions */}
                 <td className="py-1.5 text-right">
                   <div className="flex items-center justify-end gap-1">
-                    {/* Market Close */}
+                    {/* Market Close — works for both perps and HIP-4 outcomes */}
                     <button onClick={(e) => { e.stopPropagation(); if (skipConfirmClose) onClose(p); else setConfirmAction({ type: "close", pos: p }); }} disabled={isClosing || closingAll} className="px-2.5 py-1 text-[10px] font-semibold rounded bg-[rgba(240,88,88,0.18)] text-[var(--hl-red)] hover:bg-[rgba(240,88,88,0.35)] transition-colors disabled:opacity-50">{isClosing ? "..." : "Close"}</button>
-                    {/* TP/SL popup toggle */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (showPopup) { setTpSlPopup(null); } else {
-                          const trig = triggerOrders[p.coin];
-                          setPopupTp(trig?.tp ? parseFloat(trig.tp).toString() : "");
-                          setPopupSl(trig?.sl ? parseFloat(trig.sl).toString() : "");
-                          setTpSlPopup(p.coin);
-                        }
-                      }}
-                      className={`px-2 py-1 text-[10px] font-semibold rounded transition-colors ${showPopup ? "bg-[var(--hl-accent)] text-[var(--background)]" : "bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)]"}`}
-                    >
-                      TP/SL
-                    </button>
-                    {/* Reverse */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); if (skipConfirmReverse) onReverse(p); else setConfirmAction({ type: "reverse", pos: p }); }}
-                      disabled={isClosing || closingAll}
-                      title="Reverse position"
-                      className="px-1.5 py-1 text-[10px] font-semibold rounded bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)] transition-colors disabled:opacity-50"
-                    >
-                      &#8645;
-                    </button>
+                    {/* TP/SL + Reverse hidden for HIP-4 (no meaningful trigger
+                        levels on a binary; "reverse" would mean buying 2× the
+                        other side, which is just opening a NO position — do
+                        that from /predict instead). Show an "Open" link to
+                        jump to the prediction market for context. */}
+                    {isHip4 ? (
+                      <a
+                        href="/predict"
+                        className="px-2 py-1 text-[10px] font-semibold rounded bg-[var(--hl-surface)] text-[var(--hl-accent)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)] transition-colors"
+                        title="Open the prediction market"
+                      >
+                        Open ↗
+                      </a>
+                    ) : (
+                      <>
+                        {/* TP/SL popup toggle */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (showPopup) { setTpSlPopup(null); } else {
+                              const trig = triggerOrders[p.coin];
+                              setPopupTp(trig?.tp ? parseFloat(trig.tp).toString() : "");
+                              setPopupSl(trig?.sl ? parseFloat(trig.sl).toString() : "");
+                              setTpSlPopup(p.coin);
+                            }
+                          }}
+                          className={`px-2 py-1 text-[10px] font-semibold rounded transition-colors ${showPopup ? "bg-[var(--hl-accent)] text-[var(--background)]" : "bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)]"}`}
+                        >
+                          TP/SL
+                        </button>
+                        {/* Reverse */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); if (skipConfirmReverse) onReverse(p); else setConfirmAction({ type: "reverse", pos: p }); }}
+                          disabled={isClosing || closingAll}
+                          title="Reverse position"
+                          className="px-1.5 py-1 text-[10px] font-semibold rounded bg-[var(--hl-surface)] text-[var(--hl-text)] border border-[var(--hl-border)] hover:bg-[var(--hl-border)] transition-colors disabled:opacity-50"
+                        >
+                          &#8645;
+                        </button>
+                      </>
+                    )}
                   </div>
                   {result && <div className={`text-[9px] mt-0.5 ${result.ok ? "text-[var(--hl-green)]" : "text-[var(--hl-red)]"}`}>{result.msg}</div>}
                 </td>
