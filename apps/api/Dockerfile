@@ -77,4 +77,12 @@ RUN node --input-type=module -e "\
 RUN node -e "console.log('Node OK, version:', process.version)"
 
 EXPOSE 3001
-CMD ["node", "apps/api/start.mjs"]
+# --max-old-space-size=1536 caps V8's heap at ~1.5GB instead of letting
+# it swell to ~6GB before OOM. If a leak appears we fail fast and let
+# Railway's restartPolicyMaxRetries=50 bring up a fresh container in
+# seconds, rather than the process spending minutes thrashing GC at
+# 84% mu (which was making /api/market/* unresponsive long before the
+# eventual crash).
+# --expose-gc lets the watchdog in start.mjs trigger gc() defensively
+# when usage gets uncomfortably high.
+CMD ["node", "--max-old-space-size=1536", "--expose-gc", "apps/api/start.mjs"]

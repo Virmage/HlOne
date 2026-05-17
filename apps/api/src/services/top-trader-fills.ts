@@ -51,12 +51,26 @@ export async function loadFillsFromDb(): Promise<void> {
     return;
   }
   try {
-    const since = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60_000);
+    // Previously: `WHERE fillTime >= now - 30d ORDER BY fillTime` with NO
+    // LIMIT. The DB has been accumulating fills for weeks; this SELECT
+    // returned hundreds of thousands of rows and Drizzle materialised
+    // the entire result array in memory before we even started looping.
+    // That single query was enough to push the heap past 6GB on boot
+    // and OOM the container 3 minutes after start.
+    //
+    // Fix: only load the last 7 days (recent enough to be useful for
+    // the chart's "recent fills" feature) AND hard-cap at MAX_BOOT_ROWS.
+    // The 30-day persistence on disk is still kept for the periodic
+    // cleanup job; we just don't slurp it all into RAM at boot.
+    const BOOT_LOOKBACK_DAYS = 7;
+    const MAX_BOOT_ROWS = 20_000;
+    const since = new Date(Date.now() - BOOT_LOOKBACK_DAYS * 24 * 60 * 60_000);
     const rows = await db
       .select()
       .from(fillsTable)
       .where(gte(fillsTable.fillTime, since))
-      .orderBy(fillsTable.fillTime);
+      .orderBy(fillsTable.fillTime)
+      .limit(MAX_BOOT_ROWS);
 
     let loaded = 0;
     for (const row of rows) {
@@ -71,13 +85,16 @@ export async function loadFillsFromDb(): Promise<void> {
         accountValue: row.accountValue ? parseFloat(row.accountValue) : undefined,
       };
       const existing = fillsCache.get(fill.coin) || [];
+      // Apply per-coin cap immediately during load — don't let one
+      // hot coin accumulate 20k rows in the cache.
+      if (existing.length >= MAX_FILLS_PER_COIN) continue;
       existing.push(fill);
       fillsCache.set(fill.coin, existing);
       loaded++;
     }
     if (loaded > 0) {
       lastFetchTime = Date.now(); // Don't immediately refetch if we have DB data
-      console.log(`[top-trader-fills] Loaded ${loaded} fills from DB across ${fillsCache.size} coins`);
+      console.log(`[top-trader-fills] Loaded ${loaded} fills from DB across ${fillsCache.size} coins (capped at ${MAX_BOOT_ROWS} rows, ${BOOT_LOOKBACK_DAYS}d lookback)`);
     }
   } catch (err) {
     console.error("[top-trader-fills] Failed to load from DB:", (err as Error).message);
