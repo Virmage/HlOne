@@ -2805,54 +2805,74 @@ function CompareStrip({
       </div>
 
       {/* Kalshi — gap is venue-vs-market (tradeable arb) */}
-      <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
-        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Kalshi</span>
-        {kalshiCents != null ? (
-          <>
-            <span className="mono font-bold" style={{ color: "var(--hl-yellow)", fontSize: 14 }}>{kalshiCents}%</span>
-            <GapChip
-              gap={kalshiGap}
-              suffix="arb"
-              title={
-                kalshiIsInterpolated && strike
-                  ? `Linearly interpolated at $${strike.toLocaleString()} from Kalshi strikes $${k?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketLowerYes ?? 0) * 100)}%) and $${k?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketUpperYes ?? 0) * 100)}%)`
-                  : undefined
-              }
-            />
-          </>
-        ) : (
-          <span style={{ color: "var(--hl-muted)", fontSize: 11 }}>{k?.error ? "unavailable" : "loading…"}</span>
+      <div className="flex flex-col px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
+        <div className="flex items-baseline gap-2">
+          <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Kalshi</span>
+          {kalshiCents != null ? (
+            <>
+              <span className="mono font-bold" style={{ color: "var(--hl-yellow)", fontSize: 14 }}>{kalshiCents}%</span>
+              <GapChip
+                gap={kalshiGap}
+                suffix="arb"
+                title={
+                  kalshiIsInterpolated && strike
+                    ? `Linearly interpolated at $${strike.toLocaleString()} from Kalshi strikes $${k?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketLowerYes ?? 0) * 100)}%) and $${k?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((k?.bracketUpperYes ?? 0) * 100)}%)`
+                    : undefined
+                }
+              />
+            </>
+          ) : (
+            <span style={{ color: "var(--hl-muted)", fontSize: 11 }}>{k?.error ? "unavailable" : "loading…"}</span>
+          )}
+        </div>
+        {kalshiCents != null && (
+          <InterpBracketSubtitle
+            isInterpolated={kalshiIsInterpolated}
+            lower={k?.bracketLowerStrike}
+            upper={k?.bracketUpperStrike}
+            hipStrike={strike}
+          />
         )}
       </div>
 
       {/* Polymarket — gap is venue-vs-market (tradeable arb) */}
-      <div className="flex items-baseline gap-2 px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
-        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Polymarket</span>
-        {polyCents != null ? (
-          <>
-            <span className="mono font-bold" style={{ color: "var(--hl-purple)", fontSize: 14 }}>{polyCents}%</span>
-            <GapChip
-              gap={polyGap}
-              suffix="arb"
-              title={
-                polyIsInterpolated && strike
-                  ? `Linearly interpolated at $${strike.toLocaleString()} from Polymarket strikes $${p?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketLowerYes ?? 0) * 100)}%) and $${p?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketUpperYes ?? 0) * 100)}%)`
-                  : undefined
-              }
-            />
-            {p?.eventSlug && (
-              <a
-                href={`https://polymarket.com/event/${p.eventSlug}`}
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: "var(--hl-muted)", fontSize: 10, textDecoration: "underline" }}
-              >
-                ↗
-              </a>
-            )}
-          </>
-        ) : (
-          <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>{p?.error ? "unavailable" : "loading…"}</span>
+      <div className="flex flex-col px-2 border-l" style={{ borderColor: "var(--hl-border)" }}>
+        <div className="flex items-baseline gap-2">
+          <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>Polymarket</span>
+          {polyCents != null ? (
+            <>
+              <span className="mono font-bold" style={{ color: "var(--hl-purple)", fontSize: 14 }}>{polyCents}%</span>
+              <GapChip
+                gap={polyGap}
+                suffix="arb"
+                title={
+                  polyIsInterpolated && strike
+                    ? `Linearly interpolated at $${strike.toLocaleString()} from Polymarket strikes $${p?.bracketLowerStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketLowerYes ?? 0) * 100)}%) and $${p?.bracketUpperStrike?.toLocaleString() ?? "?"} (${Math.round((p?.bracketUpperYes ?? 0) * 100)}%)`
+                    : undefined
+                }
+              />
+              {p?.eventSlug && (
+                <a
+                  href={`https://polymarket.com/event/${p.eventSlug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: "var(--hl-muted)", fontSize: 10, textDecoration: "underline" }}
+                >
+                  ↗
+                </a>
+              )}
+            </>
+          ) : (
+            <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>{p?.error ? "unavailable" : "loading…"}</span>
+          )}
+        </div>
+        {polyCents != null && (
+          <InterpBracketSubtitle
+            isInterpolated={polyIsInterpolated}
+            lower={p?.bracketLowerStrike}
+            upper={p?.bracketUpperStrike}
+            hipStrike={strike}
+          />
         )}
       </div>
 
@@ -2944,7 +2964,34 @@ function CompareStripHelp({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="mt-4 pt-3 text-[11px]" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
-          <b>Strike alignment.</b> Kalshi and Polymarket rarely list the exact strike HIP-4 trades. We pick the two surrounding strikes from each venue&rsquo;s ladder and linearly interpolate to HIP-4&rsquo;s strike, so comparison is apples-to-apples. Hover any % to see the interpolation source.
+          <b style={{ color: "var(--hl-text)" }}>Strike alignment.</b> Kalshi and Polymarket rarely list the exact strike HIP-4 trades. We pick the two surrounding strikes from each venue&rsquo;s ladder and linearly interpolate to HIP-4&rsquo;s strike. Every Kalshi/Polymarket cell shows the bracket strikes underneath as &ldquo;$78k–$80k&rdquo; plus a coloured dot for confidence.
+        </div>
+
+        <div className="mt-3 text-[11px]" style={{ color: "var(--hl-muted)" }}>
+          <b style={{ color: "var(--hl-text)" }}>When the comparison is actually reliable</b>
+          <div className="mt-2 grid gap-1" style={{ gridTemplateColumns: "auto 1fr", alignItems: "baseline" }}>
+            <span className="flex items-center gap-1.5">
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--hl-green)", boxShadow: "0 0 4px var(--hl-green)" }} />
+              <b style={{ color: "var(--hl-text)" }}>Bracket ≤ $1k</b>
+            </span>
+            <span>Linear local approximation is solid. Gap-vs-HIP-4 reads as real venue mispricing.</span>
+
+            <span className="flex items-center gap-1.5 mt-1">
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--hl-yellow)", boxShadow: "0 0 4px var(--hl-yellow)" }} />
+              <b style={{ color: "var(--hl-text)" }}>$1k – $2.5k</b>
+            </span>
+            <span className="mt-1">Some interpolation error. Headline % is in the right ballpark; treat the gap chip with mild skepticism.</span>
+
+            <span className="flex items-center gap-1.5 mt-1">
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--hl-red)", boxShadow: "0 0 4px var(--hl-red)" }} />
+              <b style={{ color: "var(--hl-text)" }}>&gt; $2.5k or HIP-4 outside the bracket</b>
+            </span>
+            <span className="mt-1">The lognormal probability curve isn&rsquo;t linear over wide ranges. Most of the &ldquo;+N% vs HIP-4&rdquo; is interpolation error, not arb-able mispricing.</span>
+          </div>
+
+          <div className="mt-3">
+            <b style={{ color: "var(--hl-text)" }}>Also worth knowing:</b> Kalshi&rsquo;s daily BTC market often settles at 4PM ET, not 06:00 UTC like HIP-4. A different expiry = a different question; even a tight-bracket comparison there is structurally off. We can&rsquo;t auto-detect this — eyeball it before trading on the gap.
+          </div>
         </div>
       </div>
     </div>
@@ -2956,6 +3003,91 @@ function ExplainRow({ color, label, body }: { color: string; label: string; body
     <div className="grid gap-1" style={{ gridTemplateColumns: "140px 1fr", alignItems: "baseline" }}>
       <span className="mono font-bold" style={{ color }}>{label}</span>
       <span style={{ color: "var(--hl-text)" }}>{body}</span>
+    </div>
+  );
+}
+
+// Subtitle line under each Kalshi / Polymarket cell showing the bracket
+// strikes the interpolation came from, plus a coloured confidence dot.
+// Lets the user see at a glance whether the cross-venue figure is a
+// near-exact match (green) or a stretched linear extrapolation across
+// a wide bracket gap (red) — the latter is mostly interpolation error,
+// not a real venue mispricing, so the user can decide whether to trust
+// the headline %.
+function InterpBracketSubtitle({
+  isInterpolated,
+  lower,
+  upper,
+  hipStrike,
+}: {
+  isInterpolated: boolean;
+  lower: number | undefined;
+  upper: number | undefined;
+  hipStrike: number | null;
+}) {
+  // Exact-strike match (rare but possible) → high confidence, no
+  // bracket text needed.
+  if (!isInterpolated || lower == null || upper == null) {
+    return (
+      <div className="flex items-center gap-1" style={{ fontSize: 9, color: "var(--hl-muted)", marginTop: 2 }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: "50%",
+          background: "var(--hl-green)", boxShadow: "0 0 4px var(--hl-green)",
+        }} />
+        <span>exact strike</span>
+      </div>
+    );
+  }
+
+  const width = upper - lower;
+  // Distance from HIP-4 strike to the NEAREST bracket bound. If hipStrike
+  // sits outside the bracket entirely (extrapolation) we treat that as
+  // worst case — flagged red below.
+  let outsideBracket = false;
+  if (hipStrike != null) {
+    if (hipStrike < lower || hipStrike > upper) outsideBracket = true;
+  }
+
+  // Confidence tiers picked from how badly linear breaks down on a
+  // log-normal probability curve. ≤$1k bracket = trustworthy; up to
+  // $2.5k = usable but watch the gap-chip with skepticism; wider or
+  // outside the bracket = mostly interpolation error.
+  let tier: "high" | "med" | "low";
+  if (outsideBracket || width > 2500) tier = "low";
+  else if (width > 1000) tier = "med";
+  else tier = "high";
+
+  const color =
+    tier === "high" ? "var(--hl-green)" :
+    tier === "med"  ? "var(--hl-yellow)" :
+                      "var(--hl-red)";
+
+  const fmt = (n: number) => n >= 1000 ? `$${Math.round(n / 1000)}k` : `$${n}`;
+
+  const tooltip =
+    `Interpolated at HIP-4's strike $${hipStrike?.toLocaleString() ?? "?"} ` +
+    `between venue strikes ${fmt(lower)} and ${fmt(upper)} ` +
+    `(window $${width.toLocaleString()}). ` +
+    (tier === "high"
+      ? "Tight bracket — comparison is reliable."
+      : tier === "med"
+        ? "Moderate bracket — interpolation error possible, treat the gap chip with mild skepticism."
+        : outsideBracket
+          ? "HIP-4 strike is OUTSIDE the venue's bracket — this is extrapolation, not interpolation. Treat as noise."
+          : "Wide bracket — the gap-vs-HIP-4 is mostly interpolation error, not real venue mispricing.");
+
+  return (
+    <div
+      className="flex items-center gap-1"
+      style={{ fontSize: 9, color: "var(--hl-muted)", marginTop: 2 }}
+      title={tooltip}
+    >
+      <span style={{
+        width: 6, height: 6, borderRadius: "50%",
+        background: color, boxShadow: `0 0 4px ${color}`,
+      }} />
+      <span className="mono">{fmt(lower)}–{fmt(upper)}</span>
+      {outsideBracket && <span style={{ color: "var(--hl-red)" }}> · out</span>}
     </div>
   );
 }
