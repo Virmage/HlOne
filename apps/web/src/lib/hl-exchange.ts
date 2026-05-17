@@ -1217,8 +1217,55 @@ async function loadSpotMeta(): Promise<void> {
   });
   const meta = await res.json();
   spotMetaCache = new Map();
+
+  // HL spot exposes BOTH per-token meta (tokens array) and per-pair meta
+  // (universe array). For PLACING ORDERS, the asset index field `a` must
+  // be 10000 + universe.index — using the bare token.index would point
+  // at the wrong asset.
+  //
+  // Previously we wrote tokens first and let universe entries "fill in
+  // the gaps" only when the base name wasn't already cached. But every
+  // tradeable token IS the base of a USDC pair, so the universe loop
+  // always lost — leaving the cache holding token.index (e.g. USDH=230)
+  // instead of 10000 + universe.index. Mid-price lookup then computed
+  // `assetIndex - 10000` as -9770 and missed every fallback.
+  //
+  // Fix: write universe entries FIRST (these are the canonical order
+  // indices), then let the tokens loop add szDecimals refinements + any
+  // tokens that don't appear in the universe array.
+  const tokenSzDec = new Map<string, number>();
   if (meta.tokens) {
     for (const t of meta.tokens) {
+      if (typeof t.szDecimals === "number") tokenSzDec.set(t.name, t.szDecimals);
+    }
+  }
+  if (meta.universe) {
+    for (const u of meta.universe) {
+      // universe entries: { name, tokens: [baseIdx, quoteIdx], index }
+      const name: string = u.name; // e.g. "USDH/USDC"
+      const baseName = name.split("/")[0];
+      spotMetaCache.set(baseName, {
+        index: 10000 + u.index,
+        // Prefer the token's szDecimals (it's per-token); fall back to
+        // the universe entry's (rare; some pairs omit it).
+        szDecimals: tokenSzDec.get(baseName) ?? u.szDecimals ?? 0,
+        token: baseName,
+      });
+      // Also key the full pair name so callers passing "USDH/USDC"
+      // resolve to the same asset.
+      spotMetaCache.set(name, {
+        index: 10000 + u.index,
+        szDecimals: tokenSzDec.get(baseName) ?? u.szDecimals ?? 0,
+        token: baseName,
+      });
+    }
+  }
+  // Tokens that don't have a USDC pair (rare) — fall back to the bare
+  // token index. These aren't directly tradeable on the order endpoint,
+  // but the cache should still know their szDecimals if asked.
+  if (meta.tokens) {
+    for (const t of meta.tokens) {
+      if (spotMetaCache.has(t.name)) continue;
       spotMetaCache.set(t.name, {
         index: t.index,
         szDecimals: t.szDecimals,
@@ -1226,22 +1273,7 @@ async function loadSpotMeta(): Promise<void> {
       });
     }
   }
-  // Also index by universe if present
-  if (meta.universe) {
-    for (const u of meta.universe) {
-      // universe entries have { name, tokens: [baseIdx, quoteIdx], index }
-      const name = u.name; // e.g. "PURR/USDC"
-      const baseName = name.split("/")[0];
-      if (!spotMetaCache.has(baseName)) {
-        spotMetaCache.set(baseName, {
-          index: 10000 + u.index,
-          szDecimals: u.szDecimals ?? 0,
-          token: baseName,
-        });
-      }
-    }
-  }
-  dlog(`[spot] Loaded ${spotMetaCache.size} spot tokens`);
+  dlog(`[spot] Loaded ${spotMetaCache.size} spot entries (universe-first)`);
 }
 
 async function getSpotAssetIndex(token: string): Promise<number> {
