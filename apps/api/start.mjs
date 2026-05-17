@@ -40,8 +40,13 @@ setInterval(() => {
   const uptimeMin = Math.round((Date.now() - bootTs) / 60_000);
 
   if (heapMb >= MEM_RESTART_MB) {
-    console.warn(`[watchdog] heap ${heapMb}MB / cap ${MEM_CAP_MB}MB — exiting cleanly for Railway restart`);
-    setTimeout(() => process.exit(0), 1000);
+    console.warn(`[watchdog] heap ${heapMb}MB / cap ${MEM_CAP_MB}MB — exiting for Railway restart`);
+    // exit(1) not exit(0) so Railway's restartPolicy treats this as a
+    // failure-restart trigger. (railway.json was on ON_FAILURE when
+    // this watchdog was first introduced — exit(0) silently parked the
+    // container for 12h. railway.json is now ALWAYS, but using exit(1)
+    // keeps us correct under any policy.)
+    setTimeout(() => process.exit(1), 1000);
     return;
   }
   if (heapMb >= MEM_WARN_MB && globalThis.gc) {
@@ -50,7 +55,7 @@ setInterval(() => {
   }
   if (Date.now() - bootTs >= PERIODIC_RESTART_MS) {
     console.log(`[watchdog] periodic 12h restart triggered (uptime ${uptimeMin}min)`);
-    setTimeout(() => process.exit(0), 1000);
+    setTimeout(() => process.exit(1), 1000);
     return;
   }
   // Log every 5 minutes at info level so we can see the trajectory
