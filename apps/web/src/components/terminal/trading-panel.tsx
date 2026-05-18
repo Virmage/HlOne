@@ -52,30 +52,75 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
   const [accountValue, setAccountValue] = useState(0);
   const [currentPosition, setCurrentPosition] = useState(0);
 
-  // Fetch account value + current position — skip when tab hidden
+  // Resolve the display coin BEFORE the balance-fetching effect runs —
+  // the effect's spot-vs-perp branching and base-token lookup depend on
+  // this. For spot pairs (@107 etc.) HL uses an opaque code; the human
+  // readable token name lives on overview.displayName. Fall back to the
+  // ":" split for HIP-3 proxy assets (xyz:GOLD → GOLD), else use the
+  // bare coin code.
+  const displayCoin = (overview?.isSpot && overview.displayName)
+    ? overview.displayName
+    : coin.includes(":") ? coin.split(":")[1] : coin;
+
+  // Fetch account value + current position — skip when tab hidden.
+  //
+  // Spot and perp live in SEPARATE clearinghouses on HL. The trading
+  // panel used to only query perp (`clearinghouseState`) which made
+  // "Available to Trade" read $0 right after the user transferred
+  // their balance perps → spot — the money was there, just in the
+  // other clearinghouse.
+  //
+  // Now we branch on overview.isSpot:
+  //   - SPOT asset (e.g. USDH/USDC): show USDC balance from
+  //     spotClearinghouseState as "available", and the BASE token
+  //     balance (e.g. USDH) as "current position".
+  //   - PERP asset: existing behaviour — marginSummary.accountValue
+  //     as available, assetPositions[].szi as current position.
   useEffect(() => {
     if (!address) { setAccountValue(0); setCurrentPosition(0); return; }
+    const isSpot = !!overview?.isSpot;
+    // For "BASE/USDC" pairs, displayName is the human form and the
+    // BASE token is what the user holds when they "have a position".
+    const spotBase = isSpot
+      ? (overview?.displayName?.split("/")[0] ?? displayCoin)
+      : null;
     const fetchState = async () => {
-      if (document.hidden) return; // skip when tab not visible
+      if (document.hidden) return;
       try {
-        const res = await fetch("https://api.hyperliquid.xyz/info", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "clearinghouseState", user: address }),
-        });
-        const data = await res.json();
-        const av = parseFloat(data?.marginSummary?.accountValue ?? "0");
-        setAccountValue(av);
-        const pos = data?.assetPositions?.find((p: { position: { coin: string } }) =>
-          p.position.coin === displayCoin
-        );
-        setCurrentPosition(pos ? parseFloat(pos.position.szi ?? "0") : 0);
+        if (isSpot) {
+          // Spot path — USDC available + base-token holding
+          const res = await fetch("https://api.hyperliquid.xyz/info", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "spotClearinghouseState", user: address }),
+          });
+          const data = await res.json();
+          const balances = (data?.balances ?? []) as { coin: string; total: string }[];
+          const usdc = balances.find(b => b.coin === "USDC");
+          setAccountValue(usdc ? parseFloat(usdc.total) : 0);
+          const baseHold = spotBase ? balances.find(b => b.coin === spotBase) : null;
+          setCurrentPosition(baseHold ? parseFloat(baseHold.total) : 0);
+        } else {
+          // Perp path — existing behaviour
+          const res = await fetch("https://api.hyperliquid.xyz/info", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "clearinghouseState", user: address }),
+          });
+          const data = await res.json();
+          const av = parseFloat(data?.marginSummary?.accountValue ?? "0");
+          setAccountValue(av);
+          const pos = data?.assetPositions?.find((p: { position: { coin: string } }) =>
+            p.position.coin === displayCoin
+          );
+          setCurrentPosition(pos ? parseFloat(pos.position.szi ?? "0") : 0);
+        }
       } catch { setAccountValue(0); setCurrentPosition(0); }
     };
     fetchState();
-    const interval = window.setInterval(fetchState, 30_000); // 30s instead of 15s
+    const interval = window.setInterval(fetchState, 30_000);
     return () => clearInterval(interval);
-  }, [address, coin]);
+  }, [address, coin, displayCoin, overview?.isSpot, overview?.displayName]);
 
   // Clamp leverage when switching to a token with lower max
   useEffect(() => {
@@ -88,12 +133,9 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
   const sizeNum = parseFloat(size) || 0;
   const notional = sizeNum * price;
   const margin = leverage > 0 ? notional / leverage : 0;
-  // For spot pairs (@107 etc.) HL uses an opaque code — the human-readable
-  // token name lives on the overview. Fall back to the ":" split for HIP-3
-  // proxy assets (xyz:GOLD → GOLD) and the coin itself for plain perps.
-  const displayCoin = (overview?.isSpot && overview.displayName)
-    ? overview.displayName
-    : coin.includes(":") ? coin.split(":")[1] : coin;
+  // displayCoin moved above the balance-fetch effect (see comment there)
+  // — leaving this block as a marker so future searches still hit a
+  // hint of where the logic lives.
 
   const signalColor = score
     ? score.signal === "strong_buy" || score.signal === "buy"
