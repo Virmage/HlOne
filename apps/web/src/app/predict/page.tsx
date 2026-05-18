@@ -1513,16 +1513,23 @@ function RiverChart({
   // Chart x-window driven by the active timeframe.
   //  - 24H: full contract lifetime (settleTs−24h → settleTs). Familiar
   //    "open → settle" framing with NOW marker.
-  //  - 1H / 6H: zoom to the last N hours ending at NOW. Better for active
-  //    in-session reads.
+  //  - 1H / 6H: the last N hours ending at NOW, CLAMPED to the contract
+  //    open (settleTs − 24h). Without the clamp, picking 6H during the
+  //    first 6h of the contract requested data from before the contract
+  //    existed, so HIP-4 data only filled the right half of the canvas
+  //    while the BTC line (always available) stretched all the way left.
+  //    Clamping means the chart always fills its width with real data —
+  //    it just compresses to a sub-6h window early in the day.
+  const contractOpen = settleTs - 24 * 60 * 60 * 1000;
+  const nowSafe = now > 0 ? now : Date.now();
   const tMin =
     timeframe === "24H"
-      ? settleTs - 24 * 60 * 60 * 1000
-      : (now > 0 ? now : Date.now()) - tfParams(timeframe).lookbackMs;
+      ? contractOpen
+      : Math.max(contractOpen, nowSafe - tfParams(timeframe).lookbackMs);
   const tMax =
     timeframe === "24H"
       ? settleTs
-      : now > 0 ? now : Date.now();
+      : nowSafe;
 
   // BTC y-axis: auto-fit to the actual BTC range in the visible window
   // (was a fixed ±$1500 around strike, which clipped when BTC moved past
@@ -1689,12 +1696,27 @@ function RiverChart({
       }
     }
 
+    // Helper: convert a bucket centre timestamp to an x pixel position,
+    // clamped to the chart's visible width. The "current" bucket's
+    // midpoint is in the future (e.g., a 10-min bucket is half-in-future
+    // for the first 5 minutes of its life) — without the clamp those
+    // whales rendered with x > W, drifting off the right edge of the
+    // canvas. Snapping to tMax keeps the freshest bucket pinned to the
+    // "now" line where it visually belongs.
+    const xForBucketCenter = (bucketCenter: number) => {
+      const t = Math.min(bucketCenter, tMax);
+      return ((t - tMin) / (tMax - tMin)) * W;
+    };
+
     const raw: Whale[] = [];
     for (const b of buckets.values()) {
       const bucketCenter = (b.bucketIdx + 0.5) * BUCKET_MS;
+      // Skip whales whose bucket entirely precedes the visible window —
+      // pertinent now that tMin clamps to contract open on 6H/1H views.
+      if (bucketCenter < tMin - BUCKET_MS / 2) continue;
       const px = b.pxSum / b.count;
       raw.push({
-        x: ((bucketCenter - tMin) / (tMax - tMin)) * W,
+        x: xForBucketCenter(bucketCenter),
         y: 0,           // filled in by the placement loop below
         usd: b.usd,
         px,
@@ -1726,7 +1748,7 @@ function RiverChart({
       const usd = vol * avgPx;
       const bucketCenter = (bucketIdx + 0.5) * BUCKET_MS;
       raw.push({
-        x: ((bucketCenter - tMin) / (tMax - tMin)) * W,
+        x: xForBucketCenter(bucketCenter),
         y: 0,
         usd,
         px: close,
