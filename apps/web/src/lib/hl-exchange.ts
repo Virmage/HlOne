@@ -367,7 +367,33 @@ async function loadMeta() {
   });
 }
 
+// HIP-4 outcome contracts live in a third asset namespace, separate from
+// perps (0..N-1) and spot (10_000 + universeIdx). Coin name format is
+// "#<outcome><side>" where side is the LAST digit (0 = YES, 1 = NO):
+//   "#600"  → outcome 60, side 0 (YES)
+//   "#601"  → outcome 60, side 1 (NO)
+//   "#1230" → outcome 123, side 0 (YES)
+//
+// HL's order endpoint expects the asset index as `100_000 + outcome*2 + side`,
+// per their HIP-4 spec. Both sides of an outcome are separate assets.
+//
+// Shares always trade in whole units → szDecimals=0.
+function parseOutcomeCoin(coin: string): { outcome: number; side: 0 | 1; assetIndex: number } | null {
+  const m = /^#(\d+)([01])$/.exec(coin);
+  if (!m) return null;
+  const outcome = parseInt(m[1], 10);
+  const side = parseInt(m[2], 10) as 0 | 1;
+  if (!Number.isFinite(outcome)) return null;
+  return { outcome, side, assetIndex: 100_000 + outcome * 2 + side };
+}
+
 async function getAssetIndex(asset: string): Promise<number> {
+  // HIP-4 fast path — skip the perp meta cache entirely; the formula
+  // is fully derivable from the coin name. Previously this fell through
+  // to the perp cache lookup and threw "Unknown asset: #600".
+  const hip4 = parseOutcomeCoin(asset);
+  if (hip4) return hip4.assetIndex;
+
   await loadMeta();
   const idx = assetIndexCache!.get(asset);
   if (idx === undefined) throw new Error(`Unknown asset: ${asset}`);
@@ -375,6 +401,8 @@ async function getAssetIndex(asset: string): Promise<number> {
 }
 
 async function getSzDecimals(asset: string): Promise<number> {
+  // HIP-4 outcome shares are integer-only (1 share = $1 at expiry).
+  if (parseOutcomeCoin(asset)) return 0;
   await loadMeta();
   return szDecimalsCache!.get(asset) ?? 3;
 }

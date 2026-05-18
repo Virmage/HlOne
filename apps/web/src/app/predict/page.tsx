@@ -946,47 +946,25 @@ export default function PredictPage() {
         .expiry-pulse { animation: expiry-pulse 1.2s ease-in-out infinite; }
       `}</style>
 
-      {/* LIVE banner */}
+      {/* LIVE banner — single chunk "● LIVE · HIP-4 MAINNET #600" so
+          there's no "HIP-4 MAINNET" + "HIP-4 outcome market" repetition.
+          USDH-balance pill removed (it's already shown inside the order
+          panel where it's actionable). */}
       <div
         className="max-w-[1440px] mx-auto px-4 py-1.5 flex items-center gap-3 text-[11px]"
         style={{ background: "rgba(74,222,128,0.06)", borderBottom: "1px solid rgba(74,222,128,0.2)" }}
       >
         <span
-          className="mono font-bold"
+          className="mono font-bold flex items-center gap-2"
           style={{ color: "var(--hl-green)", letterSpacing: 0.6, fontSize: 10 }}
         >
-          ● LIVE · HIP-4 MAINNET
+          <span>● LIVE · HIP-4 MAINNET</span>
+          <code className="mono" style={{ color: "var(--hl-accent)", letterSpacing: 0 }}>
+            {activeMarket === "binary"
+              ? (hyperodd.hip4Coin ?? "loading…")
+              : `Q${bucketMarket?.questionId ?? "…"}`}
+          </code>
         </span>
-        <span style={{ color: "var(--hl-text)" }}>
-          {activeMarket === "binary" ? (
-            <>HIP-4 outcome market <code className="mono" style={{ color: "var(--hl-accent)" }}>{hyperodd.hip4Coin ?? "loading…"}</code></>
-          ) : (
-            <>HIP-4 bucket question <code className="mono" style={{ color: "var(--hl-accent)" }}>Q{bucketMarket?.questionId ?? "…"}</code></>
-          )}
-        </span>
-
-        {/* USDH balance pill — HIP-4 settles in USDH, so this answers
-            "how much can I size into a trade right now". Only shown when
-            connected; placeholder dash when balance is still loading. */}
-        {isConnected && (
-          <span
-            className="mono text-[11px] px-2 py-0.5 flex items-center gap-1"
-            style={{
-              background: "rgba(74,222,128,0.08)",
-              border: "1px solid rgba(74,222,128,0.25)",
-              borderRadius: 3,
-              color: "var(--hl-green)",
-            }}
-            title="Your USDH spot balance. HIP-4 outcome contracts settle in USDH at expiry."
-          >
-            <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>USDH</span>
-            <b>
-              {usdhBalance == null
-                ? "—"
-                : `$${usdhBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
-            </b>
-          </span>
-        )}
 
         <span
           className="ml-auto mono text-[10px]"
