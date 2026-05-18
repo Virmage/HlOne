@@ -1218,62 +1218,66 @@ async function loadSpotMeta(): Promise<void> {
   const meta = await res.json();
   spotMetaCache = new Map();
 
-  // HL spot exposes BOTH per-token meta (tokens array) and per-pair meta
-  // (universe array). For PLACING ORDERS, the asset index field `a` must
-  // be 10000 + universe.index — using the bare token.index would point
-  // at the wrong asset.
+  // HL's spotMeta has TWO arrays:
   //
-  // Previously we wrote tokens first and let universe entries "fill in
-  // the gaps" only when the base name wasn't already cached. But every
-  // tradeable token IS the base of a USDC pair, so the universe loop
-  // always lost — leaving the cache holding token.index (e.g. USDH=230)
-  // instead of 10000 + universe.index. Mid-price lookup then computed
-  // `assetIndex - 10000` as -9770 and missed every fallback.
+  //   meta.tokens[]   — per-token info: { name: "USDH", index: 360, szDecimals: 2, ... }
+  //                     The `index` here is the TOKEN's id (used in universe.tokens),
+  //                     NOT something you can put in an order.
   //
-  // Fix: write universe entries FIRST (these are the canonical order
-  // indices), then let the tokens loop add szDecimals refinements + any
-  // tokens that don't appear in the universe array.
-  const tokenSzDec = new Map<string, number>();
+  //   meta.universe[] — per-pair info: { name: "@230", tokens: [360, 0], index: 230 }
+  //                     `tokens` = [baseTokenIdx, quoteTokenIdx]. `name` is the
+  //                     opaque @-code that allMids ALSO keys by. The order asset
+  //                     field needs to be `10000 + universe.index`.
+  //
+  // So mapping "USDH" → tradeable asset goes:
+  //   tokens find name=USDH → tokenIdx=360
+  //   universe find tokens=[360, 0] (USDC quote = idx 0) → universe.index=230, name="@230"
+  //   asset for placeOrder = 10230
+  //   allMids key           = "@230"
+  //
+  // Earlier versions of this function tried to do `name.split("/")[0]` to
+  // get a human base, but universe.name is "@230" not "USDH/USDC" — so the
+  // cache ended up keyed by "@230" and lookups for "USDH" missed. Build
+  // the mapping properly using the tokens array.
+
+  const tokensById = new Map<number, { name: string; szDecimals: number }>();
   if (meta.tokens) {
     for (const t of meta.tokens) {
-      if (typeof t.szDecimals === "number") tokenSzDec.set(t.name, t.szDecimals);
+      if (typeof t.index === "number" && typeof t.name === "string") {
+        tokensById.set(t.index, { name: t.name, szDecimals: t.szDecimals ?? 0 });
+      }
     }
   }
+
+  // USDC is the canonical quote on HL spot (token index 0). The order
+  // panel always wants "buy/sell BASE for USDC", not BASE/USDH pairs.
+  const USDC_TOKEN_IDX = 0;
+
   if (meta.universe) {
     for (const u of meta.universe) {
-      // universe entries: { name, tokens: [baseIdx, quoteIdx], index }
-      const name: string = u.name; // e.g. "USDH/USDC"
-      const baseName = name.split("/")[0];
-      spotMetaCache.set(baseName, {
+      if (!Array.isArray(u.tokens) || u.tokens.length < 2) continue;
+      const [baseIdx, quoteIdx] = u.tokens as [number, number];
+      if (quoteIdx !== USDC_TOKEN_IDX) continue; // skip BASE/USDH, BASE/HYPE crosses
+      const base = tokensById.get(baseIdx);
+      if (!base) continue;
+
+      const entry = {
         index: 10000 + u.index,
-        // Prefer the token's szDecimals (it's per-token); fall back to
-        // the universe entry's (rare; some pairs omit it).
-        szDecimals: tokenSzDec.get(baseName) ?? u.szDecimals ?? 0,
-        token: baseName,
-      });
-      // Also key the full pair name so callers passing "USDH/USDC"
-      // resolve to the same asset.
-      spotMetaCache.set(name, {
-        index: 10000 + u.index,
-        szDecimals: tokenSzDec.get(baseName) ?? u.szDecimals ?? 0,
-        token: baseName,
-      });
+        szDecimals: base.szDecimals,
+        token: base.name,
+      };
+      // Cache under EVERY name a caller might reasonably use so we never
+      // have a "Unknown spot token" miss again:
+      //   - "USDH"        (base token name — what the trading panel sends)
+      //   - "USDH/USDC"   (legacy / display form)
+      //   - "@230"        (HL's opaque code — what allMids uses)
+      spotMetaCache.set(base.name, entry);
+      spotMetaCache.set(`${base.name}/USDC`, entry);
+      if (typeof u.name === "string") spotMetaCache.set(u.name, entry);
     }
   }
-  // Tokens that don't have a USDC pair (rare) — fall back to the bare
-  // token index. These aren't directly tradeable on the order endpoint,
-  // but the cache should still know their szDecimals if asked.
-  if (meta.tokens) {
-    for (const t of meta.tokens) {
-      if (spotMetaCache.has(t.name)) continue;
-      spotMetaCache.set(t.name, {
-        index: t.index,
-        szDecimals: t.szDecimals,
-        token: t.name,
-      });
-    }
-  }
-  dlog(`[spot] Loaded ${spotMetaCache.size} spot entries (universe-first)`);
+
+  dlog(`[spot] Loaded spot meta — ${spotMetaCache.size} keys across ${tokensById.size} tokens`);
 }
 
 async function getSpotAssetIndex(token: string): Promise<number> {
