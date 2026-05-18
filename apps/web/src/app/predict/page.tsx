@@ -559,18 +559,52 @@ export default function PredictPage() {
     };
 
     const fetchTrades = async () => {
+      // recentTrades is a per-coin endpoint (returns ~last 30s for ONE
+      // coin). Fire requests for BOTH the YES and NO coins in parallel,
+      // then MERGE into the existing trades buffer using `tid` dedupe —
+      // never replace.
+      //
+      // History: this used to be a single recentTrades(hip4Coin) call
+      // whose result REPLACED the buffer. Since hip4Coin is the YES
+      // coin only, the every-5s replace would wipe out all the NO
+      // trades that the WS subscription had collected, then a 10s
+      // serverTrades merge would re-introduce them. That's what made
+      // the NO whales at the chart bottom flash on/off every 5s while
+      // the YES whales at the top stayed solid.
+      const noCoinDerived = `#${hip4Coin.slice(1, -1)}1`;
       try {
-        const res = await fetch(HL_INFO, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "recentTrades", coin: hip4Coin }),
+        const [yesRes, noRes] = await Promise.all([
+          fetch(HL_INFO, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "recentTrades", coin: hip4Coin }),
+          }).catch(() => null),
+          fetch(HL_INFO, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "recentTrades", coin: noCoinDerived }),
+          }).catch(() => null),
+        ]);
+        if (cancelled) return;
+        const incoming: HyperOddTrade[] = [];
+        for (const res of [yesRes, noRes]) {
+          if (!res || !res.ok) continue;
+          const data = (await res.json()) as HyperOddTrade[];
+          if (Array.isArray(data)) incoming.push(...data);
+        }
+        if (incoming.length === 0) return;
+        // Merge using tid dedupe, newest first, capped at 500 (same
+        // shape as fetchServerTrades below — keeps the chart's whale
+        // history coherent across both data sources).
+        setHyperodd((s) => {
+          const tids = new Set(s.trades.map((t) => t.tid).filter((x): x is number => x != null));
+          const fresh = incoming.filter((t) => t.tid == null || !tids.has(t.tid));
+          if (!fresh.length) return s;
+          const merged = [...fresh, ...s.trades]
+            .sort((a, b) => b.time - a.time)
+            .slice(0, 500);
+          return { ...s, trades: merged };
         });
-        if (!res.ok) return;
-        const data = (await res.json()) as HyperOddTrade[];
-        if (cancelled || !Array.isArray(data)) return;
-        // Keep up to 100 — we'll filter to the chart window + pick biggest
-        // notionals for the whale icons.
-        setHyperodd((s) => ({ ...s, trades: data.slice(0, 100) }));
       } catch { /* ignore */ }
     };
 
@@ -3160,6 +3194,12 @@ function BucketMarketView({
     const yesC = selectedBucket.yesCoin;
     const noC = selectedBucket.noCoin;
     const fetchTrades = async () => {
+      // Merge incoming trades into the local buffer using tid dedupe,
+      // never replace. The server's 5000-trade ring buffer rotates as
+      // new trades arrive across all HIP-4 coins, so consecutive polls
+      // can return slightly different sets even for the SAME bucket.
+      // Replacing wholesale made the NO-side bucket whales flash off
+      // every time YES dominated the latest server window.
       try {
         const res = await fetch(`/api/market/predict-trades?limit=2000`);
         if (!res.ok) return;
@@ -3167,7 +3207,7 @@ function BucketMarketView({
           trades: { coin: string; px: number; sz: number; side: string; time: number; tid: number }[];
         };
         if (cancelled || !Array.isArray(data.trades)) return;
-        const filtered = data.trades
+        const incoming = data.trades
           .filter((t) => t.coin === yesC || t.coin === noC)
           .map((t) => ({
             coin: t.coin,
@@ -3177,8 +3217,18 @@ function BucketMarketView({
             time: t.time,
             tid: t.tid,
           } as HyperOddTrade));
-        setBucketTrades(filtered);
-      } catch { /* ignore */ }
+        if (incoming.length === 0) return; // sticky — keep last good
+        setBucketTrades((prev) => {
+          const tids = new Set(prev.map((t) => t.tid).filter((x): x is number => x != null));
+          const fresh = incoming.filter((t) => t.tid == null || !tids.has(t.tid));
+          if (!fresh.length) return prev;
+          // Newest first, capped at 500 so the array doesn't grow
+          // unbounded on long-running sessions.
+          return [...fresh, ...prev]
+            .sort((a, b) => b.time - a.time)
+            .slice(0, 500);
+        });
+      } catch { /* ignore — sticky preserves last known */ }
     };
     fetchTrades();
     const id = setInterval(fetchTrades, 8000);
