@@ -252,6 +252,11 @@ export default function PortfolioPage() {
   // matching Hyperliquid's UX.
   const spotEquity = spotHoldings.reduce((s, h) => s + h.usdValue, 0);
   const totalEquity = (account?.accountValue ?? 0) + spotEquity;
+  // Perp USDC = collateral sitting in the perp clearinghouse. Surfaced
+  // as its own positions row labelled "(perp)" so the user can see
+  // their perp account balance even when no actual position is open.
+  // Mirrors how Hyperliquid surfaces the spot side as a row.
+  const perpUsdcBalance = account?.accountValue ?? 0;
   const volumeAll = portfolio?.volume["allTime"] ?? 0;
   return (
     <div className="space-y-4 max-w-6xl mx-auto">
@@ -338,7 +343,7 @@ export default function PortfolioPage() {
       <div className="border border-[var(--hl-border)] rounded-lg overflow-hidden">
         <div className="flex items-center border-b border-[var(--hl-border)] bg-[var(--hl-surface)] overflow-x-auto">
           {([
-            ["positions", `Positions${positions.length + spotHoldings.length ? ` (${positions.length + spotHoldings.length})` : ""}`],
+            ["positions", `Positions${(positions.length + spotHoldings.length + (perpUsdcBalance > 0 ? 1 : 0)) ? ` (${positions.length + spotHoldings.length + (perpUsdcBalance > 0 ? 1 : 0)})` : ""}`],
             ["orders", `Orders${portfolio?.openOrders.length ? ` (${portfolio.openOrders.length})` : ""}`],
             ["tradeHistory", "Trade History"],
             ["fundingHistory", "Funding History"],
@@ -363,6 +368,7 @@ export default function PortfolioPage() {
             <PositionsTable
               positions={positions}
               spotHoldings={spotHoldings}
+              perpUsdcBalance={perpUsdcBalance}
               closing={closing}
               tpSlMode={tpSlMode}
               triggerPrice={triggerPrice}
@@ -683,6 +689,7 @@ function EquityChart({ data, mode }: { data: { time: number; accountValue: numbe
 interface PositionsTableProps {
   positions: UserPosition[];
   spotHoldings: SpotHolding[];
+  perpUsdcBalance: number;
   closing: string | null;
   tpSlMode: TpSlMode;
   triggerPrice: string;
@@ -698,11 +705,11 @@ interface PositionsTableProps {
 }
 
 function PositionsTable({
-  positions, spotHoldings, closing, tpSlMode, triggerPrice, submitting, actionResult,
+  positions, spotHoldings, perpUsdcBalance, closing, tpSlMode, triggerPrice, submitting, actionResult,
   totalPnl, totalNotional, accountValue,
   onClose, onSetTpSlMode, onTriggerPriceChange, onSubmitTpSl,
 }: PositionsTableProps) {
-  if (positions.length === 0 && spotHoldings.length === 0) {
+  if (positions.length === 0 && spotHoldings.length === 0 && perpUsdcBalance <= 0) {
     return (
       <div className="text-[13px] text-[var(--hl-muted)] text-center py-12">
         No open positions
@@ -805,6 +812,38 @@ function PositionsTable({
             </tr>
           );
         })}
+        {/* Perp USDC balance — the collateral sitting in the perp
+            clearinghouse with no associated position. Rendered as a
+            "(perp)" row so the user can see this balance the same way
+            they see spot. Hidden when zero (no balance to show). */}
+        {perpUsdcBalance > 0 && (
+          <tr key="perp-usdc" className="border-b border-[var(--hl-border)] border-opacity-30 hover:bg-[var(--hl-surface)] transition-colors">
+            <td className="px-4 py-2.5 font-medium text-[var(--foreground)]">
+              USDC
+              <span
+                className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                style={{ background: "rgba(245,165,36,0.10)", color: "var(--hl-yellow)" }}
+                title="USDC collateral in your perp account"
+              >
+                perp
+              </span>
+            </td>
+            <td className="px-2 py-2.5 text-[var(--hl-muted)]">—</td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--foreground)]">
+              {perpUsdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--foreground)]">
+              ${perpUsdcBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-text)]">$1</td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+            <td className="px-4 py-2.5 text-right text-[var(--hl-muted)]">—</td>
+          </tr>
+        )}
         {/* Spot holdings — rendered as positions with a "(spot)" tag
             next to the coin. Many perp columns (Side, Leverage, Liq,
             Funding, Actions) don't apply, so they show "—". Mirrors
