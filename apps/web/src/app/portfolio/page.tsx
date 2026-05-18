@@ -8,6 +8,17 @@ type TpSlMode = { coin: string; type: "tp" | "sl" } | null;
 type Tab = "positions" | "orders" | "tradeHistory" | "fundingHistory";
 type PnlWindow = "day" | "week" | "month" | "allTime";
 
+// Synthetic "position" for a spot holding. We surface these in the same
+// Positions tab as perp positions (mirroring Hyperliquid's UX) tagged
+// "(spot)" so the user can see everything they own without bouncing
+// between spot and perp screens.
+type SpotHolding = {
+  coin: string;         // token name, e.g. "USDH"
+  total: number;        // amount held in token units
+  midPrice: number;     // mid USDC price (1 for USDC, mid from allMids for others)
+  usdValue: number;     // total × midPrice
+};
+
 const PNL_LABELS: Record<PnlWindow, string> = {
   day: "1 Day",
   week: "7 Days",
@@ -18,6 +29,7 @@ const PNL_LABELS: Record<PnlWindow, string> = {
 export default function PortfolioPage() {
   const { address, isConnected } = useAccount();
   const [positions, setPositions] = useState<UserPosition[]>([]);
+  const [spotHoldings, setSpotHoldings] = useState<SpotHolding[]>([]);
   const [account, setAccount] = useState<UserAccount | null>(null);
   const [portfolio, setPortfolio] = useState<PortfolioPageData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -36,13 +48,95 @@ export default function PortfolioPage() {
     if (!address) return;
     if (!initialLoadDone.current) setLoading(true);
     try {
-      const [posData, portfolioData] = await Promise.all([
+      // Fetch everything in parallel:
+      //   - getUserPositions: perp positions (existing)
+      //   - getPortfolioPage: PNL / equity / fees / orders / fills (existing)
+      //   - spotClearinghouseState: raw spot balances (NEW)
+      //   - spotMeta: maps base token name → @-code (NEW, for USD valuation)
+      //   - allMids: spot mid prices keyed by @-code (NEW, for USD valuation)
+      const [posData, portfolioData, spotStateRes, spotMetaRes, midsRes] = await Promise.all([
         getUserPositions(address),
         getPortfolioPage(address, pnlWindow),
+        fetch("https://api.hyperliquid.xyz/info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "spotClearinghouseState", user: address }),
+        }).catch(() => null),
+        fetch("https://api.hyperliquid.xyz/info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "spotMeta" }),
+        }).catch(() => null),
+        fetch("https://api.hyperliquid.xyz/info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "allMids" }),
+        }).catch(() => null),
       ]);
+
       setPositions(posData.positions);
       setAccount(posData.account);
       setPortfolio(portfolioData);
+
+      // ── Build spot holdings list ─────────────────────────────────
+      // Steps:
+      //   1. Filter to non-zero balances (no point showing $0 rows).
+      //   2. For each, find its USDC-paired @-code via spotMeta:
+      //        tokens[name=USDH] → tokenIdx
+      //        universe[tokens=[tokenIdx, 0]] → @-code (USDC quote = idx 0)
+      //   3. Read mid from allMids[@-code]; if missing, fall back to 0
+      //      so the row still appears (just with $? USD value).
+      //   4. USDC itself is the quote — its USD value is its total directly.
+      try {
+        const spotState = spotStateRes && spotStateRes.ok ? await spotStateRes.json() : null;
+        const spotMeta = spotMetaRes && spotMetaRes.ok ? await spotMetaRes.json() : null;
+        const mids = midsRes && midsRes.ok ? await midsRes.json() : {};
+
+        const balances = (spotState?.balances ?? []) as { coin: string; total: string; hold: string }[];
+        // Map token name → @-code by joining tokens[] and universe[].
+        const tokensByName = new Map<string, number>(); // name → token index
+        for (const t of spotMeta?.tokens ?? []) {
+          if (typeof t.index === "number" && typeof t.name === "string") tokensByName.set(t.name, t.index);
+        }
+        const atCodeByName = new Map<string, string>();
+        for (const u of spotMeta?.universe ?? []) {
+          // BASE/USDC pair → cache its @-code under BASE
+          const tokens = u.tokens ?? [];
+          if (tokens[1] !== 0) continue; // we only care about USDC-quoted
+          // find the token whose index == tokens[0]
+          for (const [name, idx] of tokensByName) {
+            if (idx === tokens[0]) { atCodeByName.set(name, u.name); break; }
+          }
+        }
+
+        const holdings: SpotHolding[] = balances
+          .map(b => {
+            const total = parseFloat(b.total);
+            if (!Number.isFinite(total) || total <= 0) return null;
+            if (b.coin === "USDC") {
+              return { coin: b.coin, total, midPrice: 1, usdValue: total };
+            }
+            const atCode = atCodeByName.get(b.coin);
+            const midStr = atCode ? mids?.[atCode] : null;
+            const midPrice = midStr != null ? parseFloat(midStr) : 0;
+            return {
+              coin: b.coin,
+              total,
+              midPrice: Number.isFinite(midPrice) ? midPrice : 0,
+              usdValue: Number.isFinite(midPrice) ? total * midPrice : 0,
+            };
+          })
+          .filter((x): x is SpotHolding => x !== null)
+          // Sort by USD value desc — biggest holdings first
+          .sort((a, b) => b.usdValue - a.usdValue);
+
+        setSpotHoldings(holdings);
+      } catch {
+        // Don't fail the whole page if spot enrichment errors — keep
+        // perp data showing and spot list just empty.
+        setSpotHoldings([]);
+      }
+
       setError(null);
       initialLoadDone.current = true;
     } catch (err) {
@@ -153,6 +247,11 @@ export default function PortfolioPage() {
   const totalMargin = positions.reduce((s, p) => s + p.marginUsed, 0);
   const displayPnl = portfolio?.pnl[pnlWindow] ?? 0;
   const volume14d = portfolio?.volume["14d"] ?? 0;
+  // Spot equity (USD value of all spot holdings) added to the headline
+  // "Total Equity" so the user can see EVERYTHING they own on HL,
+  // matching Hyperliquid's UX.
+  const spotEquity = spotHoldings.reduce((s, h) => s + h.usdValue, 0);
+  const totalEquity = (account?.accountValue ?? 0) + spotEquity;
   const volumeAll = portfolio?.volume["allTime"] ?? 0;
   return (
     <div className="space-y-4 max-w-6xl mx-auto">
@@ -180,8 +279,13 @@ export default function PortfolioPage() {
           <div>
             <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-1">Total Equity</div>
             <div className="text-[22px] font-bold text-[var(--hl-accent)] tabular-nums">
-              {fmtUsd(account?.accountValue ?? 0)}
+              {fmtUsd(totalEquity)}
             </div>
+            {spotEquity > 0 && (
+              <div className="text-[10px] text-[var(--hl-muted)] mt-1 tabular-nums">
+                Perp {fmtUsd(account?.accountValue ?? 0)} · Spot {fmtUsd(spotEquity)}
+              </div>
+            )}
           </div>
           <div className="border-t border-[var(--hl-border)] pt-3">
             <div className="text-[10px] text-[var(--hl-muted)] uppercase tracking-wider mb-1">14 Day Volume</div>
@@ -234,7 +338,7 @@ export default function PortfolioPage() {
       <div className="border border-[var(--hl-border)] rounded-lg overflow-hidden">
         <div className="flex items-center border-b border-[var(--hl-border)] bg-[var(--hl-surface)] overflow-x-auto">
           {([
-            ["positions", `Positions${positions.length ? ` (${positions.length})` : ""}`],
+            ["positions", `Positions${positions.length + spotHoldings.length ? ` (${positions.length + spotHoldings.length})` : ""}`],
             ["orders", `Orders${portfolio?.openOrders.length ? ` (${portfolio.openOrders.length})` : ""}`],
             ["tradeHistory", "Trade History"],
             ["fundingHistory", "Funding History"],
@@ -258,6 +362,7 @@ export default function PortfolioPage() {
           {activeTab === "positions" && (
             <PositionsTable
               positions={positions}
+              spotHoldings={spotHoldings}
               closing={closing}
               tpSlMode={tpSlMode}
               triggerPrice={triggerPrice}
@@ -577,6 +682,7 @@ function EquityChart({ data, mode }: { data: { time: number; accountValue: numbe
 
 interface PositionsTableProps {
   positions: UserPosition[];
+  spotHoldings: SpotHolding[];
   closing: string | null;
   tpSlMode: TpSlMode;
   triggerPrice: string;
@@ -592,11 +698,11 @@ interface PositionsTableProps {
 }
 
 function PositionsTable({
-  positions, closing, tpSlMode, triggerPrice, submitting, actionResult,
+  positions, spotHoldings, closing, tpSlMode, triggerPrice, submitting, actionResult,
   totalPnl, totalNotional, accountValue,
   onClose, onSetTpSlMode, onTriggerPriceChange, onSubmitTpSl,
 }: PositionsTableProps) {
-  if (positions.length === 0) {
+  if (positions.length === 0 && spotHoldings.length === 0) {
     return (
       <div className="text-[13px] text-[var(--hl-muted)] text-center py-12">
         No open positions
@@ -699,6 +805,39 @@ function PositionsTable({
             </tr>
           );
         })}
+        {/* Spot holdings — rendered as positions with a "(spot)" tag
+            next to the coin. Many perp columns (Side, Leverage, Liq,
+            Funding, Actions) don't apply, so they show "—". Mirrors
+            Hyperliquid's UX of mixing spot + perp in a single list. */}
+        {spotHoldings.map((h) => (
+          <tr key={`spot:${h.coin}`} className="border-b border-[var(--hl-border)] border-opacity-30 hover:bg-[var(--hl-surface)] transition-colors">
+            <td className="px-4 py-2.5 font-medium text-[var(--foreground)]">
+              {h.coin}
+              <span
+                className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                style={{ background: "rgba(0,240,255,0.08)", color: "var(--hl-accent)" }}
+              >
+                spot
+              </span>
+            </td>
+            <td className="px-2 py-2.5 text-[var(--hl-muted)]">—</td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--foreground)]">
+              {h.total.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+            </td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--foreground)]">
+              ${h.usdValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-text)]">
+              {h.midPrice > 0 ? `$${h.midPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}` : "—"}
+            </td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+            <td className="px-4 py-2.5 text-right text-[var(--hl-muted)]">—</td>
+          </tr>
+        ))}
       </tbody>
       {positions.length > 1 && (
         <tfoot>
