@@ -44,6 +44,14 @@ export default function PortfolioPage() {
   const [chartMode, setChartMode] = useState<"value" | "pnl">("value");
 
   const initialLoadDone = useRef(false);
+  // Refs track whether we've EVER seen non-empty data. Used by the
+  // "sticky" guards below to distinguish "we genuinely have nothing"
+  // from "HL had a hiccup and returned blank". Without these guards,
+  // every 15s poll that hit a transient API blip would briefly wipe
+  // the user's equity + positions to zero and the UI would flicker.
+  const hadPositionsRef = useRef(false);
+  const hadAccountRef = useRef(false);
+  const hadSpotRef = useRef(false);
   const fetchData = useCallback(async () => {
     if (!address) return;
     if (!initialLoadDone.current) setLoading(true);
@@ -74,9 +82,34 @@ export default function PortfolioPage() {
         }).catch(() => null),
       ]);
 
-      setPositions(posData.positions);
-      setAccount(posData.account);
-      setPortfolio(portfolioData);
+      // ── Sticky guards: only overwrite state if the new data is
+      //    BETTER than what we already had, so transient HL API blips
+      //    that return empty/null can't flicker the UI to zero.
+      //
+      //    - positions: if HL returned an empty list AND we already had
+      //      positions AND account is null (the signature shape of an
+      //      HL hiccup vs a real "user closed everything"), keep the
+      //      previous list.
+      //    - account: if account is null but we've seen one before,
+      //      keep the previous one. accountValue stays steady through
+      //      a few seconds of network flakiness.
+      //    - portfolio: same pattern — null means no fresh data.
+      if (posData?.positions != null) {
+        const incoming = posData.positions;
+        const isLikelyHiccup =
+          incoming.length === 0 && hadPositionsRef.current && posData.account == null;
+        if (!isLikelyHiccup) {
+          setPositions(incoming);
+          if (incoming.length > 0) hadPositionsRef.current = true;
+        }
+      }
+      if (posData?.account != null) {
+        setAccount(posData.account);
+        hadAccountRef.current = true;
+      }
+      if (portfolioData != null) {
+        setPortfolio(portfolioData);
+      }
 
       // ── Build spot holdings list ─────────────────────────────────
       // Steps:
@@ -130,11 +163,23 @@ export default function PortfolioPage() {
           // Sort by USD value desc — biggest holdings first
           .sort((a, b) => b.usdValue - a.usdValue);
 
-        setSpotHoldings(holdings);
+        // Sticky guard for spot too: if the new fetch produced a
+        // non-empty list, accept it. If empty AND we previously had
+        // holdings, skip the update — likely a transient HL hiccup.
+        if (holdings.length > 0) {
+          setSpotHoldings(holdings);
+          hadSpotRef.current = true;
+        } else if (!hadSpotRef.current) {
+          // First-ever load returned nothing → genuinely empty, OK to set.
+          setSpotHoldings([]);
+        }
+        // else: previously had spot holdings, new fetch returned none
+        //       → leave them alone, retry next poll.
       } catch {
-        // Don't fail the whole page if spot enrichment errors — keep
-        // perp data showing and spot list just empty.
-        setSpotHoldings([]);
+        // Spot enrichment exception → keep the previous list shown.
+        // Used to setSpotHoldings([]) here which caused the spot rows
+        // to flicker out every time the HL API blipped during the
+        // 3-endpoint waterfall. Sticky preservation is friendlier.
       }
 
       setError(null);

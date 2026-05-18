@@ -263,6 +263,13 @@ export default function PredictPage() {
       return;
     }
     let cancelled = false;
+    // Sticky guards: once we've seen a real balance / position, don't
+    // overwrite with 0 / empty on a transient HL hiccup. Without these,
+    // every 15s poll that landed during an API blip would briefly wipe
+    // the USDH pill in the banner and the order panel's "Current
+    // Position" — looked like funds vanishing.
+    let hadUsdh = false;
+    let hadPositions = false;
     const fetchBalances = async () => {
       try {
         const [spotRes, perpRes] = await Promise.all([
@@ -280,16 +287,22 @@ export default function PredictPage() {
         if (cancelled) return;
         if (spotRes.ok) {
           const data = (await spotRes.json()) as { balances?: { coin: string; total: string }[] };
-          const usdh = data?.balances?.find((b) => b.coin === "USDH");
-          setUsdhBalance(usdh ? parseFloat(usdh.total) : 0);
+          const balances = data?.balances;
+          // If balances missing entirely AND we've previously had a
+          // USDH value, that's a hiccup — keep showing the last good.
+          if (balances != null) {
+            const usdh = balances.find((b) => b.coin === "USDH");
+            const v = usdh ? parseFloat(usdh.total) : 0;
+            if (v > 0 || !hadUsdh) {
+              setUsdhBalance(v);
+              if (v > 0) hadUsdh = true;
+            }
+          }
         }
         if (perpRes.ok) {
           const data = (await perpRes.json()) as {
             assetPositions?: { position: { coin: string; szi: string } }[];
           };
-          // Filter to HIP-4 coins only (shape "#<n>0" or "#<n>1") and key
-          // by coin so the order panel can look up its own market's
-          // position with a single map.get().
           const map = new Map<string, number>();
           for (const ap of data.assetPositions ?? []) {
             const c = ap.position?.coin;
@@ -297,9 +310,14 @@ export default function PredictPage() {
             const sz = parseFloat(ap.position.szi);
             if (Number.isFinite(sz) && sz !== 0) map.set(c, sz);
           }
-          setHip4Positions(map);
+          // Only overwrite when we found something OR we never had any.
+          // Empty + previously-had → keep, likely transient blip.
+          if (map.size > 0 || !hadPositions) {
+            setHip4Positions(map);
+            if (map.size > 0) hadPositions = true;
+          }
         }
-      } catch { /* ignore */ }
+      } catch { /* ignore — sticky preserves last-known-good */ }
     };
     fetchBalances();
     const id = setInterval(fetchBalances, 15_000);

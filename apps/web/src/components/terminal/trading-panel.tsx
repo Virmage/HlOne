@@ -84,6 +84,11 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
     const spotBase = isSpot
       ? (overview?.displayName?.split("/")[0] ?? displayCoin)
       : null;
+    // Sticky guard — only overwrite the displayed balance when we've
+    // actually got a fresh non-zero reading. Without this, a transient
+    // HL API blip during the 30s poll wipes "Available to Trade" to $0
+    // for a few seconds, which looks like the user's funds vanished.
+    let hadValue = false;
     const fetchState = async () => {
       if (document.hidden) return;
       try {
@@ -94,12 +99,17 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ type: "spotClearinghouseState", user: address }),
           });
+          if (!res.ok) return; // sticky — keep previous state
           const data = await res.json();
           const balances = (data?.balances ?? []) as { coin: string; total: string }[];
+          if (balances.length === 0 && hadValue) return; // hiccup — preserve
           const usdc = balances.find(b => b.coin === "USDC");
-          setAccountValue(usdc ? parseFloat(usdc.total) : 0);
+          const usdcVal = usdc ? parseFloat(usdc.total) : 0;
           const baseHold = spotBase ? balances.find(b => b.coin === spotBase) : null;
-          setCurrentPosition(baseHold ? parseFloat(baseHold.total) : 0);
+          const baseVal = baseHold ? parseFloat(baseHold.total) : 0;
+          setAccountValue(usdcVal);
+          setCurrentPosition(baseVal);
+          if (usdcVal > 0 || baseVal > 0) hadValue = true;
         } else {
           // Perp path — existing behaviour
           const res = await fetch("https://api.hyperliquid.xyz/info", {
@@ -107,15 +117,24 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ type: "clearinghouseState", user: address }),
           });
+          if (!res.ok) return; // sticky
           const data = await res.json();
+          // If the entire marginSummary is missing AND we've seen a value
+          // before, that's an API blip — skip the update.
+          if (!data?.marginSummary && hadValue) return;
           const av = parseFloat(data?.marginSummary?.accountValue ?? "0");
           setAccountValue(av);
           const pos = data?.assetPositions?.find((p: { position: { coin: string } }) =>
             p.position.coin === displayCoin
           );
           setCurrentPosition(pos ? parseFloat(pos.position.szi ?? "0") : 0);
+          if (av > 0) hadValue = true;
         }
-      } catch { setAccountValue(0); setCurrentPosition(0); }
+      } catch {
+        // Don't wipe — preserve last known good values on transient errors.
+        // The original code reset both to 0 on any throw, which flickered
+        // the UI to "$0 / 0 shares" every time the network blipped.
+      }
     };
     fetchState();
     const interval = window.setInterval(fetchState, 30_000);
