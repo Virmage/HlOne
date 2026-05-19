@@ -1795,11 +1795,28 @@ function RiverChart({
     // the visual load and made the chart noisy. The toggle in the order
     // panel now drives which stack is visible — and they all sit in the
     // single TOP spacer, dropping the bottom one entirely.
+    //
+    // Ranking: we keep the top-USD trades AND always include the most
+    // RECENT trades regardless of USD. Without the recent-set, a small
+    // $5 user trade got crowded out by 10 unrelated $500+ whales and
+    // the user couldn't see their own fill on the chart. Recent set
+    // limited to the last hour and 5 trades per side.
     const showYes = viewSide === "yes";
-    const ranked = raw
-      .filter((w) => showYes ? w.isYes : !w.isYes)
-      .sort((a, b) => b.usd - a.usd)
-      .slice(0, 10); // bumped from 8 since we only have one stack now
+    const sideTrades = raw.filter((w) => showYes ? w.isYes : !w.isYes);
+    const topByUsd = [...sideTrades].sort((a, b) => b.usd - a.usd).slice(0, 25);
+    const recentSet = [...sideTrades]
+      .filter((w) => nowSafe - w.time < 60 * 60 * 1000) // last hour
+      .sort((a, b) => b.time - a.time)
+      .slice(0, 5);
+    // Merge by bucketIdx-keyed dedupe so we never render the same whale twice.
+    const seenKey = new Set<string>();
+    const ranked: Whale[] = [];
+    for (const w of [...recentSet, ...topByUsd]) {
+      const k = `${w.isYes ? "Y" : "N"}:${w.side}:${w.bucketIdx}`;
+      if (seenKey.has(k)) continue;
+      seenKey.add(k);
+      ranked.push(w);
+    }
 
     // Stack pixel layout (relative to chart-canvas top, overflow:visible
     // so we can render in the 70px spacer above):
@@ -1824,7 +1841,7 @@ function RiverChart({
       });
     }
     return placed;
-  }, [trades, marketCandles, hip4Coin, tMin, tMax, viewSide]);
+  }, [trades, marketCandles, hip4Coin, tMin, tMax, viewSide, nowSafe]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
 
   // ── Volume profile — one thin bar per HIP-4 candle, scaled by the candle's
@@ -2189,7 +2206,13 @@ function RiverChart({
               label in the x-axis convey the same thing without the
               outlined-box artifact the user kept noticing. */}
 
-          {/* x-axis — contract lifetime: open → settle */}
+          {/* x-axis — actual time-of-day ticks, 5 evenly-spaced across
+              the chart. Used to be hard-coded relative labels ("-6h",
+              "-4h 30m" etc.) which (a) didn't reflect the contract-open
+              clamp on 6H/1H views and (b) made reading "when did this
+              trade happen" require mental arithmetic. Now shows HH:MM
+              in the browser's local time, with "open" marking contract
+              start and "settle ▶"/"now ▶" marking the right edge. */}
           <div
             className="absolute bottom-0 flex justify-between mono"
             style={{
@@ -2202,31 +2225,31 @@ function RiverChart({
               borderTop: "1px solid var(--hl-border)",
             }}
           >
-            {timeframe === "24H" ? (
-              <>
-                <span>open · 06:00 UTC</span>
-                <span>−18h</span>
-                <span>−12h</span>
-                <span>−6h</span>
-                <span>settle ▶</span>
-              </>
-            ) : timeframe === "6H" ? (
-              <>
-                <span>−6h</span>
-                <span>−4h 30m</span>
-                <span>−3h</span>
-                <span>−1h 30m</span>
-                <span>now ▶</span>
-              </>
-            ) : (
-              <>
-                <span>−1h</span>
-                <span>−45m</span>
-                <span>−30m</span>
-                <span>−15m</span>
-                <span>now ▶</span>
-              </>
-            )}
+            {(() => {
+              const fmtTime = (ts: number) =>
+                new Date(ts).toLocaleTimeString(undefined, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hour12: false,
+                });
+              const N = 5; // number of ticks
+              const ticks: { label: string; ts: number }[] = [];
+              for (let i = 0; i < N; i++) {
+                const ts = tMin + (i / (N - 1)) * (tMax - tMin);
+                ticks.push({ label: fmtTime(ts), ts });
+              }
+              // Special markers on the bookend ticks
+              const isLeftEdgeContractOpen = Math.abs(tMin - contractOpen) < 60_000;
+              const isRightEdgeSettle = timeframe === "24H";
+              return ticks.map((t, i) => (
+                <span key={i}>
+                  {i === 0 && isLeftEdgeContractOpen ? `open · ${t.label}`
+                    : i === N - 1 && isRightEdgeSettle ? `${t.label} · settle ▶`
+                    : i === N - 1 ? `${t.label} · now ▶`
+                    : t.label}
+                </span>
+              ));
+            })()}
           </div>
 
           {/* Conviction thumb + arc removed — order entry uses standard limit/market panel */}
