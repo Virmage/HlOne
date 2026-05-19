@@ -374,8 +374,18 @@ async function loadMeta() {
 //   "#601"  → outcome 60, side 1 (NO)
 //   "#1230" → outcome 123, side 0 (YES)
 //
-// HL's order endpoint expects the asset index as `100_000 + outcome*2 + side`,
-// per their HIP-4 spec. Both sides of an outcome are separate assets.
+// HL's order endpoint expects the asset index as:
+//
+//     asset = 100_000_000 + (outcome * 10 + side)
+//
+// per the official HIP-4 spec at
+//   https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/asset-ids
+//
+// So coin "#600" (outcome 60, side 0) → 100_000_600.
+//
+// Earlier versions used `100_000 + outcome*2 + side` (a guess that turned
+// out wrong). That landed asset=100_120 in HL's spot-asset range, and
+// HL responded "Invalid spot" because spot[90_120] doesn't exist.
 //
 // Shares always trade in whole units → szDecimals=0.
 function parseOutcomeCoin(coin: string): { outcome: number; side: 0 | 1; assetIndex: number } | null {
@@ -384,7 +394,7 @@ function parseOutcomeCoin(coin: string): { outcome: number; side: 0 | 1; assetIn
   const outcome = parseInt(m[1], 10);
   const side = parseInt(m[2], 10) as 0 | 1;
   if (!Number.isFinite(outcome)) return null;
-  return { outcome, side, assetIndex: 100_000 + outcome * 2 + side };
+  return { outcome, side, assetIndex: 100_000_000 + outcome * 10 + side };
 }
 
 async function getAssetIndex(asset: string): Promise<number> {
