@@ -1893,7 +1893,7 @@ function RiverChart({
   // chart already shows full depth with proper price/size info.
 
   return (
-    <div className="panel" style={{ minHeight: 610 }}>
+    <div className="panel" style={{ minHeight: 610, overflow: "hidden" }}>
       <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
         <span className="ptitle">Probability river</span>
         <span className="psub ml-3">live · computed from BTC mark vs strike</span>
@@ -2105,10 +2105,13 @@ function RiverChart({
             );
           })}
 
-          {/* Active-side endpoint label — green YES chip or red NO chip
-              depending on the order-panel toggle. Previously rendered
-              BOTH chips simultaneously, which doubled the visual noise
-              at the right edge AND cluttered the now-line BTC chip. */}
+          {/* Endpoint price tags — anchored to the RIGHT axis area so they
+              never bleed past the chart panel into the order panel.
+              Previously positioned at `left: ${nowX%}` + translate(8px)
+              which, when nowX was near W, pushed the chip ~70px past the
+              chart's right edge. The fix moves them to a fixed
+              `right: 4px` slot just inside the right y-axis labels area
+              (which lives in the 32px reserved strip on the right). */}
           {nowX != null && (() => {
             const sideCents = viewSide === "yes" ? yesCents : 100 - yesCents;
             const yPct = viewSide === "yes" ? (endY / H) * 100 : ((H - endY) / H) * 100;
@@ -2119,9 +2122,9 @@ function RiverChart({
               <div
                 className="absolute mono"
                 style={{
-                  left: `${(nowX / W) * 100}%`,
+                  right: 4,
                   top: `${yPct}%`,
-                  transform: "translate(8px, -50%)",
+                  transform: "translateY(-50%)",
                   background: bg,
                   color: textColor,
                   padding: "3px 8px",
@@ -2140,14 +2143,15 @@ function RiverChart({
             );
           })()}
           {/* BTC mark endpoint label — true orange (#fb923c) to actually
-              match the "orange line = BTC price" legend label. */}
+              match the "orange line = BTC price" legend label. Anchored
+              right same as the YES/NO chip above. */}
           {nowX != null && btcMark != null && (
             <div
               className="absolute mono"
               style={{
-                left: `${(nowX / W) * 100}%`,
+                right: 4,
                 top: `${(btcToY(btcMark) / H) * 100}%`,
-                transform: "translate(8px, -50%)",
+                transform: "translateY(-50%)",
                 background: "#fb923c",
                 color: "#1d0606",
                 padding: "3px 8px",
