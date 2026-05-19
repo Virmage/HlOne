@@ -1139,6 +1139,7 @@ export default function PredictPage() {
             yesCents={yesCents}
             trades={hyperodd.trades}
             hip4Coin={hyperodd.hip4Coin}
+            viewSide={side}
             onWhaleClick={setSelectedWhale}
             limitOrderCents={
               orderType === "limit" && parseFloat(limitPx) > 0
@@ -1475,6 +1476,7 @@ function RiverChart({
   yesCents,
   trades,
   hip4Coin,
+  viewSide,
   onWhaleClick,
   limitOrderCents,
   limitOrderSide,
@@ -1492,6 +1494,11 @@ function RiverChart({
   // alongside the primary `strike` line. Used by the bucket market view
   // to draw both the lower AND upper boundary of a price range.
   extraStrikes?: { value: number; label?: string }[];
+  // Which side the user is currently trading. The chart now SWAPS to
+  // match — green YES line/area when "yes", red NO line/area when "no".
+  // Without this prop the chart had to show both stacks of whales +
+  // the YES line + an explicit NO chip — too much information at once.
+  viewSide: "yes" | "no";
   settleTs: number;
   now: number;
   yesCents: number;
@@ -1574,33 +1581,45 @@ function RiverChart({
     return H - Math.max(0, Math.min(1, t)) * H;
   };
 
+  // probSeries comes in YES-space (0..1). When the user is viewing NO,
+  // we display 1 - p so the line represents the NO probability at each
+  // timestamp. Visually: higher prob = higher on chart (y axis goes up
+  // as probability goes up). For NO mode this means the line is a
+  // vertical flip of the YES line — when YES is rising, NO is falling.
+  const pForDisplay = (p: number) => viewSide === "yes" ? p : 1 - p;
+
   const points = useMemo(() => {
     if (!probSeries.length || !Number.isFinite(tMin) || tMax <= tMin) return "";
     return probSeries
       .map((d) => {
         const x = ((d.x - tMin) / (tMax - tMin)) * W;
-        const y = H - d.p * H;
+        const y = H - pForDisplay(d.p) * H;
         return `${x.toFixed(1)},${y.toFixed(1)}`;
       })
       .join(" ");
-  }, [probSeries, tMin, tMax]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [probSeries, tMin, tMax, viewSide]);
 
-  // Faded σ√t reference — what the YES probability "should" be at each
-  // moment given BTC's actual price path + a 65% annual-vol assumption.
-  // The gap to the real market river IS the trade signal: when the real
-  // market sits well above fair value, sellers are getting a premium;
-  // below means buyers are. Auto-cleared in the imminent expiry tier
-  // (page caller zeroes the prop) since the math blows up near settle.
+  // Faded σ√t reference — what the active-side probability "should" be
+  // at each moment given BTC's actual price path + 65% annual-vol. The
+  // gap to the real market river IS the trade signal. Same NO-inversion
+  // applies so YES theory and NO theory mirror correctly.
   const fairPoints = useMemo(() => {
     if (!fairProbSeries.length || !Number.isFinite(tMin) || tMax <= tMin) return "";
     return fairProbSeries
       .map((d) => {
         const x = ((d.x - tMin) / (tMax - tMin)) * W;
-        const y = H - d.p * H;
+        const y = H - pForDisplay(d.p) * H;
         return `${x.toFixed(1)},${y.toFixed(1)}`;
       })
       .join(" ");
-  }, [fairProbSeries, tMin, tMax]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fairProbSeries, tMin, tMax, viewSide]);
+
+  // Side-driven colour theme — green for YES, red for NO. Applied to the
+  // probability line, its filled area, and the right-edge chip.
+  const sideColor = viewSide === "yes" ? "#4ade80" : "#f87171";
+  const sideGradId = viewSide === "yes" ? "rgrad-yes" : "rgrad-no";
 
   const btcPoints = useMemo(() => {
     if (!btcCandles.length || strike == null) return "";
@@ -1771,61 +1790,41 @@ function RiverChart({
     // re-deriving from maxUsd.
     const outlineFor = (usd: number) => 1.5 + Math.min(1, usd / maxUsd) * 3.5;
 
-    // Limit per side to keep the chart readable.
-    const yesRanked = raw.filter((w) => w.isYes).sort((a, b) => b.usd - a.usd).slice(0, 8);
-    const noRanked = raw.filter((w) => !w.isYes).sort((a, b) => b.usd - a.usd).slice(0, 8);
+    // Show only the ACTIVE side's whales. Previously rendered both YES
+    // (top spacer) and NO (bottom spacer) simultaneously, which doubled
+    // the visual load and made the chart noisy. The toggle in the order
+    // panel now drives which stack is visible — and they all sit in the
+    // single TOP spacer, dropping the bottom one entirely.
+    const showYes = viewSide === "yes";
+    const ranked = raw
+      .filter((w) => showYes ? w.isYes : !w.isYes)
+      .sort((a, b) => b.usd - a.usd)
+      .slice(0, 10); // bumped from 8 since we only have one stack now
 
-    // Whales now live ENTIRELY OUTSIDE the chart canvas — YES in the
-    // 70px spacer above the SVG, NO in the matching 70px spacer below
-    // it. The SVG itself stays clean so the price band is never
-    // obscured.
-    //
-    // Pixel coordinates (relative to the chart-canvas div, which has
-    // overflow:visible so negative + super-large y values render into
-    // the parent's spacer regions):
-    //   YES slot 0 centre = -SPACER_PAD - DIAMETER/2    (highest)
-    //   YES slot 1 centre = slot 0 - SLOT_GAP
+    // Stack pixel layout (relative to chart-canvas top, overflow:visible
+    // so we can render in the 70px spacer above):
+    //   slot 0 centre = -SPACER_PAD - DIAMETER/2 (just above chart top)
+    //   slot 1 centre = slot 0 - SLOT_GAP
     //   …
-    //   NO  slot 0 centre = H + SPACER_PAD + DIAMETER/2  (lowest)
-    //   NO  slot 1 centre = slot 0 + SLOT_GAP
-    const SPACER_PAD = 8;                  // gap from chart edge
-    const SLOT_GAP = DIAMETER + 2;         // 22 — gives ~3 slots inside the 70px spacer
+    const SPACER_PAD = 8;
+    const SLOT_GAP = DIAMETER + 2;
 
-    const placeStack = (
-      ranked: Whale[],
-      anchorTop: boolean,
-    ): (Whale & { d: number; outline: number })[] => {
-      const byBucket = new Map<number, (Whale & { d: number; outline: number })[]>();
-      for (const w of ranked) {
-        const arr = byBucket.get(w.bucketIdx) ?? [];
-        arr.push({ ...w, d: DIAMETER, outline: outlineFor(w.usd) });
-        byBucket.set(w.bucketIdx, arr);
-      }
-      const out: (Whale & { d: number; outline: number })[] = [];
-      for (const arr of byBucket.values()) {
-        // Biggest trade sits closest to the chart edge so it reads as
-        // the most prominent; smaller stacks recede into the spacer.
-        arr.sort((a, b) => b.usd - a.usd);
-        arr.forEach((w, idx) => {
-          if (anchorTop) {
-            // Slot 0 is the LOWEST in the top spacer (closest to chart
-            // top), subsequent slots go HIGHER (further from chart).
-            const y = -SPACER_PAD - DIAMETER / 2 - idx * SLOT_GAP;
-            out.push({ ...w, y });
-          } else {
-            const y = H + SPACER_PAD + DIAMETER / 2 + idx * SLOT_GAP;
-            out.push({ ...w, y });
-          }
-        });
-      }
-      return out;
-    };
-
-    return [
-      ...placeStack(yesRanked, true),
-      ...placeStack(noRanked, false),
-    ];
-  }, [trades, marketCandles, hip4Coin, tMin, tMax]);
+    const byBucket = new Map<number, (Whale & { d: number; outline: number })[]>();
+    for (const w of ranked) {
+      const arr = byBucket.get(w.bucketIdx) ?? [];
+      arr.push({ ...w, d: DIAMETER, outline: outlineFor(w.usd) });
+      byBucket.set(w.bucketIdx, arr);
+    }
+    const placed: (Whale & { d: number; outline: number })[] = [];
+    for (const arr of byBucket.values()) {
+      arr.sort((a, b) => b.usd - a.usd);
+      arr.forEach((w, idx) => {
+        const y = -SPACER_PAD - DIAMETER / 2 - idx * SLOT_GAP;
+        placed.push({ ...w, y });
+      });
+    }
+    return placed;
+  }, [trades, marketCandles, hip4Coin, tMin, tMax, viewSide]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
 
   // ── Volume profile — one thin bar per HIP-4 candle, scaled by the candle's
@@ -1837,21 +1836,36 @@ function RiverChart({
     const inWindow = marketCandles.filter((c) => c.t >= tMin && c.t <= tMax);
     if (!inWindow.length) return [];
     const maxVol = inWindow.reduce((m, c) => Math.max(m, parseFloat(c.v)), 0.001);
-    const candleSpanMs = 15 * 60 * 1000;
+    // Bar width must match the ACTUAL candle interval for the selected
+    // timeframe. Was hardcoded to 15min, which is correct for 24H view
+    // but rendered 3× too wide on 6H (5min candles) and 15× too wide on
+    // 1H (1min candles) — bars stacked on top of each other and the
+    // bottom strip became unreadable.
+    const intervalToMs: Record<string, number> = {
+      "1m": 60_000,
+      "5m": 5 * 60_000,
+      "15m": 15 * 60_000,
+      "1h": 60 * 60_000,
+    };
+    const candleSpanMs = intervalToMs[tfParams(timeframe).interval] ?? 15 * 60_000;
     const barWPct = ((candleSpanMs / (tMax - tMin)) * W) * 0.7; // 70% width of candle slot
     return inWindow.map((c) => {
       const vol = parseFloat(c.v);
       const open = parseFloat(c.o);
       const close = parseFloat(c.c);
       const heightPct = Math.max(0.02, vol / maxVol); // min visible
+      // bull = "the active side gained ground in this candle". For YES
+      // view that's close > open (probability went up). For NO view it
+      // inverts because close > open means YES went up = NO went down.
+      const yesGained = close >= open;
       return {
         x: ((c.t + candleSpanMs / 2 - tMin) / (tMax - tMin)) * W,
         w: Math.max(1, barWPct),
         h: heightPct * 40, // up to 40px tall
-        bull: close >= open,
+        bull: viewSide === "yes" ? yesGained : !yesGained,
       };
     });
-  }, [marketCandles, tMin, tMax]);
+  }, [marketCandles, tMin, tMax, timeframe, viewSide]);
 
   // Limit-order horizontal line position
   const limitY = limitOrderCents != null ? H - (limitOrderCents / 100) * H : null;
@@ -1896,9 +1910,16 @@ function RiverChart({
         <div className="relative" style={{ height: 420, overflow: "visible" }}>
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "calc(100% - 32px)", height: "100%", display: "block" }}>
             <defs>
-              <linearGradient id="rgrad" x1="0" y1="0" x2="0" y2="1">
+              {/* Two gradients so the filled area under the probability line
+                  picks the right colour per viewSide. Only one is referenced
+                  at any time — the unused one costs ~nothing. */}
+              <linearGradient id="rgrad-yes" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#4ade80" stopOpacity="0.28" />
                 <stop offset="100%" stopColor="#4ade80" stopOpacity="0" />
+              </linearGradient>
+              <linearGradient id="rgrad-no" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#f87171" stopOpacity="0.28" />
+                <stop offset="100%" stopColor="#f87171" stopOpacity="0" />
               </linearGradient>
             </defs>
             <line x1="0" y1="0" x2={W} y2="0" stroke="#1a2428" />
@@ -1967,10 +1988,11 @@ function RiverChart({
               />
             ))}
 
-            {points && <path d={areaPath} fill="url(#rgrad)" />}
+            {points && <path d={areaPath} fill={`url(#${sideGradId})`} />}
 
-            {/* Faded σ√t fair-value reference — what YES "should" be given
-                BTC's path. The gap to the real market is the signal. */}
+            {/* Faded σ√t fair-value reference — what the active side
+                "should" be given BTC's path. The gap to the real market
+                is the trade signal. */}
             {fairPoints && (
               <polyline
                 fill="none"
@@ -1982,27 +2004,11 @@ function RiverChart({
               />
             )}
 
-            {points && <polyline fill="none" stroke="#4ade80" strokeWidth="2.4" points={points} />}
-
-            {/* NO line — mirror of YES (probabilities sum to 100¢), drawn
-                slightly thinner + lower opacity so YES stays the primary read.
-                Lets you read the NO price directly without inverting. */}
-            {points && (
-              <polyline
-                fill="none"
-                stroke="#f87171"
-                strokeWidth="1.6"
-                opacity="0.55"
-                points={points
-                  .split(" ")
-                  .map((pt) => {
-                    const [x, y] = pt.split(",");
-                    // mirror y around the chart's vertical midpoint (H/2)
-                    return `${x},${H - parseFloat(y)}`;
-                  })
-                  .join(" ")}
-              />
-            )}
+            {/* Probability line — green for YES view, red for NO view.
+                Previously rendered BOTH lines at once (YES solid + NO
+                mirror dashed) which was visual noise. Now just one,
+                driven by the order-panel toggle. */}
+            {points && <polyline fill="none" stroke={sideColor} strokeWidth="2.4" points={points} />}
 
             {/* NOW vertical line */}
             {nowX != null && nowX > 0 && nowX < W && (
@@ -2082,56 +2088,40 @@ function RiverChart({
             );
           })}
 
-          {/* ── Big inline labels at the right end of EACH line ─────────── */}
-          {/* YES probability endpoint label (green) */}
-          {nowX != null && (
-            <div
-              className="absolute mono"
-              style={{
-                left: `${(nowX / W) * 100}%`,
-                top: `${(endY / H) * 100}%`,
-                transform: "translate(8px, -50%)",
-                background: "var(--hl-green)",
-                color: "#001d0c",
-                padding: "3px 8px",
-                borderRadius: 3,
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: 0.3,
-                whiteSpace: "nowrap",
-                pointerEvents: "none",
-                zIndex: 5,
-                boxShadow: "0 0 10px rgba(74,222,128,0.5)",
-              }}
-            >
-              YES · {yesCents}¢
-            </div>
-          )}
-          {/* NO endpoint label (red) — mirrors YES at (100 - yesCents)
-              on the right y-axis. */}
-          {nowX != null && (
-            <div
-              className="absolute mono"
-              style={{
-                left: `${(nowX / W) * 100}%`,
-                top: `${((H - endY) / H) * 100}%`,
-                transform: "translate(8px, -50%)",
-                background: "var(--hl-red)",
-                color: "#2a0606",
-                padding: "3px 8px",
-                borderRadius: 3,
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: 0.3,
-                whiteSpace: "nowrap",
-                pointerEvents: "none",
-                zIndex: 5,
-                boxShadow: "0 0 10px rgba(248,113,113,0.5)",
-              }}
-            >
-              NO · {100 - yesCents}¢
-            </div>
-          )}
+          {/* Active-side endpoint label — green YES chip or red NO chip
+              depending on the order-panel toggle. Previously rendered
+              BOTH chips simultaneously, which doubled the visual noise
+              at the right edge AND cluttered the now-line BTC chip. */}
+          {nowX != null && (() => {
+            const sideCents = viewSide === "yes" ? yesCents : 100 - yesCents;
+            const yPct = viewSide === "yes" ? (endY / H) * 100 : ((H - endY) / H) * 100;
+            const bg = viewSide === "yes" ? "var(--hl-green)" : "var(--hl-red)";
+            const textColor = viewSide === "yes" ? "#001d0c" : "#2a0606";
+            const glow = viewSide === "yes" ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.5)";
+            return (
+              <div
+                className="absolute mono"
+                style={{
+                  left: `${(nowX / W) * 100}%`,
+                  top: `${yPct}%`,
+                  transform: "translate(8px, -50%)",
+                  background: bg,
+                  color: textColor,
+                  padding: "3px 8px",
+                  borderRadius: 3,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: 0.3,
+                  whiteSpace: "nowrap",
+                  pointerEvents: "none",
+                  zIndex: 5,
+                  boxShadow: `0 0 10px ${glow}`,
+                }}
+              >
+                {viewSide === "yes" ? "YES" : "NO"} · {sideCents}¢
+              </div>
+            );
+          })()}
           {/* BTC mark endpoint label — true orange (#fb923c) to actually
               match the "orange line = BTC price" legend label. */}
           {nowX != null && btcMark != null && (
@@ -3365,6 +3355,7 @@ function BucketMarketView({
             yesCents={yesCents}
             trades={bucketTrades}
             hip4Coin={selectedYesCoin}
+            viewSide={tradeSide}
             onWhaleClick={setSelectedWhale}
             limitOrderCents={null}
             limitOrderSide={null}
