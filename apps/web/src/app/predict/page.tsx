@@ -1772,14 +1772,17 @@ function RiverChart({
     }
 
     // Helper: convert a bucket centre timestamp to an x pixel position,
-    // clamped to the chart's visible width. The "current" bucket's
-    // midpoint is in the future (e.g., a 10-min bucket is half-in-future
-    // for the first 5 minutes of its life) — without the clamp those
-    // whales rendered with x > W, drifting off the right edge of the
-    // canvas. Snapping to tMax keeps the freshest bucket pinned to the
-    // "now" line where it visually belongs.
+    // clamped to NOW. The "current" bucket's midpoint is naturally in
+    // the future (e.g., a 10-min bucket whose first 5 min just elapsed
+    // has a midpoint 5 min ahead of now) — uncalmped that pushed whales
+    // past the right edge of 6H/1H views OR, worse, into the future-
+    // projection space of the 24H view (which spans contract-open to
+    // settle, with "now" in the MIDDLE). The earlier version clamped
+    // to tMax, but tMax == settleTs on 24H so whales for the current
+    // bucket leaked rightward of the now-line, looking like fills in
+    // the future. nowSafe is the only correct ceiling.
     const xForBucketCenter = (bucketCenter: number) => {
-      const t = Math.min(bucketCenter, tMax);
+      const t = Math.min(bucketCenter, nowSafe);
       return ((t - tMin) / (tMax - tMin)) * W;
     };
 
@@ -1833,7 +1836,10 @@ function RiverChart({
       [...buckets.values()].filter((b) => !b.isYes).map((b) => b.bucketIdx),
     );
     for (const c of marketCandles) {
-      if (c.t < tMin || c.t > tMax) continue;
+      // Defensive — candles should never have future timestamps but
+      // HL has had odd quirks; cap to nowSafe so a stray future candle
+      // can't seed a whale in the future-projection band.
+      if (c.t < tMin || c.t > nowSafe) continue;
       const bucketIdx = Math.floor(c.t / BUCKET_MS);
       const open = parseFloat(c.o);
       const close = parseFloat(c.c);
