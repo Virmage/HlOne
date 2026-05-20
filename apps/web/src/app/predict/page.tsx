@@ -1748,17 +1748,29 @@ function RiverChart({
     }
 
     // Candle-volume fallback — when the WS hasn't captured any trades in
-    // a bucket yet, infer flow from the candle's direction. Treated as a
-    // YES-side whale (the candle is YES probability), buy/sell from
-    // close-vs-open. Useful when the contract just rolled and the trade
-    // buffer is sparse.
+    // a bucket yet (typical after an API restart, since the in-memory
+    // trade buffer is wiped and HL has no historical-trades endpoint
+    // for HIP-4), infer flow from the candle's direction. Generates
+    // BOTH a YES synthetic whale AND a NO synthetic whale per candle
+    // so the user sees historical context on whichever side they're
+    // viewing. Previously only YES whales were generated → NO tab
+    // showed only the few real trades since the last API restart and
+    // the rest of the day looked empty.
+    //
+    // Inversion logic for NO:
+    //   - candle is on the YES coin; YES price `close` = yesPx
+    //   - NO equivalent price = 1 - yesPx
+    //   - YES close > open (YES rallied) → NO fell → NO sell ("A")
+    //   - YES close < open (YES fell)    → NO rose → NO buy  ("B")
     const seenYesBuckets = new Set(
       [...buckets.values()].filter((b) => b.isYes).map((b) => b.bucketIdx),
+    );
+    const seenNoBuckets = new Set(
+      [...buckets.values()].filter((b) => !b.isYes).map((b) => b.bucketIdx),
     );
     for (const c of marketCandles) {
       if (c.t < tMin || c.t > tMax) continue;
       const bucketIdx = Math.floor(c.t / BUCKET_MS);
-      if (seenYesBuckets.has(bucketIdx)) continue;
       const open = parseFloat(c.o);
       const close = parseFloat(c.c);
       const vol = parseFloat(c.v);
@@ -1766,17 +1778,34 @@ function RiverChart({
       const avgPx = (open + close) / 2;
       const usd = vol * avgPx;
       const bucketCenter = (bucketIdx + 0.5) * BUCKET_MS;
-      raw.push({
-        x: xForBucketCenter(bucketCenter),
-        y: 0,
-        usd,
-        px: close,
-        side: close >= open ? "B" : "A",
-        isYes: true,
-        count: Math.round(vol),
-        time: bucketCenter,
-        bucketIdx,
-      });
+      const yesBull = close >= open;
+
+      if (!seenYesBuckets.has(bucketIdx)) {
+        raw.push({
+          x: xForBucketCenter(bucketCenter),
+          y: 0,
+          usd,
+          px: close,
+          side: yesBull ? "B" : "A",
+          isYes: true,
+          count: Math.round(vol),
+          time: bucketCenter,
+          bucketIdx,
+        });
+      }
+      if (!seenNoBuckets.has(bucketIdx)) {
+        raw.push({
+          x: xForBucketCenter(bucketCenter),
+          y: 0,
+          usd,
+          px: 1 - close,                 // NO-space price
+          side: yesBull ? "A" : "B",     // inverted: YES bull = NO sell
+          isYes: false,
+          count: Math.round(vol),
+          time: bucketCenter,
+          bucketIdx,
+        });
+      }
     }
 
     // Every whale renders at the SAME diameter so size never affects
