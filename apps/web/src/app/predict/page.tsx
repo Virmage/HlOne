@@ -2569,7 +2569,16 @@ function RiverChart({
             y in their absolute positioning. */}
         <div className="h-[24px] md:h-[70px]" />
         <div className="relative h-[200px] md:h-[420px]" style={{ overflow: "visible" }}>
-          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "calc(100% - 32px)", height: "100%", display: "block" }}>
+          {/* Right gutter widened on desktop (100px) so the YES + BTC
+              endpoint chips can sit OUTSIDE the data area, attached to
+              the right side of the chart in line with their lines.
+              Mobile keeps the original 32px since extra-wide chips
+              would crush the data area on a phone. */}
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            preserveAspectRatio="none"
+            className="block h-full w-[calc(100%-32px)] md:w-[calc(100%-100px)]"
+          >
             <defs>
               {/* Two gradients so the filled area under the probability line
                   picks the right colour per viewSide. Only one is referenced
@@ -2838,9 +2847,14 @@ function RiverChart({
             return (
               <>
                 <div
-                  className="absolute mono"
+                  // right-[4px] on mobile, right-[36px] on desktop —
+                  // the wider gutter on desktop matches the shrunken
+                  // SVG width so the chip sits OUTSIDE the data area,
+                  // not over the line endpoint. Mobile keeps the chip
+                  // hugging the right edge since the chart canvas is
+                  // already narrow on phones.
+                  className="absolute mono right-[4px] md:right-[36px]"
                   style={{
-                    right: 4,
                     top: `${yesPct}%`,
                     transform: "translateY(-50%)",
                     background: bg,
@@ -2860,9 +2874,8 @@ function RiverChart({
                 </div>
                 {btcMark != null && btcAdjustedPct != null && (
                   <div
-                    className="absolute mono"
+                    className="absolute mono right-[4px] md:right-[36px]"
                     style={{
-                      right: 4,
                       top: `${btcAdjustedPct}%`,
                       transform: "translateY(-50%)",
                       background: "#fb923c",
@@ -3072,19 +3085,22 @@ function RiverChart({
             };
             const sharedStyle = {
               left: strike != null ? 60 : 0,
-              right: 32,
               height: 16,
               fontSize: 9,
               color: "var(--hl-muted)",
               paddingTop: 4,
               borderTop: "1px solid var(--hl-border)",
             } as const;
+            // right edge tracks the SVG's right edge: 32px mobile,
+            // 100px desktop. Without this the time labels would float
+            // past the chart's data area into the empty right gutter.
+            const rightClass = "right-[32px] md:right-[100px]";
             return (
               <>
-                <div className="hidden md:flex absolute bottom-0 justify-between mono" style={sharedStyle}>
+                <div className={`hidden md:flex absolute bottom-0 justify-between mono ${rightClass}`} style={sharedStyle}>
                   {buildTicks(5).map((t, i) => <span key={i}>{t}</span>)}
                 </div>
-                <div className="md:hidden absolute bottom-0 flex justify-between mono" style={sharedStyle}>
+                <div className={`md:hidden absolute bottom-0 flex justify-between mono ${rightClass}`} style={sharedStyle}>
                   {buildTicks(3).map((t, i) => <span key={i}>{t}</span>)}
                 </div>
               </>
@@ -3102,9 +3118,8 @@ function RiverChart({
               when a limit is being composed. */}
           {limitY != null && limitOrderCents != null && (
             <div
-              className="absolute mono"
+              className="absolute mono right-[32px] md:right-[100px]"
               style={{
-                right: 32,
                 top: `${(limitY / H) * 100}%`,
                 transform: "translate(100%, -50%)",
                 background: "var(--hl-accent)",
