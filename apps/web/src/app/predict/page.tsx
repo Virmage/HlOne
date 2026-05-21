@@ -975,19 +975,147 @@ export default function PredictPage() {
   const strikeProximityPct = btcMark && strike ? Math.abs(distancePct) : Infinity;
   const isPinRisk = expiryTier !== "none" && strikeProximityPct < 0.3;
 
+  // Submit handler for the binary YES/NO order. Extracted so both the
+  // desktop TradePanel and the mobile sticky bottom CTA can call the
+  // same code path with the same state (side / stake / orderType /
+  // limitPx all live here on PredictPage).
+  const handleBinarySubmit = async () => {
+    if (!isConnected || !address) {
+      setOrderStatus({ kind: "error", message: "Connect wallet first" });
+      return;
+    }
+    if (!hyperodd.hip4Outcome) {
+      setOrderStatus({ kind: "error", message: "Market not loaded yet" });
+      return;
+    }
+    // YES side → outcome side 0 ("#<outcome>0"); NO → side 1.
+    const sideIdx = side === "yes" ? 0 : 1;
+    const asset = `#${hyperodd.hip4Outcome}${sideIdx}`;
+    // HL outcome shares are priced 0..1; user types cents.
+    const lpx = parseFloat(limitPx);
+    const limitPrice =
+      orderType === "limit" && Number.isFinite(lpx) && lpx > 0
+        ? lpx / 100
+        : undefined;
+
+    setOrderStatus({ kind: "pending" });
+    try {
+      const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
+        import("@wagmi/core"),
+        import("@/lib/hl-exchange"),
+        import("@/config/wagmi"),
+      ]);
+      const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
+      if (!walletClient) throw new Error("Wallet client not available");
+
+      // Ensure agent wallet (one-time MetaMask popup if not approved)
+      const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
+      if (agentResult.error || !agentResult.agentKey) {
+        throw new Error(agentResult.error || "Agent setup failed");
+      }
+
+      // Ensure builder fee approval (one-time popup)
+      const builderApproved = await exchange.checkBuilderApproval(address as string);
+      if (!builderApproved) {
+        const approval = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
+        if (!approval.success) throw new Error(approval.error || "Builder fee approval failed");
+      }
+
+      // HL enforces a 10 USDH minimum order value on HIP-4. If
+      // floor(shares) × price falls below $10, HL rejects with
+      // "Order must have minimum value of 10 USDH" and the
+      // user's order silently fails. Round UP so notional is
+      // always ≥ $10.04 (one share worth of buffer).
+      const MIN_NOTIONAL_USDH = 10;
+      const naiveShares = Math.max(1, Math.floor(shares));
+      const fillPxFraction = side === "yes" ? effectiveYesPx : 1 - effectiveYesPx;
+      const minSharesForMinimum = fillPxFraction > 0
+        ? Math.ceil(MIN_NOTIONAL_USDH / fillPxFraction)
+        : naiveShares;
+      const finalSize = Math.max(naiveShares, minSharesForMinimum);
+
+      const res = await exchange.placeOrder(
+        agentResult.agentKey,
+        address as `0x${string}`,
+        {
+          asset,
+          isBuy: true, // always buying YES or NO shares (HL outcome model)
+          size: finalSize,
+          orderType,
+          limitPrice,
+          slippageBps: orderType === "market" ? 200 : undefined,
+        },
+      );
+      if (res.success) {
+        setOrderStatus({
+          kind: "success",
+          message: `Filled ${res.filledSize ?? "?"} @ ${res.avgPrice ?? "?"}¢`,
+        });
+        // Tell the position-balance fetcher to refresh NOW
+        // instead of waiting up to 15s for the next poll —
+        // so "Your Position" reflects the fill immediately.
+        window.dispatchEvent(new CustomEvent("hlone:trade-filled"));
+      } else {
+        setOrderStatus({ kind: "error", message: res.error ?? "Order failed" });
+      }
+    } catch (err) {
+      setOrderStatus({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Order threw",
+      });
+    }
+  };
+
   // ─── render ────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen text-[var(--foreground)]" style={{ background: "var(--background)" }}>
+    <div className="predict-root min-h-screen text-[var(--foreground)]" style={{ background: "var(--background)" }}>
       <style jsx>{`
-        .panel { background: var(--hl-surface); border: 1px solid var(--hl-border); }
-        .ptitle { font-size: 11px; font-weight: 500; color: var(--hl-accent); text-transform: uppercase; letter-spacing: 0.6px; }
-        .psub { font-size: 10px; color: var(--hl-muted); }
-        .cellL { font-size: 9px; color: var(--hl-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        /* Type scale — single source of truth so mobile fonts read like an
+           app instead of a pile of 9/10/11/12/13/14px ad-hoc values.
+              caption  — uppercase labels, metadata
+              micro    — denser secondary metadata (timestamps, sub-labels)
+              body     — paragraph + summary rows
+              input    — form inputs (≥16px so iOS doesn't auto-zoom on focus)
+              num      — primary numeric readouts
+              num-lg   — hero numbers (YES/NO cents, market %)
+              title    — page H1 (mobile)
+              title-lg — page H1 (desktop)
+        */
+        .predict-root {
+          --t-caption: 11px;
+          --t-micro: 10px;
+          --t-body: 13px;
+          --t-input: 16px;
+          --t-num: 15px;
+          --t-num-lg: 18px;
+          --t-title: 20px;
+          --t-title-lg: 28px;
+        }
+        .panel {
+          background: var(--hl-surface);
+          border: 1px solid var(--hl-border);
+          border-radius: 6px;
+        }
+        .ptitle { font-size: var(--t-caption); font-weight: 600; color: var(--hl-accent); text-transform: uppercase; letter-spacing: 0.6px; }
+        .psub { font-size: var(--t-micro); color: var(--hl-muted); }
+        .cellL { font-size: var(--t-micro); color: var(--hl-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
         .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
-        .badge-c { padding: 2px 7px; border-radius: 3px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(0,240,255,0.08); color: var(--hl-accent); }
-        .badge-l { padding: 2px 7px; border-radius: 3px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(248,113,113,0.1); color: var(--hl-red); }
+        .badge-c { padding: 2px 7px; border-radius: 3px; font-size: var(--t-micro); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(0,240,255,0.08); color: var(--hl-accent); }
+        .badge-l { padding: 2px 7px; border-radius: 3px; font-size: var(--t-micro); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(248,113,113,0.1); color: var(--hl-red); }
         .badge-l::before { content: "● "; }
-        .badge-d { padding: 2px 7px; border-radius: 3px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(245,165,36,0.12); color: var(--hl-yellow); }
+        .badge-d { padding: 2px 7px; border-radius: 3px; font-size: var(--t-micro); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(245,165,36,0.12); color: var(--hl-yellow); }
+        /* App-like field row: consistent padding, rounded corners,
+           subtle inner bg so multi-row stacks (Available / Position /
+           Size) read as a single grouped control. */
+        .field-row {
+          background: var(--background);
+          border: 1px solid var(--hl-border);
+          border-radius: 5px;
+        }
+        /* Number/value emphasis used inside the order summary so it
+           pops vs the label. */
+        .v-num { font-size: var(--t-num); font-weight: 600; }
+        .v-num-lg { font-size: var(--t-num-lg); font-weight: 700; }
         @keyframes expiry-pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.55; }
@@ -995,44 +1123,58 @@ export default function PredictPage() {
         .expiry-pulse { animation: expiry-pulse 1.2s ease-in-out infinite; }
       `}</style>
 
-      {/* LIVE banner — single chunk "● LIVE · HIP-4 MAINNET #600" so
-          there's no "HIP-4 MAINNET" + "HIP-4 outcome market" repetition.
-          USDH-balance pill removed (it's already shown inside the order
-          panel where it's actionable). */}
+      {/* Sticky context header — LIVE banner + tab strip pin to the top
+          on mobile so the user always knows which market they're in while
+          scrolling the chart / order flow. Desktop keeps the same look
+          but doesn't need sticky (the chart + order panel are side by
+          side, both visible without scrolling). */}
       <div
-        className="max-w-[1440px] mx-auto px-4 py-1.5 flex items-center gap-3 text-[11px]"
-        style={{ background: "rgba(74,222,128,0.06)", borderBottom: "1px solid rgba(74,222,128,0.2)" }}
+        className="md:static sticky top-0 z-20"
+        style={{ background: "var(--background)" }}
       >
-        <span
-          className="mono font-bold flex items-center gap-2"
-          style={{ color: "var(--hl-green)", letterSpacing: 0.6, fontSize: 10 }}
+        {/* LIVE banner — single chunk "● LIVE · HIP-4 MAINNET #600" */}
+        <div
+          className="max-w-[1440px] mx-auto px-4 py-1.5 flex items-center gap-3"
+          style={{
+            background: "rgba(74,222,128,0.06)",
+            borderBottom: "1px solid rgba(74,222,128,0.2)",
+            fontSize: "var(--t-micro)",
+          }}
         >
-          <span>● LIVE · HIP-4 MAINNET</span>
-          <code className="mono" style={{ color: "var(--hl-accent)", letterSpacing: 0 }}>
-            {activeMarket === "binary"
-              ? (hyperodd.hip4Coin ?? "loading…")
-              : `Q${bucketMarket?.questionId ?? "…"}`}
-          </code>
-        </span>
+          <span
+            className="mono font-bold flex items-center gap-2"
+            style={{ color: "var(--hl-green)", letterSpacing: 0.6 }}
+          >
+            <span>● LIVE · HIP-4 MAINNET</span>
+            <code className="mono" style={{ color: "var(--hl-accent)", letterSpacing: 0 }}>
+              {activeMarket === "binary"
+                ? (hyperodd.hip4Coin ?? "loading…")
+                : `Q${bucketMarket?.questionId ?? "…"}`}
+            </code>
+          </span>
 
-        <span
-          className="ml-auto mono text-[10px]"
-          style={{ color: hyperodd.wsConnected ? "var(--hl-green)" : "var(--hl-muted)" }}
+          <span
+            className="ml-auto mono"
+            style={{ color: hyperodd.wsConnected ? "var(--hl-green)" : "var(--hl-muted)" }}
+          >
+            {hyperodd.wsConnected ? "● ws live" : "○ ws connecting…"}
+          </span>
+        </div>
+
+        {/* Market-selector tabs — swap between binary (single YES/NO threshold)
+            and bucket (multi-outcome range question). Both settle at the same
+            06:00 UTC. */}
+        <div
+          // overflow-x-auto + flex-nowrap so the tabs scroll horizontally on
+          // narrow screens instead of stacking weirdly underneath the
+          // bottom border.
+          className="max-w-[1440px] mx-auto px-4 flex items-center gap-2 overflow-x-auto whitespace-nowrap"
+          style={{
+            borderBottom: "1px solid var(--hl-border)",
+            background: "var(--background)",
+            fontSize: "var(--t-body)",
+          }}
         >
-          {hyperodd.wsConnected ? "● ws live" : "○ ws connecting…"}
-        </span>
-      </div>
-
-      {/* Market-selector tabs — swap between binary (single YES/NO threshold)
-          and bucket (multi-outcome range question). Both settle at the same
-          06:00 UTC. */}
-      <div
-        // overflow-x-auto + flex-nowrap so the tabs scroll horizontally on
-        // narrow screens instead of stacking weirdly underneath the
-        // bottom border.
-        className="max-w-[1440px] mx-auto px-4 pt-3 flex items-center gap-2 text-[12px] overflow-x-auto whitespace-nowrap"
-        style={{ borderBottom: "1px solid var(--hl-border)" }}
-      >
         <button
           onClick={() => setActiveMarket("binary")}
           className="px-3 py-1.5 mono font-semibold flex-shrink-0"
@@ -1059,6 +1201,7 @@ export default function PredictPage() {
         >
           Buckets {bucketMarket?.buckets.length ? `· ${bucketMarket.buckets.length} ranges` : ""}
         </button>
+        </div>
       </div>
 
       {/* Expiry warning — only shown when contract is within 60 min of settle */}
@@ -1114,24 +1257,39 @@ export default function PredictPage() {
       {/* market strip */}
       <div className="max-w-[1440px] mx-auto px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
         <div className="flex items-center gap-4 mb-3 flex-wrap">
-          <h1 className="text-[20px] sm:text-[28px] font-bold tracking-tight leading-tight">
-            Will BTC close above ${strike?.toLocaleString() ?? "…"} today?
+          <h1
+            className="font-bold tracking-tight leading-tight"
+            style={{ fontSize: "var(--t-title)" }}
+          >
+            <span className="md:hidden">BTC &gt; ${strike?.toLocaleString() ?? "…"}?</span>
+            <span className="hidden md:inline" style={{ fontSize: "var(--t-title-lg)" }}>
+              Will BTC close above ${strike?.toLocaleString() ?? "…"} today?
+            </span>
           </h1>
           <div className="ml-auto flex gap-2">
             <button
               onClick={() => setShowRules(true)}
-              className="text-[11px] px-3 py-1 rounded"
-              style={{ background: "var(--hl-surface)", border: "1px solid var(--hl-border)", color: "var(--hl-text)" }}
+              className="px-3 py-1 rounded"
+              style={{
+                background: "var(--hl-surface)",
+                border: "1px solid var(--hl-border)",
+                color: "var(--hl-text)",
+                fontSize: "var(--t-caption)",
+              }}
             >
-              Resolution rules
+              Rules
             </button>
           </div>
         </div>
 
-        {/* Horizontal scroll on mobile so 6 stat chips don't wrap to
-            3 rows with mid-row border-r artifacts; matches the perp
-            page's stat-row pattern. */}
-        <div className="flex items-stretch overflow-x-auto scrollbar-none text-[13px] whitespace-nowrap">
+        {/* Stat strip — 3×2 grid on mobile (reads at a glance, no scroll
+            required) and a single row on desktop where horizontal space
+            is cheap. Mobile cells have a subtle bottom border so the
+            two rows feel like a unit instead of floating chips. */}
+        <div
+          className="grid grid-cols-3 md:flex md:items-stretch md:overflow-x-auto md:whitespace-nowrap scrollbar-none"
+          style={{ fontSize: "var(--t-body)" }}
+        >
           <Stat label="YES" value={`${yesCents}¢`} cls="text-[var(--hl-green)]" />
           <Stat label="NO" value={`${noCents}¢`} cls="text-[var(--hl-red)]" />
           <Stat label="BTC mark" value={btcMark ? `$${btcMark.toLocaleString(undefined, { maximumFractionDigits: 1 })}` : "—"} cls="" />
@@ -1140,19 +1298,21 @@ export default function PredictPage() {
           <Stat label="Settles" value={fmtCountdown(settleTs - now)} cls="text-[var(--hl-yellow)]" />
         </div>
 
-        {/* BTC settle-target widget removed — distance and BTC mark are
-            already in the stats row above; implied-prob line moved into
-            the cross-venue strip in place of the Best Arb cell. */}
-
-        {/* Compare strip — HLOne implied vs HL testnet (HyperOdd) vs Kalshi vs Polymarket */}
+        {/* Compare strip — HLOne implied vs HL testnet (HyperOdd) */}
         <CompareStrip yesProb={yesProb} compare={compare} strike={strike} hyperodd={hyperodd} now={now} expiryTier={expiryTier} />
       </div>
 
       {/* main grid — single column on mobile (chart + order panel stack
           vertically), two columns (chart + sticky-width 320px order panel)
           at md+ as before. Was a rigid `1fr 320px` for both layouts which
-          crushed everything on mobile. */}
-      <main className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3 grid-cols-1 md:grid-cols-[1fr_320px]" style={{ alignItems: "start" }}>
+          crushed everything on mobile.
+
+          pb-24 on mobile (matches sticky bottom-bar height) so the order
+          panel + position widget aren't hidden behind the floating CTA. */}
+      <main
+        className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3 grid-cols-1 md:grid-cols-[1fr_320px] pb-24 md:pb-3"
+        style={{ alignItems: "start" }}
+      >
         <div className="flex flex-col gap-3 min-w-0">
           <RiverChart
             timeframe={timeframe}
@@ -1212,92 +1372,7 @@ export default function PredictPage() {
             usdhBalance={usdhBalance}
             yesPosition={hyperodd.hip4Coin ? hip4Positions.get(hyperodd.hip4Coin) ?? 0 : 0}
             noPosition={hyperodd.hip4Coin ? hip4Positions.get(`#${hyperodd.hip4Coin.slice(1, -1)}1`) ?? 0 : 0}
-            onSubmit={async () => {
-              if (!isConnected || !address) {
-                setOrderStatus({ kind: "error", message: "Connect wallet first" });
-                return;
-              }
-              if (!hyperodd.hip4Outcome) {
-                setOrderStatus({ kind: "error", message: "Market not loaded yet" });
-                return;
-              }
-              // YES side → outcome side 0 ("#<outcome>0"); NO → side 1.
-              const sideIdx = side === "yes" ? 0 : 1;
-              const asset = `#${hyperodd.hip4Outcome}${sideIdx}`;
-              // HL outcome shares are priced 0..1; user types cents.
-              const lpx = parseFloat(limitPx);
-              const limitPrice =
-                orderType === "limit" && Number.isFinite(lpx) && lpx > 0
-                  ? lpx / 100
-                  : undefined;
-
-              setOrderStatus({ kind: "pending" });
-              try {
-                const [wagmiCore, exchange, wagmiConfig] = await Promise.all([
-                  import("@wagmi/core"),
-                  import("@/lib/hl-exchange"),
-                  import("@/config/wagmi"),
-                ]);
-                const walletClient = await wagmiCore.getWalletClient(wagmiConfig.config);
-                if (!walletClient) throw new Error("Wallet client not available");
-
-                // Ensure agent wallet (one-time MetaMask popup if not approved)
-                const agentResult = await exchange.ensureAgent(walletClient, address as `0x${string}`);
-                if (agentResult.error || !agentResult.agentKey) {
-                  throw new Error(agentResult.error || "Agent setup failed");
-                }
-
-                // Ensure builder fee approval (one-time popup)
-                const builderApproved = await exchange.checkBuilderApproval(address as string);
-                if (!builderApproved) {
-                  const approval = await exchange.approveBuilderFee(walletClient, address as `0x${string}`);
-                  if (!approval.success) throw new Error(approval.error || "Builder fee approval failed");
-                }
-
-                // HL enforces a 10 USDH minimum order value on HIP-4. If
-                // floor(shares) × price falls below $10, HL rejects with
-                // "Order must have minimum value of 10 USDH" and the
-                // user's order silently fails. Round UP so notional is
-                // always ≥ $10.04 (one share worth of buffer).
-                const MIN_NOTIONAL_USDH = 10;
-                const naiveShares = Math.max(1, Math.floor(shares));
-                const fillPxFraction = side === "yes" ? effectiveYesPx : 1 - effectiveYesPx;
-                const minSharesForMinimum = fillPxFraction > 0
-                  ? Math.ceil(MIN_NOTIONAL_USDH / fillPxFraction)
-                  : naiveShares;
-                const finalSize = Math.max(naiveShares, minSharesForMinimum);
-
-                const res = await exchange.placeOrder(
-                  agentResult.agentKey,
-                  address as `0x${string}`,
-                  {
-                    asset,
-                    isBuy: true, // always buying YES or NO shares (HL outcome model)
-                    size: finalSize,
-                    orderType,
-                    limitPrice,
-                    slippageBps: orderType === "market" ? 200 : undefined,
-                  },
-                );
-                if (res.success) {
-                  setOrderStatus({
-                    kind: "success",
-                    message: `Filled ${res.filledSize ?? "?"} @ ${res.avgPrice ?? "?"}¢`,
-                  });
-                  // Tell the position-balance fetcher to refresh NOW
-                  // instead of waiting up to 15s for the next poll —
-                  // so "Your Position" reflects the fill immediately.
-                  window.dispatchEvent(new CustomEvent("hlone:trade-filled"));
-                } else {
-                  setOrderStatus({ kind: "error", message: res.error ?? "Order failed" });
-                }
-              } catch (err) {
-                setOrderStatus({
-                  kind: "error",
-                  message: err instanceof Error ? err.message : "Order threw",
-                });
-              }
-            }}
+            onSubmit={handleBinarySubmit}
           />
           <div className="panel">
             <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
@@ -1316,7 +1391,10 @@ export default function PredictPage() {
               const noShares = noCoin ? hip4Positions.get(noCoin) ?? 0 : 0;
               if (yesShares === 0 && noShares === 0) {
                 return (
-                  <div className="p-3 text-center text-[11px]" style={{ color: "var(--hl-muted)" }}>
+                  <div
+                    className="p-3 text-center"
+                    style={{ color: "var(--hl-muted)", fontSize: "var(--t-caption)" }}
+                  >
                     No open position on this market.
                   </div>
                 );
@@ -1331,7 +1409,7 @@ export default function PredictPage() {
               const ifYesWins = yesShares;
               const ifNoWins = noShares;
               return (
-                <div className="p-3 flex flex-col gap-1.5 text-[11px]">
+                <div className="p-3 flex flex-col gap-2" style={{ fontSize: "var(--t-caption)" }}>
                   {yesShares > 0 && (
                     <div className="flex items-center justify-between">
                       <span style={{ color: "var(--hl-green)" }}>
@@ -1352,16 +1430,19 @@ export default function PredictPage() {
                       </span>
                     </div>
                   )}
-                  <div className="mt-2 pt-2 flex flex-col gap-0.5" style={{ borderTop: "1px solid var(--hl-border)" }}>
+                  <div
+                    className="mt-1 pt-2 flex flex-col gap-1"
+                    style={{ borderTop: "1px solid var(--hl-border)" }}
+                  >
                     <div className="flex items-center justify-between" style={{ color: "var(--hl-muted)" }}>
                       <span>If YES wins</span>
-                      <span className="mono" style={{ color: "var(--hl-green)" }}>
+                      <span className="mono font-semibold" style={{ color: "var(--hl-green)" }}>
                         ${ifYesWins.toLocaleString()}
                       </span>
                     </div>
                     <div className="flex items-center justify-between" style={{ color: "var(--hl-muted)" }}>
                       <span>If NO wins</span>
-                      <span className="mono" style={{ color: "var(--hl-red)" }}>
+                      <span className="mono font-semibold" style={{ color: "var(--hl-red)" }}>
                         ${ifNoWins.toLocaleString()}
                       </span>
                     </div>
@@ -1374,6 +1455,108 @@ export default function PredictPage() {
               the essential context. */}
         </div>
       </main>
+
+      {/* Sticky mobile Buy CTA — thumb-reachable bar pinned to the
+          bottom of the viewport. Carries the YES/NO toggle (with live
+          cents) and the BUY button so a user can place an order without
+          scrolling past the chart. Uses the SAME page-level state as
+          the TradePanel above (side/stake/orderType/limitPx), so any
+          edit in one is reflected in the other.
+          md:hidden = desktop has the side panel; sticky bar would be
+          redundant + visually noisy. */}
+      <div
+        className="md:hidden fixed left-0 right-0 z-30"
+        style={{
+          bottom: 0,
+          paddingBottom: "max(env(safe-area-inset-bottom), 8px)",
+          paddingTop: 8,
+          background: "var(--hl-surface)",
+          borderTop: "1px solid var(--hl-border)",
+          boxShadow: "0 -8px 24px rgba(0,0,0,0.45)",
+        }}
+      >
+        {/* Side toggle — same control as TradePanel's YES/NO buttons but
+            compressed into a single row with cents on the right of each
+            cell. */}
+        <div className="grid grid-cols-2 gap-2 px-3 pb-2">
+          <button
+            onClick={() => setSide("yes")}
+            className="py-2 flex items-center justify-between px-3 font-bold"
+            style={{
+              background: side === "yes" ? "rgba(74,222,128,0.14)" : "transparent",
+              color: side === "yes" ? "var(--hl-green)" : "var(--hl-muted)",
+              border: `1px solid ${side === "yes" ? "rgba(74,222,128,0.5)" : "var(--hl-border)"}`,
+              borderRadius: 6,
+              fontSize: "var(--t-caption)",
+            }}
+          >
+            <span>YES</span>
+            <span className="mono" style={{ fontSize: "var(--t-num)" }}>{yesCents}¢</span>
+          </button>
+          <button
+            onClick={() => setSide("no")}
+            className="py-2 flex items-center justify-between px-3 font-bold"
+            style={{
+              background: side === "no" ? "rgba(248,113,113,0.14)" : "transparent",
+              color: side === "no" ? "var(--hl-red)" : "var(--hl-muted)",
+              border: `1px solid ${side === "no" ? "rgba(248,113,113,0.5)" : "var(--hl-border)"}`,
+              borderRadius: 6,
+              fontSize: "var(--t-caption)",
+            }}
+          >
+            <span>NO</span>
+            <span className="mono" style={{ fontSize: "var(--t-num)" }}>{noCents}¢</span>
+          </button>
+        </div>
+        {/* Buy button + cost preview. Size comes from the TradePanel
+            up the page; tapping cost takes the user there to edit. */}
+        <div className="px-3 flex items-center gap-2">
+          <button
+            onClick={() => {
+              // Scroll to the trade panel so the user can edit stake/limit.
+              const root = document.querySelector(".predict-root");
+              const panel = root?.querySelector(".panel");
+              panel?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+            className="flex-1 py-2.5 px-3 flex items-center justify-between"
+            style={{
+              background: "var(--background)",
+              border: "1px solid var(--hl-border)",
+              borderRadius: 6,
+              color: "var(--hl-text)",
+              fontSize: "var(--t-body)",
+            }}
+            aria-label="Edit order size"
+          >
+            <span style={{ color: "var(--hl-muted)" }}>Size</span>
+            <span className="mono font-semibold" style={{ fontSize: "var(--t-num)" }}>
+              ${stake || "0"}
+            </span>
+          </button>
+          <button
+            onClick={handleBinarySubmit}
+            disabled={orderStatus.kind === "pending"}
+            className="font-bold tracking-wide"
+            style={{
+              background: orderStatus.kind === "pending"
+                ? "var(--hl-muted)"
+                : side === "yes" ? "var(--hl-green)" : "var(--hl-red)",
+              color: "#001d0c",
+              border: "none",
+              borderRadius: 6,
+              padding: "10px 18px",
+              minWidth: 130,
+              cursor: orderStatus.kind === "pending" ? "wait" : "pointer",
+              opacity: orderStatus.kind === "pending" ? 0.7 : 1,
+              fontSize: "var(--t-body)",
+            }}
+          >
+            {orderStatus.kind === "pending"
+              ? "Placing…"
+              : `BUY ${side === "yes" ? "YES" : "NO"}`}
+          </button>
+        </div>
+      </div>
       </>}
 
       {/* ── BUCKET MARKET ───────────────────────────────────────────────── */}
@@ -1541,13 +1724,22 @@ function Row({ label, value, sub, cls = "", big = false }: { label: string; valu
 // simplified to just MARKET / THEORY / gap.
 
 function Stat({ label, value, cls }: { label: string; value: string; cls: string }) {
-  // flex-shrink-0 so the chip keeps its natural width inside an
-  // overflow-x-auto container — otherwise long values (e.g. the BTC
-  // mark) compress to ellipsis on mobile.
+  // On mobile (3-col grid) each chip is a self-contained cell with no
+  // vertical dividers; rows get a subtle bottom border so the two rows
+  // visually attach. On md+ we revert to the horizontal flex-strip
+  // layout with right-side dividers (matches the perp page).
   return (
-    <div className="px-3 border-r last:border-r-0 first:pl-0 flex-shrink-0" style={{ borderColor: "var(--hl-border)" }}>
+    <div
+      className="py-1.5 md:py-0 px-2 md:px-3 md:border-r md:last:border-r-0 md:first:pl-0 md:flex-shrink-0"
+      style={{ borderColor: "var(--hl-border)" }}
+    >
       <div className="cellL">{label}</div>
-      <div className={`mono text-[14px] font-semibold ${cls}`}>{value}</div>
+      <div
+        className={`mono font-semibold ${cls}`}
+        style={{ fontSize: "var(--t-num)" }}
+      >
+        {value}
+      </div>
     </div>
   );
 }
@@ -2935,59 +3127,73 @@ function TradePanel({
       <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
         <span className="ptitle">Order entry</span>
         <span className="psub ml-auto">
-          best bid {(liveYesBid * 100).toFixed(1)}¢ · ask {(liveYesAsk * 100).toFixed(1)}¢
+          bid {(liveYesBid * 100).toFixed(1)}¢ · ask {(liveYesAsk * 100).toFixed(1)}¢
         </span>
       </div>
-      <div className="p-3 flex flex-col gap-2">
+      <div className="p-3 flex flex-col gap-2.5">
 
         {/* YES / NO side */}
-        <div className="grid grid-cols-2 gap-1 p-1" style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}>
+        <div
+          className="grid grid-cols-2 gap-1 p-1"
+          style={{ background: "var(--background)", border: "1px solid var(--hl-border)", borderRadius: 5 }}
+        >
           <button
             onClick={() => setSide("yes")}
-            className="py-2 text-[11px] font-bold flex flex-col items-center"
+            className="py-2 font-bold flex flex-col items-center"
             style={{
               background: side === "yes" ? "rgba(74,222,128,0.12)" : "transparent",
               color: side === "yes" ? "var(--hl-green)" : "var(--hl-muted)",
-              borderRadius: 2,
+              borderRadius: 4,
+              fontSize: "var(--t-caption)",
+              letterSpacing: 0.4,
             }}
           >
             BUY YES
-            <span className="mono text-[14px]">{yesCents}¢</span>
+            <span className="mono" style={{ fontSize: "var(--t-num)" }}>{yesCents}¢</span>
           </button>
           <button
             onClick={() => setSide("no")}
-            className="py-2 text-[11px] font-bold flex flex-col items-center"
+            className="py-2 font-bold flex flex-col items-center"
             style={{
               background: side === "no" ? "rgba(248,113,113,0.12)" : "transparent",
               color: side === "no" ? "var(--hl-red)" : "var(--hl-muted)",
-              borderRadius: 2,
+              borderRadius: 4,
+              fontSize: "var(--t-caption)",
+              letterSpacing: 0.4,
             }}
           >
             BUY NO
-            <span className="mono text-[14px]">{noCents}¢</span>
+            <span className="mono" style={{ fontSize: "var(--t-num)" }}>{noCents}¢</span>
           </button>
         </div>
 
         {/* Market / Limit toggle */}
-        <div className="grid grid-cols-2 gap-1 p-1" style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}>
+        <div
+          className="grid grid-cols-2 gap-1 p-1"
+          style={{ background: "var(--background)", border: "1px solid var(--hl-border)", borderRadius: 5 }}
+        >
           <button
             onClick={() => setOrderType("market")}
-            className="py-1.5 text-[10px] font-semibold"
+            className="py-1.5 font-semibold"
             style={{
               background: orderType === "market" ? "var(--hl-surface-hover)" : "transparent",
               color: orderType === "market" ? "var(--foreground)" : "var(--hl-muted)",
-              borderRadius: 2,
+              borderRadius: 4,
+              fontSize: "var(--t-micro)",
+              letterSpacing: 0.4,
             }}
           >
             MARKET
           </button>
           <button
             onClick={() => setOrderType("limit")}
-            className="py-1.5 text-[10px] font-semibold"
+            className="py-1.5 font-semibold"
             style={{
               background: orderType === "limit" ? "var(--hl-surface-hover)" : "transparent",
               color: orderType === "limit" ? "var(--foreground)" : "var(--hl-muted)",
-              borderRadius: 2,
+              borderRadius: 4,
+              fontSize: "var(--t-micro)",
+              letterSpacing: 0.4,
             }}
           >
             LIMIT
@@ -2996,17 +3202,18 @@ function TradePanel({
 
         {/* Limit price input — only when limit selected */}
         {orderType === "limit" && (
-          <div className="flex items-center gap-2 px-2 py-1.5" style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}>
+          <div className="field-row flex items-center gap-2 px-2 py-2">
             <span className="cellL">Limit ¢</span>
             <input
               type="text"
+              inputMode="decimal"
               value={limitPx}
               placeholder={side === "yes" ? (liveYesAsk * 100).toFixed(1) : ((1 - liveYesBid) * 100).toFixed(1)}
               onChange={(e) => setLimitPx(e.target.value.replace(/[^\d.]/g, ""))}
-              className="flex-1 min-w-0 bg-transparent border-none outline-none mono text-right text-[16px] font-semibold"
-              style={{ color: "var(--foreground)" }}
+              className="flex-1 min-w-0 bg-transparent border-none outline-none mono text-right font-semibold"
+              style={{ color: "var(--foreground)", fontSize: "var(--t-input)" }}
             />
-            <span className="mono text-[10px]" style={{ color: "var(--hl-muted)" }}>¢ per share</span>
+            <span className="mono" style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>¢ / share</span>
           </div>
         )}
 
@@ -3014,42 +3221,40 @@ function TradePanel({
             "Available to Trade" is the USDH balance the user can spend.
             "Current Position" shows shares already held on this market
             (YES or NO depending on the side they're viewing). */}
-        <div
-          className="flex flex-col text-[11px]"
-          style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}
-        >
-          <div className="flex items-center justify-between px-2 py-1">
-            <span style={{ color: "var(--hl-muted)" }}>Available to Trade</span>
-            <span className="mono">
+        <div className="field-row flex flex-col" style={{ fontSize: "var(--t-caption)" }}>
+          <div className="flex items-center justify-between px-2 py-1.5">
+            <span style={{ color: "var(--hl-muted)" }}>Available</span>
+            <span className="mono" style={{ fontWeight: 600 }}>
               {usdhBalance == null
                 ? "—"
                 : `${usdhBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDH`}
             </span>
           </div>
-          <div className="flex items-center justify-between px-2 py-1" style={{ borderTop: "1px solid var(--hl-border)" }}>
-            <span style={{ color: "var(--hl-muted)" }}>Current Position</span>
-            <span className="mono">
+          <div className="flex items-center justify-between px-2 py-1.5" style={{ borderTop: "1px solid var(--hl-border)" }}>
+            <span style={{ color: "var(--hl-muted)" }}>Position</span>
+            <span className="mono" style={{ fontWeight: 600 }}>
               {(() => {
                 const pos = side === "yes" ? yesPosition : noPosition;
                 const label = side === "yes" ? "YES" : "NO";
-                if (!pos) return `0 ${label} shares`;
-                return `${pos.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${label} shares`;
+                if (!pos) return `0 ${label}`;
+                return `${pos.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${label}`;
               })()}
             </span>
           </div>
         </div>
 
         {/* Size input */}
-        <div className="flex items-center gap-2 px-2 py-1.5" style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}>
+        <div className="field-row flex items-center gap-2 px-2 py-2">
           <span className="cellL">Size</span>
           <input
             type="text"
+            inputMode="decimal"
             value={stake}
             onChange={(e) => setStake(e.target.value.replace(/[^\d.]/g, ""))}
-            className="flex-1 min-w-0 bg-transparent border-none outline-none mono text-right text-[16px] font-semibold"
-            style={{ color: "var(--foreground)" }}
+            className="flex-1 min-w-0 bg-transparent border-none outline-none mono text-right font-semibold"
+            style={{ color: "var(--foreground)", fontSize: "var(--t-input)" }}
           />
-          <span className="mono text-[10px]" style={{ color: "var(--hl-muted)" }}>USDH</span>
+          <span className="mono" style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>USDH</span>
         </div>
 
         <div className="grid grid-cols-4 gap-1">
@@ -3057,12 +3262,14 @@ function TradePanel({
             <button
               key={q}
               onClick={() => setStake(q === "Max" ? "1000" : q.replace("$", ""))}
-              // py-2 not py-1 for finger-friendly tap targets on
-              // mobile. Was ~22px tall (below iOS 44px minimum); now
-              // ~32px which still reads as a compact button on
-              // desktop but is actually tappable on phones.
-              className="py-2 text-[11px]"
-              style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--hl-text)" }}
+              className="py-2 font-semibold"
+              style={{
+                background: "var(--background)",
+                border: "1px solid var(--hl-border)",
+                color: "var(--hl-text)",
+                borderRadius: 5,
+                fontSize: "var(--t-caption)",
+              }}
             >
               {q}
             </button>
@@ -3070,7 +3277,7 @@ function TradePanel({
         </div>
 
         {/* Summary */}
-        <div className="px-2 py-2" style={{ background: "var(--background)", border: "1px solid var(--hl-border)" }}>
+        <div className="field-row px-2 py-2">
           <SumRow l={orderType === "market" ? "Avg fill" : "Limit price"} v={`${fillPriceCents.toFixed(1)}¢`} />
           <SumRow l="Shares" v={shares.toFixed(0)} />
           {orderType === "limit" && slippageBps > 0 && (
@@ -3081,13 +3288,15 @@ function TradePanel({
         </div>
 
         <button
-          className="py-2.5 text-[13px] font-bold tracking-wide"
+          className="py-3 font-bold tracking-wide"
           style={{
             background: orderStatus.kind === "pending"
               ? "var(--hl-muted)"
               : side === "yes" ? "var(--hl-green)" : "var(--hl-red)",
             color: "#001d0c",
             border: "none",
+            borderRadius: 6,
+            fontSize: "var(--t-body)",
             cursor: orderStatus.kind === "pending" ? "wait" : "pointer",
             opacity: orderStatus.kind === "pending" ? 0.7 : 1,
           }}
@@ -3104,11 +3313,13 @@ function TradePanel({
         {/* Inline order status */}
         {orderStatus.kind === "success" && (
           <div
-            className="text-[10px] px-2 py-1.5"
+            className="px-2 py-1.5"
             style={{
               background: "rgba(74,222,128,0.1)",
               border: "1px solid rgba(74,222,128,0.35)",
               color: "var(--hl-green)",
+              borderRadius: 5,
+              fontSize: "var(--t-micro)",
             }}
           >
             ✓ {orderStatus.message ?? "Order placed"}
@@ -3116,19 +3327,24 @@ function TradePanel({
         )}
         {orderStatus.kind === "error" && (
           <div
-            className="text-[10px] px-2 py-1.5"
+            className="px-2 py-1.5"
             style={{
               background: "rgba(248,113,113,0.1)",
               border: "1px solid rgba(248,113,113,0.35)",
               color: "var(--hl-red)",
+              borderRadius: 5,
+              fontSize: "var(--t-micro)",
             }}
           >
             ✗ {orderStatus.message ?? "Order failed"}
           </div>
         )}
 
-        <div className="text-[9px] text-center tracking-wide" style={{ color: "var(--hl-muted)" }}>
-          Settles 06:00 UTC tomorrow · 1.5 bps builder fee
+        <div
+          className="text-center tracking-wide"
+          style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
+        >
+          Settles 06:00 UTC · 1.5 bps builder fee
         </div>
       </div>
     </div>
@@ -3177,12 +3393,13 @@ function CompareStrip({
       // desktop layout (auto/1fr/1fr/auto) at sm+. Border-l dividers
       // between cells become border-t on mobile so the visual rhythm
       // still works stacked.
-      className="mt-2 px-3 py-2 grid gap-3 text-[11px] grid-cols-1 sm:grid-cols-[auto_1fr_1fr_auto]"
+      className="mt-3 px-3 py-2 grid gap-2 sm:gap-3 grid-cols-1 sm:grid-cols-[auto_1fr_1fr_auto]"
       style={{
         background: "rgba(0,240,255,0.04)",
         border: "1px solid rgba(0,240,255,0.18)",
-        borderRadius: 4,
+        borderRadius: 6,
         alignItems: "center",
+        fontSize: "var(--t-caption)",
       }}
     >
       <span className="flex items-center gap-1.5">
@@ -3224,16 +3441,16 @@ function CompareStrip({
         style={{ borderColor: "var(--hl-border)", boxShadow: "inset 2px 0 0 var(--hl-accent)" }}
         title="The live HIP-4 market price — the actual probability you'd pay to buy YES right now."
       >
-        <span style={{ color: "var(--hl-muted)", fontSize: 10, fontWeight: 600, letterSpacing: 0.4 }}>MARKET</span>
+        <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", fontWeight: 600, letterSpacing: 0.4 }}>MARKET</span>
         {hyperoddCents != null ? (
           <>
-            <span className="mono font-bold" style={{ color: marketColor, fontSize: 17 }}>{hyperoddCents}%</span>
-            <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>
+            <span className="mono font-bold" style={{ color: marketColor, fontSize: "var(--t-num-lg)" }}>{hyperoddCents}%</span>
+            <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>
               {hyperoddCents >= 55 ? "YES favoured" : hyperoddCents <= 45 ? "NO favoured" : "toss-up"}
             </span>
           </>
         ) : (
-          <span style={{ color: "var(--hl-muted)", fontSize: 11 }}>loading…</span>
+          <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-caption)" }}>loading…</span>
         )}
       </div>
 
@@ -3255,11 +3472,11 @@ function CompareStrip({
             : "Theoretical YES probability computed from BTC mark vs strike at 65% annualised vol (σ√t model). Compare with MARKET to see if the market is pricing above or below fair value."
         }
       >
-        <span style={{ color: "var(--hl-muted)", fontSize: 10, fontWeight: 600, letterSpacing: 0.4 }}>THEORY</span>
-        <span className="mono font-bold" style={{ color: "var(--hl-text)", fontSize: 17 }}>
+        <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", fontWeight: 600, letterSpacing: 0.4 }}>THEORY</span>
+        <span className="mono font-bold" style={{ color: "var(--hl-text)", fontSize: "var(--t-num-lg)" }}>
           {theoryCents}%
         </span>
-        <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>σ·√t · 65% vol</span>
+        <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>σ·√t · 65% vol</span>
       </div>
 
       {/* Market-vs-theory gap — explicit signal at the right edge. */}
@@ -3270,12 +3487,12 @@ function CompareStrip({
       >
         {gapCents != null && (
           <>
-            <span style={{ color: "var(--hl-muted)", fontSize: 10 }}>vs theory</span>
+            <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>vs theory</span>
             <span
               className="mono font-bold"
               style={{
                 color: gapCents > 0 ? "var(--hl-green)" : gapCents < 0 ? "var(--hl-red)" : "var(--hl-muted)",
-                fontSize: 13,
+                fontSize: "var(--t-num)",
               }}
             >
               {gapCents > 0 ? "+" : ""}{gapCents}%
@@ -3360,19 +3577,29 @@ function ExplainRow({ color, label, body }: { color: string; label: string; body
 // InterpBracketSubtitle removed alongside Kalshi/Polymarket cells.
 
 function SumRow({ l, v, cls = "", total = false }: { l: string; v: string; cls?: string; total?: boolean }) {
+  // total row gets bumped to body-size + accent color, others sit at
+  // micro-size so the eye is drawn to the bottom-line payout.
   return (
     <div
       className="flex justify-between"
       style={{
-        padding: "2px 0",
-        fontSize: total ? 11 : 10,
+        padding: "3px 0",
+        fontSize: total ? "var(--t-caption)" : "var(--t-micro)",
         marginTop: total ? 4 : 0,
-        paddingTop: total ? 6 : 2,
+        paddingTop: total ? 6 : 3,
         borderTop: total ? "1px solid var(--hl-border)" : undefined,
       }}
     >
       <span style={{ color: total ? "var(--foreground)" : "var(--hl-muted)", fontWeight: total ? 600 : 400 }}>{l}</span>
-      <span className={`mono font-semibold ${cls}`} style={{ color: total && !cls ? "var(--hl-green)" : undefined, fontSize: total ? 12 : 10 }}>{v}</span>
+      <span
+        className={`mono font-semibold ${cls}`}
+        style={{
+          color: total && !cls ? "var(--hl-green)" : undefined,
+          fontSize: total ? "var(--t-body)" : "var(--t-caption)",
+        }}
+      >
+        {v}
+      </span>
     </div>
   );
 }
@@ -3523,18 +3750,25 @@ function BucketMarketView({
       {/* Header strip — picker + stats row, mirrors the binary's market strip */}
       <div className="max-w-[1440px] mx-auto px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
         <div className="flex items-center gap-3 mb-3 flex-wrap">
-          <h1 className="text-[17px] sm:text-[22px] font-bold tracking-tight leading-tight">
-            BTC price range on {market.expiryMs ? new Date(market.expiryMs).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "expiry"}?
+          <h1
+            className="font-bold tracking-tight leading-tight"
+            style={{ fontSize: "var(--t-title)" }}
+          >
+            <span className="md:hidden">BTC range?</span>
+            <span className="hidden md:inline" style={{ fontSize: "var(--t-title-lg)" }}>
+              BTC price range on {market.expiryMs ? new Date(market.expiryMs).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "expiry"}?
+            </span>
           </h1>
           <select
             value={selectedBucketIdx}
             onChange={(e) => setSelectedBucketIdx(parseInt(e.target.value, 10))}
-            className="px-3 py-1.5 text-[13px] mono font-semibold"
+            className="px-3 py-1.5 mono font-semibold"
             style={{
               background: "var(--hl-surface)",
               border: "1px solid var(--hl-accent)",
               color: "var(--hl-accent)",
-              borderRadius: 3,
+              borderRadius: 5,
+              fontSize: "var(--t-body)",
             }}
           >
             {market.buckets.map((b, idx) => {
@@ -3548,7 +3782,12 @@ function BucketMarketView({
           </select>
         </div>
 
-        <div className="flex items-stretch overflow-x-auto scrollbar-none text-[13px] whitespace-nowrap">
+        {/* Same 3×2 grid pattern as the binary stat strip on mobile;
+            full-width horizontal flex on md+. */}
+        <div
+          className="grid grid-cols-3 md:flex md:items-stretch md:overflow-x-auto md:whitespace-nowrap scrollbar-none"
+          style={{ fontSize: "var(--t-body)" }}
+        >
           <Stat label="YES" value={`${yesCents}¢`} cls="text-[var(--hl-green)]" />
           <Stat label="NO" value={`${noCents}¢`} cls="text-[var(--hl-red)]" />
           <Stat label="BTC mark" value={btcMark ? `$${btcMark.toLocaleString(undefined, { maximumFractionDigits: 1 })}` : "—"} cls="" />
@@ -3562,8 +3801,9 @@ function BucketMarketView({
         </div>
       </div>
 
-      {/* Main grid — stacks vertically on mobile, two columns at md+. */}
-      <main className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3 grid-cols-1 md:grid-cols-[1fr_320px]" style={{ alignItems: "start" }}>
+      {/* Main grid — stacks vertically on mobile, two columns at md+.
+          pb-6 on mobile (no sticky bar in bucket view, so smaller pad). */}
+      <main className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3 grid-cols-1 md:grid-cols-[1fr_320px] pb-6" style={{ alignItems: "start" }}>
         <div className="grid gap-3" style={{ gridAutoRows: "min-content" }}>
           <RiverChart
             timeframe={timeframe}
@@ -3589,12 +3829,12 @@ function BucketMarketView({
         </div>
 
         {/* Order panel — anchored to the chosen bucket */}
-        <div className="panel p-3 flex flex-col gap-2">
+        <div className="panel p-3 flex flex-col gap-2.5">
           <div className="flex items-center" style={{ borderBottom: "1px solid var(--hl-border)", paddingBottom: 8 }}>
             <span className="ptitle">Trade range</span>
             <span className="psub ml-auto mono">{selectedBucket?.yesCoin}/{selectedBucket?.noCoin}</span>
           </div>
-          <div className="text-[11px]" style={{ color: "var(--hl-text)" }}>
+          <div style={{ color: "var(--hl-text)", fontSize: "var(--t-caption)" }}>
             <b className="mono">{selectedBucket?.label}</b>{" "}
             <span style={{ color: "var(--hl-muted)" }}>· {yesCents}¢ YES · {noCents}¢ NO</span>
           </div>
@@ -3602,24 +3842,26 @@ function BucketMarketView({
           <div className="grid grid-cols-2 gap-2 mt-1">
             <button
               onClick={() => setTradeSide("yes")}
-              className="py-2 text-[12px] mono font-semibold"
+              className="py-2 mono font-semibold"
               style={{
                 background: tradeSide === "yes" ? "rgba(74,222,128,0.15)" : "var(--hl-surface)",
                 border: `1px solid ${tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-border)"}`,
                 color: tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-muted)",
-                borderRadius: 3,
+                borderRadius: 5,
+                fontSize: "var(--t-body)",
               }}
             >
               YES
             </button>
             <button
               onClick={() => setTradeSide("no")}
-              className="py-2 text-[12px] mono font-semibold"
+              className="py-2 mono font-semibold"
               style={{
                 background: tradeSide === "no" ? "rgba(248,113,113,0.15)" : "var(--hl-surface)",
                 border: `1px solid ${tradeSide === "no" ? "var(--hl-red)" : "var(--hl-border)"}`,
                 color: tradeSide === "no" ? "var(--hl-red)" : "var(--hl-muted)",
-                borderRadius: 3,
+                borderRadius: 5,
+                fontSize: "var(--t-body)",
               }}
             >
               NO
@@ -3629,24 +3871,26 @@ function BucketMarketView({
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setOrderType("market")}
-              className="py-1.5 text-[11px] mono"
+              className="py-1.5 mono"
               style={{
                 background: orderType === "market" ? "var(--hl-accent)" : "var(--hl-surface)",
                 color: orderType === "market" ? "var(--background)" : "var(--hl-muted)",
                 border: `1px solid ${orderType === "market" ? "var(--hl-accent)" : "var(--hl-border)"}`,
-                borderRadius: 3,
+                borderRadius: 5,
+                fontSize: "var(--t-caption)",
               }}
             >
               Market
             </button>
             <button
               onClick={() => setOrderType("limit")}
-              className="py-1.5 text-[11px] mono"
+              className="py-1.5 mono"
               style={{
                 background: orderType === "limit" ? "var(--hl-accent)" : "var(--hl-surface)",
                 color: orderType === "limit" ? "var(--background)" : "var(--hl-muted)",
                 border: `1px solid ${orderType === "limit" ? "var(--hl-accent)" : "var(--hl-border)"}`,
-                borderRadius: 3,
+                borderRadius: 5,
+                fontSize: "var(--t-caption)",
               }}
             >
               Limit
@@ -3656,56 +3900,52 @@ function BucketMarketView({
           {/* Wallet context — Available-to-Trade + Current-Position rows,
               same shape as the binary TradePanel. Position is whichever
               side (YES/NO) the user is currently buying for this bucket. */}
-          <div
-            className="flex flex-col text-[11px]"
-            style={{ background: "var(--background)", border: "1px solid var(--hl-border)", borderRadius: 3 }}
-          >
-            <div className="flex items-center justify-between px-2 py-1">
-              <span style={{ color: "var(--hl-muted)" }}>Available to Trade</span>
-              <span className="mono">
+          <div className="field-row flex flex-col" style={{ fontSize: "var(--t-caption)" }}>
+            <div className="flex items-center justify-between px-2 py-1.5">
+              <span style={{ color: "var(--hl-muted)" }}>Available</span>
+              <span className="mono" style={{ fontWeight: 600 }}>
                 {usdhBalance == null
                   ? "—"
                   : `${usdhBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDH`}
               </span>
             </div>
-            <div className="flex items-center justify-between px-2 py-1" style={{ borderTop: "1px solid var(--hl-border)" }}>
-              <span style={{ color: "var(--hl-muted)" }}>Current Position</span>
-              <span className="mono">
+            <div className="flex items-center justify-between px-2 py-1.5" style={{ borderTop: "1px solid var(--hl-border)" }}>
+              <span style={{ color: "var(--hl-muted)" }}>Position</span>
+              <span className="mono" style={{ fontWeight: 600 }}>
                 {(() => {
                   if (!selectedBucket) return "0";
                   const coin = tradeSide === "yes" ? selectedBucket.yesCoin : selectedBucket.noCoin;
                   const pos = hip4Positions.get(coin) ?? 0;
                   const label = tradeSide === "yes" ? "YES" : "NO";
-                  if (!pos) return `0 ${label} shares`;
-                  return `${pos.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${label} shares`;
+                  if (!pos) return `0 ${label}`;
+                  return `${pos.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${label}`;
                 })()}
               </span>
             </div>
           </div>
 
-          <label className="text-[10px]" style={{ color: "var(--hl-muted)" }}>Stake (USD)</label>
+          <label className="cellL">Stake (USD)</label>
           <input
             type="number"
             inputMode="decimal"
             value={stake}
             onChange={(e) => setStake(e.target.value)}
-            className="mono px-2 py-1.5"
-            // text-[16px] prevents iOS Safari from auto-zooming on
-            // focus. Was text-[14px] which triggered the zoom.
-            style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 3, fontSize: 16 }}
+            className="mono field-row px-2 py-2"
+            // fontSize 16 prevents iOS Safari from auto-zooming on focus.
+            style={{ color: "var(--foreground)", fontSize: "var(--t-input)" }}
           />
 
           {orderType === "limit" && (
             <>
-              <label className="text-[10px]" style={{ color: "var(--hl-muted)" }}>Limit price (¢)</label>
+              <label className="cellL">Limit price (¢)</label>
               <input
                 type="number"
                 inputMode="decimal"
                 value={limitPx}
                 onChange={(e) => setLimitPx(e.target.value)}
                 placeholder="0-100"
-                className="mono px-2 py-1.5"
-                style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 3, fontSize: 16 }}
+                className="mono field-row px-2 py-2"
+                style={{ color: "var(--foreground)", fontSize: "var(--t-input)" }}
               />
             </>
           )}
@@ -3716,7 +3956,7 @@ function BucketMarketView({
             const usd = parseFloat(stake) || 0;
             const shares = sidePx > 0 ? Math.floor(usd / sidePx) : 0;
             return (
-              <div className="text-[10px] mt-1" style={{ color: "var(--hl-muted)" }}>
+              <div className="mt-1" style={{ color: "var(--hl-muted)", fontSize: "var(--t-caption)" }}>
                 ≈ <b className="mono">{shares.toLocaleString()}</b> shares · payout if {tradeSide.toUpperCase()} wins:{" "}
                 <b className="mono" style={{ color: "var(--hl-green)" }}>${shares.toLocaleString()}</b>
               </div>
@@ -3781,12 +4021,13 @@ function BucketMarketView({
                 setOrderStatus({ kind: "error", message: err instanceof Error ? err.message : "Order threw" });
               }
             }}
-            className="py-2 text-[12px] mono font-bold mt-1"
+            className="py-3 mono font-bold mt-1 tracking-wide"
             style={{
               background: tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-red)",
               color: "var(--background)",
-              borderRadius: 3,
+              borderRadius: 6,
               opacity: !isConnected || orderStatus.kind === "pending" || parseFloat(stake) <= 0 ? 0.4 : 1,
+              fontSize: "var(--t-body)",
             }}
           >
             {orderStatus.kind === "pending"
@@ -3797,10 +4038,10 @@ function BucketMarketView({
           </button>
 
           {orderStatus.kind === "success" && (
-            <div className="text-[10px] mono" style={{ color: "var(--hl-green)" }}>{orderStatus.message}</div>
+            <div className="mono" style={{ color: "var(--hl-green)", fontSize: "var(--t-micro)" }}>{orderStatus.message}</div>
           )}
           {orderStatus.kind === "error" && (
-            <div className="text-[10px] mono" style={{ color: "var(--hl-red)" }}>{orderStatus.message}</div>
+            <div className="mono" style={{ color: "var(--hl-red)", fontSize: "var(--t-micro)" }}>{orderStatus.message}</div>
           )}
         </div>
       </main>
