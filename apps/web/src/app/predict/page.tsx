@@ -2933,19 +2933,56 @@ function RiverChart({
           </div>
 
           {/* LEFT y-axis — BTC price ticks in orange to match the BTC
-              line. Strike row pulled out into a separate, prominent
-              chip below so it doesn't get lost among the muted ticks. */}
-          {strike != null && (
-            <div
-              className="absolute left-0 top-0 bottom-4 mono"
-              style={{ width: 80, fontSize: 9, color: "#fb923c", padding: "2px 4px", pointerEvents: "none", opacity: 0.75 }}
-            >
-              <span style={{ position: "absolute", top: "0%", left: 4 }}>${Math.round(btcYMax).toLocaleString()}</span>
-              <span style={{ position: "absolute", top: "25%", left: 4 }}>${Math.round(btcYMin + (btcYMax - btcYMin) * 0.75).toLocaleString()}</span>
-              <span style={{ position: "absolute", top: "75%", left: 4 }}>${Math.round(btcYMin + (btcYMax - btcYMin) * 0.25).toLocaleString()}</span>
-              <span style={{ position: "absolute", bottom: 0, left: 4 }}>${Math.round(btcYMin).toLocaleString()}</span>
-            </div>
-          )}
+              line. Labels sit JUST ABOVE the gridline they represent
+              (translateY(-100%) shifts their bottom to align with the
+              line) so the number isn't overprinted on the line itself.
+              Strike row pulled out into a separate prominent chip
+              below; if a tick lands within 8% of the strike's y-position
+              we hide it to avoid colliding with that chip. */}
+          {strike != null && (() => {
+            // Strike's y as a 0..1 fraction of canvas height.
+            const strikePct = strikeY / H;
+            const HIDE_NEAR_STRIKE_PCT = 0.08;
+            const isNearStrike = (pct: number) =>
+              Math.abs(pct - strikePct) < HIDE_NEAR_STRIKE_PCT;
+            // Common style for interior ticks: position by top, then
+            // translateY(-100%) so the label's BOTTOM edge sits on the
+            // gridline. Top tick stays at top:0 with no transform
+            // (label hugs the top edge). Bottom tick uses `bottom: 0`
+            // (label hugs the bottom edge).
+            const tickStyle = {
+              position: "absolute" as const,
+              left: 4,
+              transform: "translateY(-100%)",
+            };
+            return (
+              <div
+                className="absolute left-0 top-0 bottom-4 mono"
+                style={{ width: 80, fontSize: 9, color: "#fb923c", padding: "2px 4px", pointerEvents: "none", opacity: 0.75 }}
+              >
+                {/* Top label — anchors to the top edge, no shift. */}
+                <span style={{ position: "absolute", top: 0, left: 4 }}>
+                  ${Math.round(btcYMax).toLocaleString()}
+                </span>
+                {/* 25%-down tick (= 75% of value range from min). */}
+                {!isNearStrike(0.25) && (
+                  <span style={{ ...tickStyle, top: "25%" }}>
+                    ${Math.round(btcYMin + (btcYMax - btcYMin) * 0.75).toLocaleString()}
+                  </span>
+                )}
+                {/* 75%-down tick (= 25% of value range from min). */}
+                {!isNearStrike(0.75) && (
+                  <span style={{ ...tickStyle, top: "75%" }}>
+                    ${Math.round(btcYMin + (btcYMax - btcYMin) * 0.25).toLocaleString()}
+                  </span>
+                )}
+                {/* Bottom label — anchors to the bottom edge. */}
+                <span style={{ position: "absolute", bottom: 0, left: 4 }}>
+                  ${Math.round(btcYMin).toLocaleString()}
+                </span>
+              </div>
+            );
+          })()}
 
           {/* Strike label — solid yellow chip that anchors to the
               strike line at its y position. Bigger, bolder, with a
