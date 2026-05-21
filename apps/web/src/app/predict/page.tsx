@@ -1278,12 +1278,12 @@ export default function PredictPage() {
         className="md:static sticky top-0 z-20"
         style={{ background: "var(--background)" }}
       >
-        {/* LIVE banner — single chunk "● LIVE · HIP-4 MAINNET #600".
-            Tighter vertical padding on mobile (py-1 vs py-1.5) saves
-            another ~6px since mobile users see no other contextual
-            chrome (tabs removed). */}
+        {/* LIVE banner — DESKTOP ONLY. Hidden on mobile because it
+            duplicated context the user already has (the page IS the
+            HIP-4 market, the chart shows "live" by definition, and
+            the ws-status indicator was noise). */}
         <div
-          className="max-w-[1440px] mx-auto px-4 py-1 md:py-1.5 flex items-center gap-3"
+          className="hidden md:flex max-w-[1440px] mx-auto px-4 py-1.5 items-center gap-3"
           style={{
             background: "rgba(74,222,128,0.06)",
             borderBottom: "1px solid rgba(74,222,128,0.2)",
@@ -1455,23 +1455,16 @@ export default function PredictPage() {
           </button>
         </div>
 
-        {/* Single context line — BTC mark + distance from strike +
-            countdown. One row, tight. */}
+        {/* Single context line — BTC mark + countdown. The distance%
+            line was dropped per user feedback: the chart itself shows
+            BTC vs strike visually, so the text was redundant. */}
         <div
-          className="mt-1.5 flex items-center gap-2 flex-wrap"
+          className="mt-1.5 flex items-center gap-2"
           style={{ fontSize: "var(--t-caption)" }}
         >
           <span className="mono" style={{ color: "var(--hl-text)", fontWeight: 600 }}>
             BTC {btcMark ? `$${btcMark.toLocaleString(undefined, { maximumFractionDigits: 1 })}` : "—"}
           </span>
-          {btcMark != null && (
-            <span
-              className="mono"
-              style={{ color: distance < 0 ? "var(--hl-green)" : "var(--hl-yellow)" }}
-            >
-              {distance >= 0 ? "+" : ""}${Math.abs(distance).toFixed(0)} ({distancePct >= 0 ? "+" : ""}{distancePct.toFixed(2)}%)
-            </span>
-          )}
           <span style={{ color: "var(--hl-muted)" }}>·</span>
           <span className="mono" style={{ color: "var(--hl-yellow)" }}>
             {fmtCountdown(settleTs - now)} left
@@ -1526,9 +1519,10 @@ export default function PredictPage() {
 
       {/* main grid — single column on mobile (chart + order panel stack
           vertically), two columns (chart + sticky-width 320px order panel)
-          at md+ as before. */}
+          at md+ as before. Tighter padding + gap on mobile to compress
+          the dead space between panels. */}
       <main
-        className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3 grid-cols-1 md:grid-cols-[1fr_320px]"
+        className="max-w-[1440px] mx-auto px-3 md:px-4 py-2 md:py-3 grid gap-2 md:gap-3 grid-cols-1 md:grid-cols-[1fr_320px]"
         style={{ alignItems: "start" }}
       >
         <div className="flex flex-col gap-3 min-w-0">
@@ -1594,7 +1588,18 @@ export default function PredictPage() {
             noPosition={hyperodd.hip4Coin ? hip4Positions.get(`#${hyperodd.hip4Coin.slice(1, -1)}1`) ?? 0 : 0}
             onSubmit={handleBinarySubmit}
           />
-          <div className="panel">
+          {/* Your position panel — on MOBILE we only render it when
+              the user actually holds shares (no empty-state filler);
+              on desktop it always renders so the column doesn't
+              visually collapse. */}
+          {(() => {
+            const yesCoinPanel = hyperodd.hip4Coin;
+            const noCoinPanel = yesCoinPanel ? `#${yesCoinPanel.slice(1, -1)}1` : null;
+            const yesSharesPanel = yesCoinPanel ? hip4Positions.get(yesCoinPanel) ?? 0 : 0;
+            const noSharesPanel = noCoinPanel ? hip4Positions.get(noCoinPanel) ?? 0 : 0;
+            const hasPos = yesSharesPanel > 0 || noSharesPanel > 0;
+            return (
+          <div className={`panel ${hasPos ? "" : "hidden md:block"}`}>
             <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
               <span className="ptitle">Your position</span>
               <span className="psub ml-auto">on this market</span>
@@ -1804,6 +1809,8 @@ export default function PredictPage() {
               );
             })()}
           </div>
+            );
+          })()}
           {/* Disclosure panel removed — the LIVE banner up top covers
               the essential context. */}
         </div>
@@ -2419,10 +2426,10 @@ function RiverChart({
   // chart already shows full depth with proper price/size info.
 
   return (
-    // min-h compressed on mobile (380px) so the chart doesn't dominate
+    // min-h compressed on mobile (320px) so the chart doesn't dominate
     // the viewport. Desktop keeps the original ~540px so the canvas has
     // breathing room.
-    <div className="panel min-h-[380px] md:min-h-[540px]" style={{ overflow: "hidden" }}>
+    <div className="panel min-h-[320px] md:min-h-[540px]" style={{ overflow: "hidden" }}>
       {/* Chart header.
           Desktop: "Probability river · live · BTC mark vs strike" caption
             + timeframe pills.
@@ -2496,8 +2503,8 @@ function RiverChart({
             reclaim viewport. overflow:visible on the chart-canvas
             below lets whales render UP into this zone via negative
             y in their absolute positioning. */}
-        <div className="h-[28px] md:h-[70px]" />
-        <div className="relative h-[260px] md:h-[420px]" style={{ overflow: "visible" }}>
+        <div className="h-[24px] md:h-[70px]" />
+        <div className="relative h-[200px] md:h-[420px]" style={{ overflow: "visible" }}>
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "calc(100% - 32px)", height: "100%", display: "block" }}>
             <defs>
               {/* Two gradients so the filled area under the probability line
@@ -2915,16 +2922,33 @@ function RiverChart({
               label in the x-axis convey the same thing without the
               outlined-box artifact the user kept noticing. */}
 
-          {/* x-axis — actual time-of-day ticks, 5 evenly-spaced across
-              the chart. Used to be hard-coded relative labels ("-6h",
-              "-4h 30m" etc.) which (a) didn't reflect the contract-open
-              clamp on 6H/1H views and (b) made reading "when did this
-              trade happen" require mental arithmetic. Now shows HH:MM
-              in the browser's local time, with "open" marking contract
-              start and "settle ▶"/"now ▶" marking the right edge. */}
-          <div
-            className="absolute bottom-0 flex justify-between mono"
-            style={{
+          {/* x-axis time-of-day ticks. Mobile gets 3 evenly-spaced
+              labels (start / middle / end); desktop gets 5. */}
+          {(() => {
+            const fmtTime = (ts: number) =>
+              new Date(ts).toLocaleTimeString(undefined, {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false,
+              });
+            const isLeftEdgeContractOpen = Math.abs(tMin - contractOpen) < 60_000;
+            const isRightEdgeSettle = Math.abs(tMax - settleTs) < 60_000;
+            const isRightEdgeNow = Math.abs(tMax - nowSafe) < 60_000;
+            const buildTicks = (N: number) => {
+              const ticks: string[] = [];
+              for (let i = 0; i < N; i++) {
+                const ts = tMin + (i / (N - 1)) * (tMax - tMin);
+                const label = fmtTime(ts);
+                const decorated =
+                  i === 0 && isLeftEdgeContractOpen ? `open · ${label}`
+                  : i === N - 1 && isRightEdgeSettle ? `${label} · settle ▶`
+                  : i === N - 1 && isRightEdgeNow ? `${label} · now ▶`
+                  : label;
+                ticks.push(decorated);
+              }
+              return ticks;
+            };
+            const sharedStyle = {
               left: strike != null ? 60 : 0,
               right: 32,
               height: 16,
@@ -2932,38 +2956,18 @@ function RiverChart({
               color: "var(--hl-muted)",
               paddingTop: 4,
               borderTop: "1px solid var(--hl-border)",
-            }}
-          >
-            {(() => {
-              const fmtTime = (ts: number) =>
-                new Date(ts).toLocaleTimeString(undefined, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  hour12: false,
-                });
-              const N = 5; // number of ticks
-              const ticks: { label: string; ts: number }[] = [];
-              for (let i = 0; i < N; i++) {
-                const ts = tMin + (i / (N - 1)) * (tMax - tMin);
-                ticks.push({ label: fmtTime(ts), ts });
-              }
-              // Special markers on the bookend ticks. Match the actual
-              // tMax — on 24H with a brand-new contract the right edge
-              // is "now + elapsed buffer" (not settleTs), so hard-coding
-              // "settle ▶" gave a misleading label.
-              const isLeftEdgeContractOpen = Math.abs(tMin - contractOpen) < 60_000;
-              const isRightEdgeSettle = Math.abs(tMax - settleTs) < 60_000;
-              const isRightEdgeNow = Math.abs(tMax - nowSafe) < 60_000;
-              return ticks.map((t, i) => (
-                <span key={i}>
-                  {i === 0 && isLeftEdgeContractOpen ? `open · ${t.label}`
-                    : i === N - 1 && isRightEdgeSettle ? `${t.label} · settle ▶`
-                    : i === N - 1 && isRightEdgeNow ? `${t.label} · now ▶`
-                    : t.label}
-                </span>
-              ));
-            })()}
-          </div>
+            } as const;
+            return (
+              <>
+                <div className="hidden md:flex absolute bottom-0 justify-between mono" style={sharedStyle}>
+                  {buildTicks(5).map((t, i) => <span key={i}>{t}</span>)}
+                </div>
+                <div className="md:hidden absolute bottom-0 flex justify-between mono" style={sharedStyle}>
+                  {buildTicks(3).map((t, i) => <span key={i}>{t}</span>)}
+                </div>
+              </>
+            );
+          })()}
 
           {/* Conviction thumb + arc removed — order entry uses standard limit/market panel */}
 
@@ -3630,15 +3634,17 @@ function TradePanel({
           {isSell && <SumRow l="Selling" v={`${sellSharesClamped.toLocaleString()} ${side.toUpperCase()}`} />}
           {isSell && <SumRow l="You receive" v={`≈ $${sellProceedsUsd.toFixed(2)}`} total />}
         </div>
-        {/* Mobile one-liner — minimum info that still lets the user
-            sanity-check before tapping the button. */}
+        {/* Mobile one-liner — minimum info. Dropped 'max payout'
+            since it's literally just `shares` ($1 per share at settle),
+            so showing both was saying the same thing twice. Profit-
+            if-win is the more informative number. */}
         <div
           className="md:hidden text-center mono"
           style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
         >
           {isSell
             ? `Selling ${sellSharesClamped.toLocaleString()} ${side.toUpperCase()} · receive ≈ $${sellProceedsUsd.toFixed(2)}`
-            : `${shares.toFixed(0)} shares · max payout $${maxPayout.toFixed(0)}`}
+            : `${shares.toFixed(0)} shares · +$${profit.toFixed(0)} if win`}
         </div>
 
         <button
