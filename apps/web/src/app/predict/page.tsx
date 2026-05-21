@@ -1082,12 +1082,17 @@ export default function PredictPage() {
           </span>
           <span style={{ color: "var(--hl-text)" }}>
             Settles in <b className="mono">{fmtCountdown(settleTs - now)}</b>.
-            {expiryTier === "imminent"
-              ? " Expect pin risk and rapid YES/NO whipsaws as BTC oscillates around the strike. σ-implied prob is no longer meaningful — trust the live order book and recent trades only."
-              : " The σ-implied probability becomes unreliable as time decays — use the live HIP-4 mark, not the fair-value reference, for decision-making."}
+            {/* Long explanatory body hidden below sm so mobile doesn't
+                spread the banner over 4-5 lines. Full text restored at
+                sm+ where there's room. */}
+            <span className="hidden sm:inline">
+              {expiryTier === "imminent"
+                ? " Expect pin risk and rapid YES/NO whipsaws as BTC oscillates around the strike. σ-implied prob is no longer meaningful — trust the live order book and recent trades only."
+                : " The σ-implied probability becomes unreliable as time decays — use the live HIP-4 mark, not the fair-value reference, for decision-making."}
+            </span>
             {isPinRisk && (
               <span style={{ color: "var(--hl-red)", fontWeight: 600, marginLeft: 8 }}>
-                BTC is within {strikeProximityPct.toFixed(2)}% of strike — pin risk active.
+                BTC within {strikeProximityPct.toFixed(2)}% of strike — pin risk.
               </span>
             )}
           </span>
@@ -1123,7 +1128,10 @@ export default function PredictPage() {
           </div>
         </div>
 
-        <div className="flex items-stretch flex-wrap text-[13px]">
+        {/* Horizontal scroll on mobile so 6 stat chips don't wrap to
+            3 rows with mid-row border-r artifacts; matches the perp
+            page's stat-row pattern. */}
+        <div className="flex items-stretch overflow-x-auto scrollbar-none text-[13px] whitespace-nowrap">
           <Stat label="YES" value={`${yesCents}¢`} cls="text-[var(--hl-green)]" />
           <Stat label="NO" value={`${noCents}¢`} cls="text-[var(--hl-red)]" />
           <Stat label="BTC mark" value={btcMark ? `$${btcMark.toLocaleString(undefined, { maximumFractionDigits: 1 })}` : "—"} cls="" />
@@ -1172,7 +1180,14 @@ export default function PredictPage() {
             limitOrderSide={orderType === "limit" && parseFloat(limitPx) > 0 ? side : null}
             limitOrderTypedCents={orderType === "limit" && parseFloat(limitPx) > 0 ? parseFloat(limitPx) : null}
           />
-          <LiveOrderBook hyperodd={hyperodd} fairCents={fairCents} now={now} />
+          {/* Order book is hidden on mobile — it's a dense 3-column
+              grid that crushes to unreadable at narrow widths AND
+              pushes the actually-useful TradePanel ~540px down the
+              page. Mirrors the perp page's pattern of hiding the
+              order book below lg. */}
+          <div className="hidden md:block">
+            <LiveOrderBook hyperodd={hyperodd} fairCents={fairCents} now={now} />
+          </div>
         </div>
 
         <div className="flex flex-col gap-3 min-w-0">
@@ -1526,8 +1541,11 @@ function Row({ label, value, sub, cls = "", big = false }: { label: string; valu
 // simplified to just MARKET / THEORY / gap.
 
 function Stat({ label, value, cls }: { label: string; value: string; cls: string }) {
+  // flex-shrink-0 so the chip keeps its natural width inside an
+  // overflow-x-auto container — otherwise long values (e.g. the BTC
+  // mark) compress to ellipsis on mobile.
   return (
-    <div className="px-3 border-r last:border-r-0 first:pl-0" style={{ borderColor: "var(--hl-border)" }}>
+    <div className="px-3 border-r last:border-r-0 first:pl-0 flex-shrink-0" style={{ borderColor: "var(--hl-border)" }}>
       <div className="cellL">{label}</div>
       <div className={`mono text-[14px] font-semibold ${cls}`}>{value}</div>
     </div>
@@ -3008,7 +3026,11 @@ function TradePanel({
             <button
               key={q}
               onClick={() => setStake(q === "Max" ? "1000" : q.replace("$", ""))}
-              className="py-1 text-[10px]"
+              // py-2 not py-1 for finger-friendly tap targets on
+              // mobile. Was ~22px tall (below iOS 44px minimum); now
+              // ~32px which still reads as a compact button on
+              // desktop but is actually tappable on phones.
+              className="py-2 text-[11px]"
               style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--hl-text)" }}
             >
               {q}
@@ -3164,7 +3186,10 @@ function CompareStrip({
           Colour-coded green when YES is favoured, red when NO is favoured,
           so a glance tells you which side the market thinks is winning. */}
       <div
-        className="flex items-baseline gap-2 px-2 border-l"
+        // sm:border-l on desktop becomes border-t on mobile so the
+        // stacked cells get horizontal separators instead of an
+        // unanchored left-edge bar.
+        className="flex items-baseline gap-2 px-2 py-1 sm:py-0 border-t sm:border-t-0 sm:border-l"
         style={{ borderColor: "var(--hl-border)", boxShadow: "inset 2px 0 0 var(--hl-accent)" }}
         title="The live HIP-4 market price — the actual probability you'd pay to buy YES right now."
       >
@@ -3187,7 +3212,7 @@ function CompareStrip({
           which side the market is leaning relative to fair value:
           mean-reversion signal (not arb — you can't trade the model). */}
       <div
-        className="flex items-baseline gap-2 px-2 border-l"
+        className="flex items-baseline gap-2 px-2 py-1 sm:py-0 border-t sm:border-t-0 sm:border-l"
         style={{
           borderColor: "var(--hl-border)",
           opacity: expiryTier === "imminent" ? 0.4 : 1,
@@ -3208,7 +3233,7 @@ function CompareStrip({
 
       {/* Market-vs-theory gap — explicit signal at the right edge. */}
       <div
-        className="flex items-center gap-1.5 px-2 border-l"
+        className="flex items-center gap-1.5 px-2 py-1 sm:py-0 border-t sm:border-t-0 sm:border-l"
         style={{ borderColor: "var(--hl-border)" }}
         title="Gap between market and theory. Positive = market thinks YES is more likely than the model. Negative = market thinks YES is less likely. Mean-reversion signal."
       >
@@ -3290,8 +3315,11 @@ function CompareStripHelp({ onClose }: { onClose: () => void }) {
 }
 
 function ExplainRow({ color, label, body }: { color: string; label: string; body: ReactNode }) {
+  // On mobile the body needs full width — the 140px label column was
+  // crushing it to ~180px on a 360px modal. Stack label-over-body on
+  // mobile, side-by-side at sm+.
   return (
-    <div className="grid gap-1" style={{ gridTemplateColumns: "140px 1fr", alignItems: "baseline" }}>
+    <div className="grid gap-1 sm:gap-3 grid-cols-1 sm:grid-cols-[140px_1fr]" style={{ alignItems: "baseline" }}>
       <span className="mono font-bold" style={{ color }}>{label}</span>
       <span style={{ color: "var(--hl-text)" }}>{body}</span>
     </div>
@@ -3489,7 +3517,7 @@ function BucketMarketView({
           </select>
         </div>
 
-        <div className="flex items-stretch flex-wrap text-[13px]">
+        <div className="flex items-stretch overflow-x-auto scrollbar-none text-[13px] whitespace-nowrap">
           <Stat label="YES" value={`${yesCents}¢`} cls="text-[var(--hl-green)]" />
           <Stat label="NO" value={`${noCents}¢`} cls="text-[var(--hl-red)]" />
           <Stat label="BTC mark" value={btcMark ? `$${btcMark.toLocaleString(undefined, { maximumFractionDigits: 1 })}` : "—"} cls="" />
@@ -3627,10 +3655,13 @@ function BucketMarketView({
           <label className="text-[10px]" style={{ color: "var(--hl-muted)" }}>Stake (USD)</label>
           <input
             type="number"
+            inputMode="decimal"
             value={stake}
             onChange={(e) => setStake(e.target.value)}
-            className="mono text-[14px] px-2 py-1.5"
-            style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 3 }}
+            className="mono px-2 py-1.5"
+            // text-[16px] prevents iOS Safari from auto-zooming on
+            // focus. Was text-[14px] which triggered the zoom.
+            style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 3, fontSize: 16 }}
           />
 
           {orderType === "limit" && (
@@ -3638,11 +3669,12 @@ function BucketMarketView({
               <label className="text-[10px]" style={{ color: "var(--hl-muted)" }}>Limit price (¢)</label>
               <input
                 type="number"
+                inputMode="decimal"
                 value={limitPx}
                 onChange={(e) => setLimitPx(e.target.value)}
                 placeholder="0-100"
-                className="mono text-[14px] px-2 py-1.5"
-                style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 3 }}
+                className="mono px-2 py-1.5"
+                style={{ background: "var(--background)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 3, fontSize: 16 }}
               />
             </>
           )}
