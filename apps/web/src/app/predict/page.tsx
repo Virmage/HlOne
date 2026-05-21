@@ -1457,18 +1457,13 @@ export default function PredictPage() {
           </span>
         </div>
 
-        {/* Twin YES/NO trade cards. Each card:
-              · is the side selector (tap = setSide), so the same control
-                drives the chart's viewSide and the order panel
-              · shows live cents in a big tabular-num readout
-              · shows a tiny market-sentiment cue ("favoured" / "—")
-            The chosen side is highlighted (filled bg + colored border),
-            the other dims out. Whole card is the tap target — no
-            "click here" affordance needed. */}
+        {/* Twin YES/NO trade cards — side selector + price readout.
+            Subtitles dropped for the cleanest possible look — the YES/NO
+            tag + cents value is enough. */}
         <div className="mt-4 grid grid-cols-2 gap-2.5">
           <button
             onClick={() => setSide("yes")}
-            className="text-left p-3 transition-all"
+            className="text-left px-3 py-2.5 transition-all"
             style={{
               background: side === "yes" ? "rgba(74,222,128,0.14)" : "var(--hl-surface)",
               border: `1.5px solid ${side === "yes" ? "var(--hl-green)" : "var(--hl-border)"}`,
@@ -1476,35 +1471,30 @@ export default function PredictPage() {
             }}
           >
             <div
-              className="flex items-center justify-between"
-              style={{ fontSize: "var(--t-micro)", letterSpacing: 0.6, fontWeight: 700 }}
+              style={{
+                color: side === "yes" ? "var(--hl-green)" : "var(--hl-muted)",
+                fontSize: "var(--t-micro)",
+                letterSpacing: 0.6,
+                fontWeight: 700,
+              }}
             >
-              <span style={{ color: side === "yes" ? "var(--hl-green)" : "var(--hl-muted)" }}>YES</span>
-              {side === "yes" && (
-                <span style={{ color: "var(--hl-green)", fontSize: 14 }}>●</span>
-              )}
+              YES
             </div>
             <div
               className="mono font-bold tracking-tight"
               style={{
                 color: side === "yes" ? "var(--hl-green)" : "var(--foreground)",
-                fontSize: 30,
+                fontSize: 28,
                 lineHeight: 1.1,
-                marginTop: 2,
+                marginTop: 1,
               }}
             >
               {yesCents}¢
             </div>
-            <div
-              className="mono mt-0.5"
-              style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
-            >
-              pays $1.00 if yes
-            </div>
           </button>
           <button
             onClick={() => setSide("no")}
-            className="text-left p-3 transition-all"
+            className="text-left px-3 py-2.5 transition-all"
             style={{
               background: side === "no" ? "rgba(248,113,113,0.14)" : "var(--hl-surface)",
               border: `1.5px solid ${side === "no" ? "var(--hl-red)" : "var(--hl-border)"}`,
@@ -1512,30 +1502,25 @@ export default function PredictPage() {
             }}
           >
             <div
-              className="flex items-center justify-between"
-              style={{ fontSize: "var(--t-micro)", letterSpacing: 0.6, fontWeight: 700 }}
+              style={{
+                color: side === "no" ? "var(--hl-red)" : "var(--hl-muted)",
+                fontSize: "var(--t-micro)",
+                letterSpacing: 0.6,
+                fontWeight: 700,
+              }}
             >
-              <span style={{ color: side === "no" ? "var(--hl-red)" : "var(--hl-muted)" }}>NO</span>
-              {side === "no" && (
-                <span style={{ color: "var(--hl-red)", fontSize: 14 }}>●</span>
-              )}
+              NO
             </div>
             <div
               className="mono font-bold tracking-tight"
               style={{
                 color: side === "no" ? "var(--hl-red)" : "var(--foreground)",
-                fontSize: 30,
+                fontSize: 28,
                 lineHeight: 1.1,
-                marginTop: 2,
+                marginTop: 1,
               }}
             >
               {noCents}¢
-            </div>
-            <div
-              className="mono mt-0.5"
-              style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
-            >
-              pays $1.00 if no
             </div>
           </button>
         </div>
@@ -2719,26 +2704,43 @@ function RiverChart({
 
   return (
     <div className="panel" style={{ minHeight: 540, overflow: "hidden" }}>
-      {/* Chart header — different on mobile vs desktop.
-          Desktop: "Probability river · live · computed from BTC mark vs
-            strike" + timeframe pills. Plenty of horizontal room.
-          Mobile: just "Probability" + a tighter pill group right-aligned.
-            The full caption was running onto multiple lines on phones,
-            crammed against the timeframe buttons. */}
+      {/* Chart header.
+          Desktop: "Probability river · live · BTC mark vs strike" caption
+            + timeframe pills.
+          Mobile: kills the caption entirely (was cramped and useless).
+            Left side carries the live market % so the user gets the
+            "what's the bet trading at right now" number without leaving
+            the chart panel — same row position as the Order entry
+            panel's bid/ask info, which keeps the visual rhythm
+            consistent down the page. */}
       <div
         className="px-3 py-2 flex items-center gap-2"
         style={{ borderBottom: "1px solid var(--hl-border)" }}
       >
-        <span className="ptitle">
-          <span className="hidden md:inline">Probability river</span>
-          <span className="md:hidden">Probability</span>
-        </span>
+        {/* Desktop label */}
+        <span className="ptitle hidden md:inline">Probability river</span>
         <span className="psub ml-2 hidden md:inline">
           live · BTC mark vs strike
         </span>
+        {/* Mobile pricing — MARKET label + colour-coded YES % */}
+        <span className="md:hidden flex items-center gap-1.5">
+          <span className="ptitle">MARKET</span>
+          <span
+            className="mono font-bold"
+            style={{
+              color:
+                yesCents >= 55 ? "var(--hl-green)" :
+                yesCents <= 45 ? "var(--hl-red)" :
+                "var(--foreground)",
+              fontSize: "var(--t-num)",
+            }}
+          >
+            {yesCents}%
+          </span>
+        </span>
         {/* Segmented control for the timeframe pills — single pill
-            background on mobile so the row reads as one control rather
-            than three loose buttons floating to the right. */}
+            background so the row reads as one control rather than three
+            loose buttons. Right-aligned in both layouts. */}
         <div
           className="ml-auto flex p-0.5"
           style={{
@@ -3288,12 +3290,9 @@ function RiverChart({
             the active side at the top, so this strip was always
             empty and just created dead space below the chart. */}
 
-        {/* Legend strip.
-            Desktop: full 7-item legend with technical detail.
-            Mobile: tight 2-column grid of just the 4 lines that change
-              colour on screen. Theory / volume / whale-flow are
-              technical enough that hiding them on mobile reduces
-              clutter without hurting comprehension. */}
+        {/* Legend strip — desktop only. Chart on mobile is visual-only
+            (no key); the colours self-explain in context (green river
+            = YES, orange = BTC, dashed yellow = strike + settle line). */}
         <div
           className="hidden md:flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-1 px-1"
           style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
@@ -3305,15 +3304,6 @@ function RiverChart({
           <LegendItem swatch="dashed" color="#f5a524" label="Settles" />
           <LegendItem swatch="bar" color="var(--hl-green)" label="Volume (bull/bear)" />
           <LegendItem swatch="whale" color="var(--hl-green)" label="Trade flow · solid=fill, dashed=inferred" />
-        </div>
-        <div
-          className="md:hidden grid grid-cols-2 gap-x-3 gap-y-1.5 mt-2 px-1"
-          style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
-        >
-          <LegendItem swatch="line" color="var(--hl-green)" label="YES" />
-          <LegendItem swatch="line" color="#fb923c" label="BTC" />
-          <LegendItem swatch="dashed" color="#f5a524" label="Strike" />
-          <LegendItem swatch="dashed" color="#f5a524" label="Settles" />
         </div>
       </div>
     </div>
@@ -4454,7 +4444,7 @@ function BucketMarketView({
         <div className="mt-3 grid grid-cols-2 gap-2.5">
           <button
             onClick={() => setTradeSide("yes")}
-            className="text-left p-3 transition-all"
+            className="text-left px-3 py-2.5 transition-all"
             style={{
               background: tradeSide === "yes" ? "rgba(74,222,128,0.14)" : "var(--hl-surface)",
               border: `1.5px solid ${tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-border)"}`,
@@ -4462,33 +4452,30 @@ function BucketMarketView({
             }}
           >
             <div
-              className="flex items-center justify-between"
-              style={{ fontSize: "var(--t-micro)", letterSpacing: 0.6, fontWeight: 700 }}
+              style={{
+                color: tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-muted)",
+                fontSize: "var(--t-micro)",
+                letterSpacing: 0.6,
+                fontWeight: 700,
+              }}
             >
-              <span style={{ color: tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-muted)" }}>YES</span>
-              {tradeSide === "yes" && <span style={{ color: "var(--hl-green)", fontSize: 14 }}>●</span>}
+              YES
             </div>
             <div
               className="mono font-bold tracking-tight"
               style={{
                 color: tradeSide === "yes" ? "var(--hl-green)" : "var(--foreground)",
-                fontSize: 30,
+                fontSize: 28,
                 lineHeight: 1.1,
-                marginTop: 2,
+                marginTop: 1,
               }}
             >
               {yesCents}¢
             </div>
-            <div
-              className="mono mt-0.5"
-              style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
-            >
-              if BTC in {rangeDesc || "—"}
-            </div>
           </button>
           <button
             onClick={() => setTradeSide("no")}
-            className="text-left p-3 transition-all"
+            className="text-left px-3 py-2.5 transition-all"
             style={{
               background: tradeSide === "no" ? "rgba(248,113,113,0.14)" : "var(--hl-surface)",
               border: `1.5px solid ${tradeSide === "no" ? "var(--hl-red)" : "var(--hl-border)"}`,
@@ -4496,28 +4483,25 @@ function BucketMarketView({
             }}
           >
             <div
-              className="flex items-center justify-between"
-              style={{ fontSize: "var(--t-micro)", letterSpacing: 0.6, fontWeight: 700 }}
+              style={{
+                color: tradeSide === "no" ? "var(--hl-red)" : "var(--hl-muted)",
+                fontSize: "var(--t-micro)",
+                letterSpacing: 0.6,
+                fontWeight: 700,
+              }}
             >
-              <span style={{ color: tradeSide === "no" ? "var(--hl-red)" : "var(--hl-muted)" }}>NO</span>
-              {tradeSide === "no" && <span style={{ color: "var(--hl-red)", fontSize: 14 }}>●</span>}
+              NO
             </div>
             <div
               className="mono font-bold tracking-tight"
               style={{
                 color: tradeSide === "no" ? "var(--hl-red)" : "var(--foreground)",
-                fontSize: 30,
+                fontSize: 28,
                 lineHeight: 1.1,
-                marginTop: 2,
+                marginTop: 1,
               }}
             >
               {noCents}¢
-            </div>
-            <div
-              className="mono mt-0.5"
-              style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
-            >
-              if BTC outside that range
             </div>
           </button>
         </div>
