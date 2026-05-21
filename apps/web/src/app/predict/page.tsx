@@ -2217,7 +2217,6 @@ function RiverChart({
       count: number;
       time: number;
       bucketIdx: number;
-      synthetic?: boolean; // true = inferred from candle volume, not a real fill
     };
 
     // Bucket size adapts to the visible timeframe so we always get a
@@ -2298,85 +2297,13 @@ function RiverChart({
       });
     }
 
-    // Candle-volume fallback — fills the chart with historical context
-    // when the WS-trade buffer doesn't have real fills for a bucket
-    // (typical after an API restart since HL has no historical-trades
-    // endpoint for HIP-4).
-    //
-    // Critical design choice: ONE synthetic whale per candle, on the
-    // side the price direction implies was the dominant flow, NOT both
-    // sides mirrored. The previous version generated symmetric YES + NO
-    // whales per candle — same time, same USD, same x — which looked
-    // like real symmetric trade activity but was actually a single
-    // candle data point displayed twice. Misleading.
-    //
-    // Attribution:
-    //   - YES close ≥ open (rally): money flowed into YES   → synthetic YES BUY
-    //   - YES close <  open (fell):  money flowed into NO    → synthetic NO BUY
-    // (We can't actually tell from candle volume whether YES rallied
-    // because of YES-buy or NO-sell — the order book on either side
-    // would push YES up. But "the dominant side that day" is the most
-    // intuitive interpretation and matches the price direction the
-    // chart already shows.)
-    //
-    // Synthetic whales get `synthetic: true` so the renderer can fade
-    // them. Real-trade whales (above) render at full opacity.
-    const seenYesBuckets = new Set(
-      [...buckets.values()].filter((b) => b.isYes).map((b) => b.bucketIdx),
-    );
-    const seenNoBuckets = new Set(
-      [...buckets.values()].filter((b) => !b.isYes).map((b) => b.bucketIdx),
-    );
-    for (const c of marketCandles) {
-      // Defensive — candles should never have future timestamps but
-      // HL has had odd quirks; cap to nowSafe so a stray future candle
-      // can't seed a whale in the future-projection band.
-      if (c.t < tMin || c.t > nowSafe) continue;
-      const bucketIdx = Math.floor(c.t / BUCKET_MS);
-      const open = parseFloat(c.o);
-      const close = parseFloat(c.c);
-      const vol = parseFloat(c.v);
-      if (!Number.isFinite(vol) || vol <= 0) continue;
-      const avgPx = (open + close) / 2;
-      const usd = vol * avgPx;
-      const bucketCenter = (bucketIdx + 0.5) * BUCKET_MS;
-      const yesBull = close >= open;
-
-      if (yesBull) {
-        // Money into YES — synthesise a YES BUY (only if no real YES
-        // trade is already in this bucket).
-        if (!seenYesBuckets.has(bucketIdx)) {
-          raw.push({
-            x: xForBucketCenter(bucketCenter),
-            y: 0,
-            usd,
-            px: close,
-            side: "B",
-            isYes: true,
-            count: Math.round(vol),
-            time: bucketCenter,
-            bucketIdx,
-            synthetic: true,
-          });
-        }
-      } else {
-        // Money into NO — synthesise a NO BUY.
-        if (!seenNoBuckets.has(bucketIdx)) {
-          raw.push({
-            x: xForBucketCenter(bucketCenter),
-            y: 0,
-            usd,
-            px: 1 - close,
-            side: "B",
-            isYes: false,
-            count: Math.round(vol),
-            time: bucketCenter,
-            bucketIdx,
-            synthetic: true,
-          });
-        }
-      }
-    }
+    // Candle-volume fallback removed. Used to synthesise whale icons
+    // from candle direction when the WS-trade buffer was empty (e.g.
+    // after an API restart, since HL has no historical-trades endpoint
+    // for HIP-4). User pushback: synthesised whales looked like real
+    // fills and the inference (close ≥ open → YES buy) is a guess, not
+    // truth. Nothing is better than approximated noise — when there's
+    // no real fill data, the chart simply shows no whales.
 
     // Every whale renders at the SAME diameter so size never affects
     // alignment — USD magnitude is encoded in the outline THICKNESS
@@ -2440,7 +2367,7 @@ function RiverChart({
       });
     }
     return placed;
-  }, [trades, marketCandles, hip4Coin, tMin, tMax, viewSide, nowSafe]);
+  }, [trades, hip4Coin, tMin, tMax, viewSide, nowSafe]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
 
   // ── Volume profile — one thin bar per HIP-4 candle, scaled by the candle's
@@ -2765,13 +2692,10 @@ function RiverChart({
             const sizeFactor = Math.min(1, w.usd / maxWhaleUsd);
             const px = w.d;
             const usdStr = w.usd >= 1000 ? `$${(w.usd / 1000).toFixed(1)}K` : `$${w.usd.toFixed(0)}`;
-            // Synthetic whales (inferred from candle volume, not a real
-            // fill) render at low opacity + dashed-style outline so they
-            // read as "approximate historical context, not a verified
-            // fill". Real-trade whales stay solid + bright.
-            const isSynthetic = !!w.synthetic;
+            // All whales are now real fills (the candle-fallback that
+            // synthesised whales from candle volume was removed).
             const outlineColor = isBuy ? "var(--hl-green)" : "var(--hl-red)";
-            const opacity = isSynthetic ? 0.45 : 1;
+            const opacity = 1;
             return (
               <div
                 key={i}
@@ -2784,10 +2708,8 @@ function RiverChart({
                   height: px,
                   borderRadius: "50%",
                   background: "var(--background)",
-                  border: `${w.outline}px ${isSynthetic ? "dashed" : "solid"} ${outlineColor}`,
-                  boxShadow: isSynthetic
-                    ? "none"
-                    : `0 0 ${6 + sizeFactor * 10}px ${isBuy ? "rgba(74,222,128,0.4)" : "rgba(248,113,113,0.4)"}`,
+                  border: `${w.outline}px solid ${outlineColor}`,
+                  boxShadow: `0 0 ${6 + sizeFactor * 10}px ${isBuy ? "rgba(74,222,128,0.4)" : "rgba(248,113,113,0.4)"}`,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -2796,11 +2718,7 @@ function RiverChart({
                   cursor: "pointer",
                   opacity,
                 }}
-                title={
-                  isSynthetic
-                    ? `Inferred from 15-min candle volume — direction implied by price move. Estimated ${isBuy ? "BUY" : "SELL"} ${w.isYes ? "YES" : "NO"} flow ≈ ${usdStr}`
-                    : `Click for details · ${isBuy ? "BUY" : "SELL"} ${w.isYes ? "YES" : "NO"} · ${w.count} trade${w.count > 1 ? "s" : ""} @ ~${(w.px * 100).toFixed(1)}¢ · ${usdStr}`
-                }
+                title={`Click for details · ${isBuy ? "BUY" : "SELL"} ${w.isYes ? "YES" : "NO"} · ${w.count} trade${w.count > 1 ? "s" : ""} @ ~${(w.px * 100).toFixed(1)}¢ · ${usdStr}`}
                 onClick={() => onWhaleClick({ side: w.side, sideContext: w.isYes ? "yes" : "no", px: w.px, usd: w.usd, count: w.count, time: w.time })}
               >
                 🐋
@@ -3096,7 +3014,7 @@ function RiverChart({
           <LegendItem swatch="dashed" color="#f5a524" label="Strike" />
           <LegendItem swatch="dashed" color="#f5a524" label="Settles" />
           <LegendItem swatch="bar" color="var(--hl-green)" label="Volume (bull/bear)" />
-          <LegendItem swatch="whale" color="var(--hl-green)" label="Trade flow · solid=fill, dashed=inferred" />
+          <LegendItem swatch="whale" color="var(--hl-green)" label="Trade flow (whale fills)" />
         </div>
       </div>
     </div>
