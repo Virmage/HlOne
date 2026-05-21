@@ -2076,8 +2076,11 @@ function RiverChart({
               />
             )}
 
-            {/* Strike reference — kept yellow (#f5a524) so it's visually distinct
-                from the BTC line, and matches the "yellow strike threshold" legend. */}
+            {/* Strike reference — bright yellow + thicker dashes so it
+                stops getting lost against the BTC line + green river.
+                Previous values (width 1, opacity 0.4) made it fade
+                completely on busy charts. Stops at the SETTLE line
+                visually but still rendered full-width for simplicity. */}
             {strike != null && (
               <>
                 <line
@@ -2086,9 +2089,9 @@ function RiverChart({
                   x2={W}
                   y2={strikeY}
                   stroke="#f5a524"
-                  strokeWidth="1"
-                  strokeDasharray="4,4"
-                  opacity="0.4"
+                  strokeWidth="2"
+                  strokeDasharray="8,4"
+                  opacity="0.75"
                 />
               </>
             )}
@@ -2103,9 +2106,9 @@ function RiverChart({
                 x2={W}
                 y2={e.y}
                 stroke="#f5a524"
-                strokeWidth="1"
-                strokeDasharray="4,4"
-                opacity="0.4"
+                strokeWidth="2"
+                strokeDasharray="8,4"
+                opacity="0.75"
               />
             ))}
 
@@ -2392,30 +2395,76 @@ function RiverChart({
             <span style={{ color: "var(--hl-green)" }}>0¢</span>
           </div>
 
-          {/* LEFT y-axis — BTC price (orange labels match the BTC line) with
-              the strike row highlighted in yellow to match the strike line. */}
+          {/* LEFT y-axis — BTC price ticks in orange to match the BTC
+              line. Strike row pulled out into a separate, prominent
+              chip below so it doesn't get lost among the muted ticks. */}
           {strike != null && (
             <div
               className="absolute left-0 top-0 bottom-4 mono"
-              style={{ width: 70, fontSize: 9, color: "#fb923c", padding: "2px 4px", pointerEvents: "none", opacity: 0.75 }}
+              style={{ width: 80, fontSize: 9, color: "#fb923c", padding: "2px 4px", pointerEvents: "none", opacity: 0.75 }}
             >
               <span style={{ position: "absolute", top: "0%", left: 4 }}>${Math.round(btcYMax).toLocaleString()}</span>
               <span style={{ position: "absolute", top: "25%", left: 4 }}>${Math.round(btcYMin + (btcYMax - btcYMin) * 0.75).toLocaleString()}</span>
-              <span style={{ position: "absolute", top: `${(strikeY / H) * 100}%`, left: 4, color: "var(--hl-yellow)", fontWeight: 700, transform: "translateY(-50%)", opacity: 1 }}>
-                ${strike.toLocaleString()} ◀ {extraStrikesY?.length ? "lower" : "strike"}
-              </span>
-              {extraStrikesY?.map((e, i) => (
-                <span
-                  key={i}
-                  style={{ position: "absolute", top: `${(e.y / H) * 100}%`, left: 4, color: "var(--hl-yellow)", fontWeight: 700, transform: "translateY(-50%)", opacity: 1 }}
-                >
-                  ${e.value.toLocaleString()} ◀ {e.label ?? "upper"}
-                </span>
-              ))}
               <span style={{ position: "absolute", top: "75%", left: 4 }}>${Math.round(btcYMin + (btcYMax - btcYMin) * 0.25).toLocaleString()}</span>
               <span style={{ position: "absolute", bottom: 0, left: 4 }}>${Math.round(btcYMin).toLocaleString()}</span>
             </div>
           )}
+
+          {/* Strike label — solid yellow chip that anchors to the
+              strike line at its y position. Bigger, bolder, with a
+              subtle border + background fill so the actual $-number
+              reads at a glance even on busy backgrounds. Used to be a
+              translucent overlapping span that disappeared into the
+              orange BTC ticks behind it. */}
+          {strike != null && (
+            <div
+              className="absolute mono"
+              style={{
+                left: 0,
+                top: `${(strikeY / H) * 100}%`,
+                transform: "translateY(-50%)",
+                background: "rgba(245,165,36,0.18)",
+                color: "var(--hl-yellow)",
+                border: "1px solid rgba(245,165,36,0.6)",
+                padding: "2px 6px",
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: 0.3,
+                pointerEvents: "none",
+                whiteSpace: "nowrap",
+                borderRadius: 2,
+                zIndex: 4,
+                boxShadow: "0 0 6px rgba(245,165,36,0.4)",
+              }}
+            >
+              ${strike.toLocaleString()} {extraStrikesY?.length ? "low" : "strike"}
+            </div>
+          )}
+          {extraStrikesY?.map((e, i) => (
+            <div
+              key={i}
+              className="absolute mono"
+              style={{
+                left: 0,
+                top: `${(e.y / H) * 100}%`,
+                transform: "translateY(-50%)",
+                background: "rgba(245,165,36,0.18)",
+                color: "var(--hl-yellow)",
+                border: "1px solid rgba(245,165,36,0.6)",
+                padding: "2px 6px",
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: 0.3,
+                pointerEvents: "none",
+                whiteSpace: "nowrap",
+                borderRadius: 2,
+                zIndex: 4,
+                boxShadow: "0 0 6px rgba(245,165,36,0.4)",
+              }}
+            >
+              ${e.value.toLocaleString()} {e.label ?? "high"}
+            </div>
+          ))}
 
           {/* NOW chip removed — the dashed vertical line + the "now ▶"
               label in the x-axis convey the same thing without the
@@ -2506,11 +2555,64 @@ function RiverChart({
             allows the whale divs (y > H) to render down into this area. */}
         <div style={{ height: 70 }} />
 
-        {/* Legend removed — line colors + chip labels at line endpoints
-            carry the meaning on the chart itself; cross-venue prices
-            live in the strip above. */}
+        {/* Legend strip — each line on the chart explained with a
+            colour swatch + short label. Helps anyone landing on the
+            page cold understand what they're looking at. */}
+        <div
+          className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-1 px-1 text-[10px]"
+          style={{ color: "var(--hl-muted)" }}
+        >
+          <LegendItem swatch="line" color="var(--hl-green)" label="YES probability" />
+          <LegendItem swatch="line" color="#fb923c" label="BTC price" />
+          <LegendItem swatch="dashed" color="#a371f7" label="Theory (σ√t fair value)" />
+          <LegendItem swatch="dashed" color="#f5a524" label="Strike" />
+          <LegendItem swatch="dashed" color="#f5a524" label="Settles" />
+          <LegendItem swatch="bar" color="var(--hl-green)" label="Volume (bull/bear)" />
+          <LegendItem swatch="whale" color="var(--hl-green)" label="Trade flow · solid=fill, dashed=inferred" />
+        </div>
       </div>
     </div>
+  );
+}
+
+// Inline legend swatch — keeps the chart legend compact while still
+// matching exactly the visual style of the lines on the chart above.
+function LegendItem({ swatch, color, label }: { swatch: "line" | "dashed" | "bar" | "whale"; color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      {swatch === "line" && (
+        <span style={{ width: 18, height: 2, background: color, display: "inline-block", borderRadius: 1 }} />
+      )}
+      {swatch === "dashed" && (
+        <span
+          style={{
+            width: 18,
+            height: 2,
+            background: `repeating-linear-gradient(90deg, ${color} 0 5px, transparent 5px 8px)`,
+            display: "inline-block",
+          }}
+        />
+      )}
+      {swatch === "bar" && (
+        <span style={{ display: "inline-flex", gap: 1 }}>
+          <span style={{ width: 3, height: 8, background: "var(--hl-green)", opacity: 0.55, display: "inline-block" }} />
+          <span style={{ width: 3, height: 6, background: "var(--hl-red)", opacity: 0.55, display: "inline-block" }} />
+          <span style={{ width: 3, height: 10, background: "var(--hl-green)", opacity: 0.55, display: "inline-block" }} />
+        </span>
+      )}
+      {swatch === "whale" && (
+        <span
+          style={{
+            width: 12,
+            height: 12,
+            borderRadius: "50%",
+            border: `2px solid ${color}`,
+            display: "inline-block",
+          }}
+        />
+      )}
+      <span>{label}</span>
+    </span>
   );
 }
 
