@@ -207,6 +207,28 @@ export default function PredictPage() {
   const [now, setNow] = useState(0);
   const [stake, setStake] = useState("250");
   const [side, setSide] = useState<"yes" | "no">("yes");
+  // Open vs close: "buy" places a new YES/NO position; "sell" closes the
+  // user's existing position on the selected side back to USDH. HL HIP-4
+  // outcome shares are spot tokens, so sells = placeOrder(isBuy: false)
+  // on the same coin — no special "close" call required.
+  const [direction, setDirectionRaw] = useState<"buy" | "sell">("buy");
+  // Wrap setDirection so toggling between buy/sell resets the stake
+  // field to a sensible default for that mode. Without this, a user
+  // who typed "250" (USDH) and then hits SELL would have the field
+  // interpreted as "sell 250 shares" which is almost certainly not
+  // what they meant.
+  const setDirection = (d: "buy" | "sell") => {
+    setDirectionRaw(d);
+    if (d === "buy") {
+      setStake("250");
+    } else {
+      // Default to selling the user's full position on the active side.
+      const yesPos = hyperodd.hip4Coin ? hip4Positions.get(hyperodd.hip4Coin) ?? 0 : 0;
+      const noPos = hyperodd.hip4Coin ? hip4Positions.get(`#${hyperodd.hip4Coin.slice(1, -1)}1`) ?? 0 : 0;
+      const pos = side === "yes" ? yesPos : noPos;
+      setStake(Math.floor(pos).toString());
+    }
+  };
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [limitPx, setLimitPx] = useState<string>("");
   const [showRules, setShowRules] = useState(false);
@@ -977,8 +999,16 @@ export default function PredictPage() {
 
   // Submit handler for the binary YES/NO order. Extracted so both the
   // desktop TradePanel and the mobile sticky bottom CTA can call the
-  // same code path with the same state (side / stake / orderType /
-  // limitPx all live here on PredictPage).
+  // same code path with the same state (direction / side / stake /
+  // orderType / limitPx all live here on PredictPage).
+  //
+  // BUY: stake field is USDH the user wants to risk; we compute shares
+  //      via floor(USDH / side_price) and round UP if it falls below
+  //      HL's $10 minimum-notional floor.
+  // SELL: stake field is the number of shares the user wants to sell
+  //       from their existing position. No min-notional rounding —
+  //       you can only sell what you hold, and HL accepts partial
+  //       fills against the resting bid.
   const handleBinarySubmit = async () => {
     if (!isConnected || !address) {
       setOrderStatus({ kind: "error", message: "Connect wallet first" });
@@ -997,6 +1027,38 @@ export default function PredictPage() {
       orderType === "limit" && Number.isFinite(lpx) && lpx > 0
         ? lpx / 100
         : undefined;
+
+    // Pre-flight share + notional sanity checks. Done before MetaMask
+    // popup so the user gets a fast inline error instead of a wallet
+    // confirmation that then fails.
+    let finalSize: number;
+    if (direction === "buy") {
+      // HL enforces a $10 USDH minimum order value on HIP-4. Round UP.
+      const MIN_NOTIONAL_USDH = 10;
+      const naiveShares = Math.max(1, Math.floor(shares));
+      const fillPxFraction = side === "yes" ? effectiveYesPx : 1 - effectiveYesPx;
+      const minSharesForMinimum = fillPxFraction > 0
+        ? Math.ceil(MIN_NOTIONAL_USDH / fillPxFraction)
+        : naiveShares;
+      finalSize = Math.max(naiveShares, minSharesForMinimum);
+    } else {
+      // SELL: stake field holds the share count directly. Clamp to the
+      // position the user actually owns (you can't oversell).
+      const yesPos = hyperodd.hip4Coin ? hip4Positions.get(hyperodd.hip4Coin) ?? 0 : 0;
+      const noPos = hyperodd.hip4Coin ? hip4Positions.get(`#${hyperodd.hip4Coin.slice(1, -1)}1`) ?? 0 : 0;
+      const positionOnSide = side === "yes" ? yesPos : noPos;
+      const requested = Math.floor(parseFloat(stake) || 0);
+      finalSize = Math.min(requested, Math.floor(positionOnSide));
+      if (finalSize <= 0) {
+        setOrderStatus({
+          kind: "error",
+          message: positionOnSide <= 0
+            ? `No ${side.toUpperCase()} shares to sell`
+            : "Enter a share count > 0",
+        });
+        return;
+      }
+    }
 
     setOrderStatus({ kind: "pending" });
     try {
@@ -1021,25 +1083,12 @@ export default function PredictPage() {
         if (!approval.success) throw new Error(approval.error || "Builder fee approval failed");
       }
 
-      // HL enforces a 10 USDH minimum order value on HIP-4. If
-      // floor(shares) × price falls below $10, HL rejects with
-      // "Order must have minimum value of 10 USDH" and the
-      // user's order silently fails. Round UP so notional is
-      // always ≥ $10.04 (one share worth of buffer).
-      const MIN_NOTIONAL_USDH = 10;
-      const naiveShares = Math.max(1, Math.floor(shares));
-      const fillPxFraction = side === "yes" ? effectiveYesPx : 1 - effectiveYesPx;
-      const minSharesForMinimum = fillPxFraction > 0
-        ? Math.ceil(MIN_NOTIONAL_USDH / fillPxFraction)
-        : naiveShares;
-      const finalSize = Math.max(naiveShares, minSharesForMinimum);
-
       const res = await exchange.placeOrder(
         agentResult.agentKey,
         address as `0x${string}`,
         {
           asset,
-          isBuy: true, // always buying YES or NO shares (HL outcome model)
+          isBuy: direction === "buy",
           size: finalSize,
           orderType,
           limitPrice,
@@ -1049,7 +1098,7 @@ export default function PredictPage() {
       if (res.success) {
         setOrderStatus({
           kind: "success",
-          message: `Filled ${res.filledSize ?? "?"} @ ${res.avgPrice ?? "?"}¢`,
+          message: `${direction === "buy" ? "Bought" : "Sold"} ${res.filledSize ?? "?"} @ ${res.avgPrice ?? "?"}¢`,
         });
         // Tell the position-balance fetcher to refresh NOW
         // instead of waiting up to 15s for the next poll —
@@ -1358,6 +1407,8 @@ export default function PredictPage() {
             setStake={setStake}
             side={side}
             setSide={setSide}
+            direction={direction}
+            setDirection={setDirection}
             orderType={orderType}
             setOrderType={setOrderType}
             limitPx={limitPx}
@@ -1408,25 +1459,70 @@ export default function PredictPage() {
               // Payoff if NO settles: noShares × $1 (YES shares lose).
               const ifYesWins = yesShares;
               const ifNoWins = noShares;
+              // One-tap shortcut: switch the order panel into SELL mode
+              // for this side and scroll the panel into view so the user
+              // can confirm the share count + tap Sell. Saves them
+              // hunting for the BUY/SELL toggle up in the order panel.
+              const closeSide = (s: "yes" | "no", shares: number) => {
+                setSide(s);
+                setDirection("sell");
+                setStake(Math.floor(shares).toString());
+                // Scroll order panel into view (mobile UX).
+                const root = document.querySelector(".predict-root");
+                const panel = root?.querySelector(".panel");
+                panel?.scrollIntoView({ behavior: "smooth", block: "center" });
+              };
               return (
                 <div className="p-3 flex flex-col gap-2" style={{ fontSize: "var(--t-caption)" }}>
                   {yesShares > 0 && (
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <span style={{ color: "var(--hl-green)" }}>
                         <b>{yesShares.toLocaleString()}</b> YES shares
                       </span>
-                      <span className="mono" style={{ color: "var(--hl-muted)" }}>
-                        ≈ ${yesVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      <span className="flex items-center gap-2">
+                        <span className="mono" style={{ color: "var(--hl-muted)" }}>
+                          ≈ ${yesVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </span>
+                        <button
+                          onClick={() => closeSide("yes", yesShares)}
+                          className="mono font-semibold px-2 py-0.5"
+                          style={{
+                            background: "transparent",
+                            border: "1px solid var(--hl-green)",
+                            color: "var(--hl-green)",
+                            borderRadius: 4,
+                            fontSize: "var(--t-micro)",
+                            letterSpacing: 0.4,
+                          }}
+                        >
+                          Close
+                        </button>
                       </span>
                     </div>
                   )}
                   {noShares > 0 && (
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <span style={{ color: "var(--hl-red)" }}>
                         <b>{noShares.toLocaleString()}</b> NO shares
                       </span>
-                      <span className="mono" style={{ color: "var(--hl-muted)" }}>
-                        ≈ ${noVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      <span className="flex items-center gap-2">
+                        <span className="mono" style={{ color: "var(--hl-muted)" }}>
+                          ≈ ${noVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </span>
+                        <button
+                          onClick={() => closeSide("no", noShares)}
+                          className="mono font-semibold px-2 py-0.5"
+                          style={{
+                            background: "transparent",
+                            border: "1px solid var(--hl-red)",
+                            color: "var(--hl-red)",
+                            borderRadius: 4,
+                            fontSize: "var(--t-micro)",
+                            letterSpacing: 0.4,
+                          }}
+                        >
+                          Close
+                        </button>
                       </span>
                     </div>
                   )}
@@ -1456,107 +1552,177 @@ export default function PredictPage() {
         </div>
       </main>
 
-      {/* Sticky mobile Buy CTA — thumb-reachable bar pinned to the
-          bottom of the viewport. Carries the YES/NO toggle (with live
-          cents) and the BUY button so a user can place an order without
-          scrolling past the chart. Uses the SAME page-level state as
-          the TradePanel above (side/stake/orderType/limitPx), so any
+      {/* Sticky mobile Buy/Sell CTA — thumb-reachable bar pinned to the
+          bottom of the viewport. Carries:
+            - BUY/SELL direction toggle
+            - YES/NO side selector with the relevant cents (ask for buy,
+              bid for sell) + held-share badge when in SELL mode
+            - submit button (red/green by side; outline-only in SELL mode
+              so it visually reads as "closing" not "opening")
+          Shares the SAME page-level state as the TradePanel above so any
           edit in one is reflected in the other.
-          md:hidden = desktop has the side panel; sticky bar would be
+          md:hidden — desktop has the side panel; sticky bar would be
           redundant + visually noisy. */}
-      <div
-        className="md:hidden fixed left-0 right-0 z-30"
-        style={{
-          bottom: 0,
-          paddingBottom: "max(env(safe-area-inset-bottom), 8px)",
-          paddingTop: 8,
-          background: "var(--hl-surface)",
-          borderTop: "1px solid var(--hl-border)",
-          boxShadow: "0 -8px 24px rgba(0,0,0,0.45)",
-        }}
-      >
-        {/* Side toggle — same control as TradePanel's YES/NO buttons but
-            compressed into a single row with cents on the right of each
-            cell. */}
-        <div className="grid grid-cols-2 gap-2 px-3 pb-2">
-          <button
-            onClick={() => setSide("yes")}
-            className="py-2 flex items-center justify-between px-3 font-bold"
+      {(() => {
+        // Mirror the TradePanel's derived values so labels stay in sync.
+        const yesPosBar = hyperodd.hip4Coin ? hip4Positions.get(hyperodd.hip4Coin) ?? 0 : 0;
+        const noPosBar = hyperodd.hip4Coin ? hip4Positions.get(`#${hyperodd.hip4Coin.slice(1, -1)}1`) ?? 0 : 0;
+        const isSellBar = direction === "sell";
+        const sellYesPxBar = liveYesBid;
+        const sellNoPxBar = 1 - liveYesAsk;
+        const yesCentsBar = isSellBar ? sellYesPxBar * 100 : yesCents;
+        const noCentsBar = isSellBar ? sellNoPxBar * 100 : noCents;
+        const sideColor = side === "yes" ? "var(--hl-green)" : "var(--hl-red)";
+        return (
+          <div
+            className="md:hidden fixed left-0 right-0 z-30"
             style={{
-              background: side === "yes" ? "rgba(74,222,128,0.14)" : "transparent",
-              color: side === "yes" ? "var(--hl-green)" : "var(--hl-muted)",
-              border: `1px solid ${side === "yes" ? "rgba(74,222,128,0.5)" : "var(--hl-border)"}`,
-              borderRadius: 6,
-              fontSize: "var(--t-caption)",
+              bottom: 0,
+              paddingBottom: "max(env(safe-area-inset-bottom), 8px)",
+              paddingTop: 8,
+              background: "var(--hl-surface)",
+              borderTop: "1px solid var(--hl-border)",
+              boxShadow: "0 -8px 24px rgba(0,0,0,0.45)",
             }}
           >
-            <span>YES</span>
-            <span className="mono" style={{ fontSize: "var(--t-num)" }}>{yesCents}¢</span>
-          </button>
-          <button
-            onClick={() => setSide("no")}
-            className="py-2 flex items-center justify-between px-3 font-bold"
-            style={{
-              background: side === "no" ? "rgba(248,113,113,0.14)" : "transparent",
-              color: side === "no" ? "var(--hl-red)" : "var(--hl-muted)",
-              border: `1px solid ${side === "no" ? "rgba(248,113,113,0.5)" : "var(--hl-border)"}`,
-              borderRadius: 6,
-              fontSize: "var(--t-caption)",
-            }}
-          >
-            <span>NO</span>
-            <span className="mono" style={{ fontSize: "var(--t-num)" }}>{noCents}¢</span>
-          </button>
-        </div>
-        {/* Buy button + cost preview. Size comes from the TradePanel
-            up the page; tapping cost takes the user there to edit. */}
-        <div className="px-3 flex items-center gap-2">
-          <button
-            onClick={() => {
-              // Scroll to the trade panel so the user can edit stake/limit.
-              const root = document.querySelector(".predict-root");
-              const panel = root?.querySelector(".panel");
-              panel?.scrollIntoView({ behavior: "smooth", block: "center" });
-            }}
-            className="flex-1 py-2.5 px-3 flex items-center justify-between"
-            style={{
-              background: "var(--background)",
-              border: "1px solid var(--hl-border)",
-              borderRadius: 6,
-              color: "var(--hl-text)",
-              fontSize: "var(--t-body)",
-            }}
-            aria-label="Edit order size"
-          >
-            <span style={{ color: "var(--hl-muted)" }}>Size</span>
-            <span className="mono font-semibold" style={{ fontSize: "var(--t-num)" }}>
-              ${stake || "0"}
-            </span>
-          </button>
-          <button
-            onClick={handleBinarySubmit}
-            disabled={orderStatus.kind === "pending"}
-            className="font-bold tracking-wide"
-            style={{
-              background: orderStatus.kind === "pending"
-                ? "var(--hl-muted)"
-                : side === "yes" ? "var(--hl-green)" : "var(--hl-red)",
-              color: "#001d0c",
-              border: "none",
-              borderRadius: 6,
-              padding: "10px 18px",
-              minWidth: 130,
-              cursor: orderStatus.kind === "pending" ? "wait" : "pointer",
-              opacity: orderStatus.kind === "pending" ? 0.7 : 1,
-              fontSize: "var(--t-body)",
-            }}
-          >
-            {orderStatus.kind === "pending"
-              ? "Placing…"
-              : `BUY ${side === "yes" ? "YES" : "NO"}`}
-          </button>
-        </div>
-      </div>
+            {/* BUY/SELL toggle */}
+            <div className="grid grid-cols-2 gap-1 px-3 pb-2">
+              <button
+                onClick={() => setDirection("buy")}
+                className="py-1.5 font-bold"
+                style={{
+                  background: !isSellBar ? "var(--hl-surface-hover)" : "var(--background)",
+                  color: !isSellBar ? "var(--foreground)" : "var(--hl-muted)",
+                  border: `1px solid ${!isSellBar ? "var(--hl-border)" : "transparent"}`,
+                  borderRadius: 5,
+                  fontSize: "var(--t-micro)",
+                  letterSpacing: 0.5,
+                }}
+              >
+                BUY
+              </button>
+              <button
+                onClick={() => setDirection("sell")}
+                className="py-1.5 font-bold"
+                style={{
+                  background: isSellBar ? "var(--hl-surface-hover)" : "var(--background)",
+                  color: isSellBar ? "var(--foreground)" : "var(--hl-muted)",
+                  border: `1px solid ${isSellBar ? "var(--hl-border)" : "transparent"}`,
+                  borderRadius: 5,
+                  fontSize: "var(--t-micro)",
+                  letterSpacing: 0.5,
+                }}
+              >
+                SELL
+              </button>
+            </div>
+            {/* Side toggle */}
+            <div className="grid grid-cols-2 gap-2 px-3 pb-2">
+              <button
+                onClick={() => {
+                  setSide("yes");
+                  if (isSellBar) setStake(Math.floor(yesPosBar).toString());
+                }}
+                className="py-2 flex items-center justify-between px-3 font-bold"
+                style={{
+                  background: side === "yes" ? "rgba(74,222,128,0.14)" : "transparent",
+                  color: side === "yes" ? "var(--hl-green)" : "var(--hl-muted)",
+                  border: `1px solid ${side === "yes" ? "rgba(74,222,128,0.5)" : "var(--hl-border)"}`,
+                  borderRadius: 6,
+                  fontSize: "var(--t-caption)",
+                }}
+              >
+                <span>
+                  YES
+                  {isSellBar && yesPosBar > 0 && (
+                    <span className="mono" style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", marginLeft: 6 }}>
+                      ({Math.floor(yesPosBar)})
+                    </span>
+                  )}
+                </span>
+                <span className="mono" style={{ fontSize: "var(--t-num)" }}>
+                  {isSellBar ? `${yesCentsBar.toFixed(1)}¢` : `${yesCents}¢`}
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  setSide("no");
+                  if (isSellBar) setStake(Math.floor(noPosBar).toString());
+                }}
+                className="py-2 flex items-center justify-between px-3 font-bold"
+                style={{
+                  background: side === "no" ? "rgba(248,113,113,0.14)" : "transparent",
+                  color: side === "no" ? "var(--hl-red)" : "var(--hl-muted)",
+                  border: `1px solid ${side === "no" ? "rgba(248,113,113,0.5)" : "var(--hl-border)"}`,
+                  borderRadius: 6,
+                  fontSize: "var(--t-caption)",
+                }}
+              >
+                <span>
+                  NO
+                  {isSellBar && noPosBar > 0 && (
+                    <span className="mono" style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", marginLeft: 6 }}>
+                      ({Math.floor(noPosBar)})
+                    </span>
+                  )}
+                </span>
+                <span className="mono" style={{ fontSize: "var(--t-num)" }}>
+                  {isSellBar ? `${noCentsBar.toFixed(1)}¢` : `${noCents}¢`}
+                </span>
+              </button>
+            </div>
+            {/* Size summary + submit button */}
+            <div className="px-3 flex items-center gap-2">
+              <button
+                onClick={() => {
+                  // Scroll to the trade panel so the user can edit stake/limit.
+                  const root = document.querySelector(".predict-root");
+                  const panel = root?.querySelector(".panel");
+                  panel?.scrollIntoView({ behavior: "smooth", block: "center" });
+                }}
+                className="flex-1 py-2.5 px-3 flex items-center justify-between"
+                style={{
+                  background: "var(--background)",
+                  border: "1px solid var(--hl-border)",
+                  borderRadius: 6,
+                  color: "var(--hl-text)",
+                  fontSize: "var(--t-body)",
+                }}
+                aria-label="Edit order size"
+              >
+                <span style={{ color: "var(--hl-muted)" }}>{isSellBar ? "Shares" : "Size"}</span>
+                <span className="mono font-semibold" style={{ fontSize: "var(--t-num)" }}>
+                  {isSellBar ? (stake || "0") : `$${stake || "0"}`}
+                </span>
+              </button>
+              <button
+                onClick={handleBinarySubmit}
+                disabled={orderStatus.kind === "pending"}
+                className="font-bold tracking-wide"
+                style={{
+                  background: orderStatus.kind === "pending"
+                    ? "var(--hl-muted)"
+                    : isSellBar
+                      ? "transparent"
+                      : sideColor,
+                  color: isSellBar ? sideColor : "#001d0c",
+                  border: isSellBar ? `1px solid ${sideColor}` : "none",
+                  borderRadius: 6,
+                  padding: "10px 18px",
+                  minWidth: 130,
+                  cursor: orderStatus.kind === "pending" ? "wait" : "pointer",
+                  opacity: orderStatus.kind === "pending" ? 0.7 : 1,
+                  fontSize: "var(--t-body)",
+                }}
+              >
+                {orderStatus.kind === "pending"
+                  ? "Placing…"
+                  : `${isSellBar ? "SELL" : "BUY"} ${side === "yes" ? "YES" : "NO"}`}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
       </>}
 
       {/* ── BUCKET MARKET ───────────────────────────────────────────────── */}
@@ -3090,6 +3256,8 @@ function TradePanel({
   usdhBalance,
   yesPosition,
   noPosition,
+  direction,
+  setDirection,
 }: {
   yesCents: number;
   noCents: number;
@@ -3097,6 +3265,8 @@ function TradePanel({
   setStake: (s: string) => void;
   side: "yes" | "no";
   setSide: (s: "yes" | "no") => void;
+  direction: "buy" | "sell";
+  setDirection: (d: "buy" | "sell") => void;
   orderType: "market" | "limit";
   setOrderType: (t: "market" | "limit") => void;
   limitPx: string;
@@ -3115,12 +3285,29 @@ function TradePanel({
   yesPosition: number;  // shares held in this market's YES coin (#N0)
   noPosition: number;   // shares held in this market's NO coin (#N1)
 }) {
-  const fillPriceCents = side === "yes" ? effectiveYesPx * 100 : (1 - effectiveYesPx) * 100;
-  const bestForSide = side === "yes" ? liveYesAsk * 100 : (1 - liveYesBid) * 100;
+  const isSell = direction === "sell";
+  // Buy fills at the ask, sell fills at the bid. effectiveYesPx is the
+  // ask side; when selling we want the bid.
+  const sellYesPx = liveYesBid;
+  const sellNoPx = 1 - liveYesAsk;
+  const buyFillCents = side === "yes" ? effectiveYesPx * 100 : (1 - effectiveYesPx) * 100;
+  const sellFillCents = side === "yes" ? sellYesPx * 100 : sellNoPx * 100;
+  const fillPriceCents = isSell ? sellFillCents : buyFillCents;
+  const bestForSide = isSell
+    ? (side === "yes" ? liveYesBid * 100 : (1 - liveYesAsk) * 100)
+    : (side === "yes" ? liveYesAsk * 100 : (1 - liveYesBid) * 100);
   const slippageBps =
     orderType === "limit" && parseFloat(limitPx) > 0
       ? Math.abs(fillPriceCents - bestForSide) * 100 // bps approx
       : 0;
+
+  // SELL-mode derived values: how many shares the user has on the
+  // selected side, and the proceeds (shares × bid price) at the
+  // currently-typed share count.
+  const positionOnSide = side === "yes" ? yesPosition : noPosition;
+  const sellSharesTyped = isSell ? Math.max(0, Math.floor(parseFloat(stake) || 0)) : 0;
+  const sellSharesClamped = Math.min(sellSharesTyped, Math.floor(positionOnSide));
+  const sellProceedsUsd = isSell ? sellSharesClamped * (fillPriceCents / 100) : 0;
 
   return (
     <div className="panel">
@@ -3132,13 +3319,59 @@ function TradePanel({
       </div>
       <div className="p-3 flex flex-col gap-2.5">
 
-        {/* YES / NO side */}
+        {/* BUY / SELL direction. Sell is only meaningful if the user
+            holds shares on at least one side — but we don't disable it
+            because the disabled-state is more confusing than just
+            letting them click and seeing the "no shares" error inline. */}
         <div
           className="grid grid-cols-2 gap-1 p-1"
           style={{ background: "var(--background)", border: "1px solid var(--hl-border)", borderRadius: 5 }}
         >
           <button
-            onClick={() => setSide("yes")}
+            onClick={() => setDirection("buy")}
+            className="py-2 font-bold"
+            style={{
+              background: !isSell ? "var(--hl-surface-hover)" : "transparent",
+              color: !isSell ? "var(--foreground)" : "var(--hl-muted)",
+              borderRadius: 4,
+              fontSize: "var(--t-caption)",
+              letterSpacing: 0.4,
+            }}
+          >
+            BUY
+          </button>
+          <button
+            onClick={() => setDirection("sell")}
+            className="py-2 font-bold"
+            style={{
+              background: isSell ? "var(--hl-surface-hover)" : "transparent",
+              color: isSell ? "var(--foreground)" : "var(--hl-muted)",
+              borderRadius: 4,
+              fontSize: "var(--t-caption)",
+              letterSpacing: 0.4,
+            }}
+          >
+            SELL
+          </button>
+        </div>
+
+        {/* YES / NO side. In SELL mode the cents shown is the BID
+            (what you'd receive); in BUY mode it's the ASK (what you'd
+            pay). Position count is shown in SELL mode so it's obvious
+            which side has shares to close. */}
+        <div
+          className="grid grid-cols-2 gap-1 p-1"
+          style={{ background: "var(--background)", border: "1px solid var(--hl-border)", borderRadius: 5 }}
+        >
+          <button
+            onClick={() => {
+              setSide("yes");
+              // When already in SELL mode, point the share count at
+              // the YES position the user actually holds. Skipped in
+              // BUY mode — there the stake is "USDH to spend", which
+              // doesn't depend on side.
+              if (isSell) setStake(Math.floor(yesPosition).toString());
+            }}
             className="py-2 font-bold flex flex-col items-center"
             style={{
               background: side === "yes" ? "rgba(74,222,128,0.12)" : "transparent",
@@ -3148,11 +3381,21 @@ function TradePanel({
               letterSpacing: 0.4,
             }}
           >
-            BUY YES
-            <span className="mono" style={{ fontSize: "var(--t-num)" }}>{yesCents}¢</span>
+            {isSell ? "SELL YES" : "BUY YES"}
+            <span className="mono" style={{ fontSize: "var(--t-num)" }}>
+              {isSell ? `${(sellYesPx * 100).toFixed(1)}¢` : `${yesCents}¢`}
+            </span>
+            {isSell && (
+              <span className="mono" style={{ fontSize: "var(--t-micro)", color: "var(--hl-muted)" }}>
+                {yesPosition > 0 ? `${yesPosition.toLocaleString()} held` : "0 held"}
+              </span>
+            )}
           </button>
           <button
-            onClick={() => setSide("no")}
+            onClick={() => {
+              setSide("no");
+              if (isSell) setStake(Math.floor(noPosition).toString());
+            }}
             className="py-2 font-bold flex flex-col items-center"
             style={{
               background: side === "no" ? "rgba(248,113,113,0.12)" : "transparent",
@@ -3162,8 +3405,15 @@ function TradePanel({
               letterSpacing: 0.4,
             }}
           >
-            BUY NO
-            <span className="mono" style={{ fontSize: "var(--t-num)" }}>{noCents}¢</span>
+            {isSell ? "SELL NO" : "BUY NO"}
+            <span className="mono" style={{ fontSize: "var(--t-num)" }}>
+              {isSell ? `${(sellNoPx * 100).toFixed(1)}¢` : `${noCents}¢`}
+            </span>
+            {isSell && (
+              <span className="mono" style={{ fontSize: "var(--t-micro)", color: "var(--hl-muted)" }}>
+                {noPosition > 0 ? `${noPosition.toLocaleString()} held` : "0 held"}
+              </span>
+            )}
           </button>
         </div>
 
@@ -3243,25 +3493,44 @@ function TradePanel({
           </div>
         </div>
 
-        {/* Size input */}
+        {/* Size input. BUY = USDH the user wants to risk; SELL = shares
+            they want to close. Same stake state in both modes, so a
+            switch resets the value visually but not the typed string. */}
         <div className="field-row flex items-center gap-2 px-2 py-2">
-          <span className="cellL">Size</span>
+          <span className="cellL">{isSell ? "Shares" : "Size"}</span>
           <input
             type="text"
             inputMode="decimal"
             value={stake}
             onChange={(e) => setStake(e.target.value.replace(/[^\d.]/g, ""))}
+            placeholder={isSell ? Math.floor(positionOnSide).toString() : undefined}
             className="flex-1 min-w-0 bg-transparent border-none outline-none mono text-right font-semibold"
             style={{ color: "var(--foreground)", fontSize: "var(--t-input)" }}
           />
-          <span className="mono" style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>USDH</span>
+          <span className="mono" style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>
+            {isSell ? "shares" : "USDH"}
+          </span>
         </div>
 
+        {/* Quick-pick row. BUY = preset USDH amounts; SELL = percent
+            of current position (25/50/75/100%) so users can close a
+            chunk of their position with one tap. */}
         <div className="grid grid-cols-4 gap-1">
-          {["$25", "$100", "$250", "Max"].map((q) => (
+          {(isSell
+            ? ["25%", "50%", "75%", "Max"]
+            : ["$25", "$100", "$250", "Max"]
+          ).map((q) => (
             <button
               key={q}
-              onClick={() => setStake(q === "Max" ? "1000" : q.replace("$", ""))}
+              onClick={() => {
+                if (isSell) {
+                  const max = Math.floor(positionOnSide);
+                  const pct = q === "Max" ? 1 : parseInt(q, 10) / 100;
+                  setStake(Math.max(0, Math.floor(max * pct)).toString());
+                } else {
+                  setStake(q === "Max" ? "1000" : q.replace("$", ""));
+                }
+              }}
               className="py-2 font-semibold"
               style={{
                 background: "var(--background)",
@@ -3276,15 +3545,20 @@ function TradePanel({
           ))}
         </div>
 
-        {/* Summary */}
+        {/* Summary. BUY shows shares + max payout. SELL shows proceeds
+            + the implied loss/gain vs $1 settle (since closing early
+            takes whatever the bid is — usually < $1 if winning,
+            > $0 if losing — both are realised P&L vs holding). */}
         <div className="field-row px-2 py-2">
           <SumRow l={orderType === "market" ? "Avg fill" : "Limit price"} v={`${fillPriceCents.toFixed(1)}¢`} />
-          <SumRow l="Shares" v={shares.toFixed(0)} />
+          {!isSell && <SumRow l="Shares" v={shares.toFixed(0)} />}
           {orderType === "limit" && slippageBps > 0 && (
             <SumRow l="Distance from best" v={`${Math.abs(fillPriceCents - bestForSide).toFixed(2)}¢`} cls="text-[var(--hl-muted)]" />
           )}
-          <SumRow l="Profit if win" v={`+$${profit.toFixed(2)}`} cls="text-[var(--hl-green)]" />
-          <SumRow l="Max payout" v={`$${maxPayout.toFixed(2)}`} total />
+          {!isSell && <SumRow l="Profit if win" v={`+$${profit.toFixed(2)}`} cls="text-[var(--hl-green)]" />}
+          {!isSell && <SumRow l="Max payout" v={`$${maxPayout.toFixed(2)}`} total />}
+          {isSell && <SumRow l="Selling" v={`${sellSharesClamped.toLocaleString()} ${side.toUpperCase()}`} />}
+          {isSell && <SumRow l="You receive" v={`≈ $${sellProceedsUsd.toFixed(2)}`} total />}
         </div>
 
         <button
@@ -3292,9 +3566,11 @@ function TradePanel({
           style={{
             background: orderStatus.kind === "pending"
               ? "var(--hl-muted)"
-              : side === "yes" ? "var(--hl-green)" : "var(--hl-red)",
-            color: "#001d0c",
-            border: "none",
+              : isSell
+                ? "var(--hl-muted)" /* neutral grey fill colour for sell */
+                : side === "yes" ? "var(--hl-green)" : "var(--hl-red)",
+            color: isSell ? "var(--foreground)" : "#001d0c",
+            border: isSell ? `1px solid ${side === "yes" ? "var(--hl-green)" : "var(--hl-red)"}` : "none",
             borderRadius: 6,
             fontSize: "var(--t-body)",
             cursor: orderStatus.kind === "pending" ? "wait" : "pointer",
@@ -3303,11 +3579,15 @@ function TradePanel({
           disabled={orderStatus.kind === "pending"}
           onClick={onSubmit}
         >
-          {orderStatus.kind === "pending"
-            ? "Placing order…"
-            : orderType === "market"
-              ? `${side === "yes" ? "Buy YES" : "Buy NO"} @ market`
-              : `${side === "yes" ? "Buy YES" : "Buy NO"} @ ${parseFloat(limitPx || "0").toFixed(1)}¢`}
+          {(() => {
+            if (orderStatus.kind === "pending") return "Placing order…";
+            const verb = isSell ? "Sell" : "Buy";
+            const sideLabel = side === "yes" ? "YES" : "NO";
+            const tail = orderType === "market"
+              ? "@ market"
+              : `@ ${parseFloat(limitPx || "0").toFixed(1)}¢`;
+            return `${verb} ${sideLabel} ${tail}`;
+          })()}
         </button>
 
         {/* Inline order status */}
@@ -3639,6 +3919,7 @@ function BucketMarketView({
 }) {
   const [selectedBucketIdx, setSelectedBucketIdx] = useState(0);
   const [tradeSide, setTradeSide] = useState<"yes" | "no">("yes");
+  const [direction, setDirectionRaw] = useState<"buy" | "sell">("buy");
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [stake, setStake] = useState("100");
   const [limitPx, setLimitPx] = useState("");
@@ -3839,9 +4120,63 @@ function BucketMarketView({
             <span style={{ color: "var(--hl-muted)" }}>· {yesCents}¢ YES · {noCents}¢ NO</span>
           </div>
 
+          {/* BUY / SELL direction toggle — switching resets stake to
+              either "100" USDH (buy) or the user's position on the
+              active side (sell). */}
+          <div
+            className="grid grid-cols-2 gap-1 p-1 mt-1"
+            style={{ background: "var(--background)", border: "1px solid var(--hl-border)", borderRadius: 5 }}
+          >
+            <button
+              onClick={() => {
+                setDirectionRaw("buy");
+                setStake("100");
+              }}
+              className="py-1.5 font-bold"
+              style={{
+                background: direction === "buy" ? "var(--hl-surface-hover)" : "transparent",
+                color: direction === "buy" ? "var(--foreground)" : "var(--hl-muted)",
+                borderRadius: 4,
+                fontSize: "var(--t-micro)",
+                letterSpacing: 0.4,
+              }}
+            >
+              BUY
+            </button>
+            <button
+              onClick={() => {
+                setDirectionRaw("sell");
+                if (selectedBucket) {
+                  const coin = tradeSide === "yes" ? selectedBucket.yesCoin : selectedBucket.noCoin;
+                  const pos = hip4Positions.get(coin) ?? 0;
+                  setStake(Math.floor(pos).toString());
+                }
+              }}
+              className="py-1.5 font-bold"
+              style={{
+                background: direction === "sell" ? "var(--hl-surface-hover)" : "transparent",
+                color: direction === "sell" ? "var(--foreground)" : "var(--hl-muted)",
+                borderRadius: 4,
+                fontSize: "var(--t-micro)",
+                letterSpacing: 0.4,
+              }}
+            >
+              SELL
+            </button>
+          </div>
+
           <div className="grid grid-cols-2 gap-2 mt-1">
             <button
-              onClick={() => setTradeSide("yes")}
+              onClick={() => {
+                setTradeSide("yes");
+                // In SELL mode, retarget stake to the YES position on
+                // this bucket so users don't accidentally try to sell
+                // a NO-side share count they don't actually hold.
+                if (direction === "sell" && selectedBucket) {
+                  const pos = hip4Positions.get(selectedBucket.yesCoin) ?? 0;
+                  setStake(Math.floor(pos).toString());
+                }
+              }}
               className="py-2 mono font-semibold"
               style={{
                 background: tradeSide === "yes" ? "rgba(74,222,128,0.15)" : "var(--hl-surface)",
@@ -3851,10 +4186,16 @@ function BucketMarketView({
                 fontSize: "var(--t-body)",
               }}
             >
-              YES
+              {direction === "sell" ? "SELL YES" : "YES"}
             </button>
             <button
-              onClick={() => setTradeSide("no")}
+              onClick={() => {
+                setTradeSide("no");
+                if (direction === "sell" && selectedBucket) {
+                  const pos = hip4Positions.get(selectedBucket.noCoin) ?? 0;
+                  setStake(Math.floor(pos).toString());
+                }
+              }}
               className="py-2 mono font-semibold"
               style={{
                 background: tradeSide === "no" ? "rgba(248,113,113,0.15)" : "var(--hl-surface)",
@@ -3864,7 +4205,7 @@ function BucketMarketView({
                 fontSize: "var(--t-body)",
               }}
             >
-              NO
+              {direction === "sell" ? "SELL NO" : "NO"}
             </button>
           </div>
 
@@ -3924,12 +4265,17 @@ function BucketMarketView({
             </div>
           </div>
 
-          <label className="cellL">Stake (USD)</label>
+          <label className="cellL">{direction === "sell" ? "Shares" : "Stake (USD)"}</label>
           <input
             type="number"
             inputMode="decimal"
             value={stake}
             onChange={(e) => setStake(e.target.value)}
+            placeholder={
+              direction === "sell" && selectedBucket
+                ? Math.floor(hip4Positions.get(tradeSide === "yes" ? selectedBucket.yesCoin : selectedBucket.noCoin) ?? 0).toString()
+                : undefined
+            }
             className="mono field-row px-2 py-2"
             // fontSize 16 prevents iOS Safari from auto-zooming on focus.
             style={{ color: "var(--foreground)", fontSize: "var(--t-input)" }}
@@ -3953,12 +4299,26 @@ function BucketMarketView({
           {(() => {
             const yesPx = selectedBucket?.yesPrice ?? 0;
             const sidePx = tradeSide === "yes" ? yesPx : 1 - yesPx;
-            const usd = parseFloat(stake) || 0;
-            const shares = sidePx > 0 ? Math.floor(usd / sidePx) : 0;
+            if (direction === "buy") {
+              const usd = parseFloat(stake) || 0;
+              const shares = sidePx > 0 ? Math.floor(usd / sidePx) : 0;
+              return (
+                <div className="mt-1" style={{ color: "var(--hl-muted)", fontSize: "var(--t-caption)" }}>
+                  ≈ <b className="mono">{shares.toLocaleString()}</b> shares · payout if {tradeSide.toUpperCase()} wins:{" "}
+                  <b className="mono" style={{ color: "var(--hl-green)" }}>${shares.toLocaleString()}</b>
+                </div>
+              );
+            }
+            // sell: stake is share count, proceeds = shares × side bid.
+            const coin = selectedBucket ? (tradeSide === "yes" ? selectedBucket.yesCoin : selectedBucket.noCoin) : null;
+            const positionOnSide = coin ? hip4Positions.get(coin) ?? 0 : 0;
+            const wantShares = Math.max(0, Math.floor(parseFloat(stake) || 0));
+            const sellShares = Math.min(wantShares, Math.floor(positionOnSide));
+            const proceeds = sellShares * sidePx;
             return (
               <div className="mt-1" style={{ color: "var(--hl-muted)", fontSize: "var(--t-caption)" }}>
-                ≈ <b className="mono">{shares.toLocaleString()}</b> shares · payout if {tradeSide.toUpperCase()} wins:{" "}
-                <b className="mono" style={{ color: "var(--hl-green)" }}>${shares.toLocaleString()}</b>
+                Sell <b className="mono">{sellShares.toLocaleString()}</b> {tradeSide.toUpperCase()} · receive{" "}
+                <b className="mono" style={{ color: "var(--hl-green)" }}>≈ ${proceeds.toFixed(2)}</b>
               </div>
             );
           })()}
@@ -3977,13 +4337,33 @@ function BucketMarketView({
                 setOrderStatus({ kind: "error", message: "Side price unavailable" });
                 return;
               }
-              const usd = parseFloat(stake);
-              // HL enforces $10 minimum notional on HIP-4 orders. Round
-              // shares UP if floor(usd/sidePx) would land below it.
-              const MIN_NOTIONAL_USDH = 10;
-              const naiveShares = Math.max(1, Math.floor(usd / sidePx));
-              const minSharesForMinimum = Math.ceil(MIN_NOTIONAL_USDH / sidePx);
-              const shares = Math.max(naiveShares, minSharesForMinimum);
+
+              // Compute final size differently for buy vs sell:
+              //  - BUY: floor(USDH / price), bumped up to clear $10 min
+              //  - SELL: typed share count, clamped to position
+              let finalSize: number;
+              if (direction === "buy") {
+                const usd = parseFloat(stake);
+                const MIN_NOTIONAL_USDH = 10;
+                const naiveShares = Math.max(1, Math.floor(usd / sidePx));
+                const minSharesForMinimum = Math.ceil(MIN_NOTIONAL_USDH / sidePx);
+                finalSize = Math.max(naiveShares, minSharesForMinimum);
+              } else {
+                const coin = tradeSide === "yes" ? selectedBucket.yesCoin : selectedBucket.noCoin;
+                const positionOnSide = hip4Positions.get(coin) ?? 0;
+                const requested = Math.floor(parseFloat(stake) || 0);
+                finalSize = Math.min(requested, Math.floor(positionOnSide));
+                if (finalSize <= 0) {
+                  setOrderStatus({
+                    kind: "error",
+                    message: positionOnSide <= 0
+                      ? `No ${tradeSide.toUpperCase()} shares to sell`
+                      : "Enter a share count > 0",
+                  });
+                  return;
+                }
+              }
+
               const lpx = parseFloat(limitPx);
               const limitPrice = orderType === "limit" && Number.isFinite(lpx) && lpx > 0 ? lpx / 100 : undefined;
 
@@ -4005,14 +4385,17 @@ function BucketMarketView({
                 }
                 const res = await exchange.placeOrder(agentResult.agentKey, address as `0x${string}`, {
                   asset,
-                  isBuy: true,
-                  size: shares,
+                  isBuy: direction === "buy",
+                  size: finalSize,
                   orderType,
                   limitPrice,
                   slippageBps: orderType === "market" ? 200 : undefined,
                 });
                 if (res.success) {
-                  setOrderStatus({ kind: "success", message: `Filled ${res.filledSize ?? "?"} @ ${res.avgPrice ?? "?"}¢` });
+                  setOrderStatus({
+                    kind: "success",
+                    message: `${direction === "buy" ? "Bought" : "Sold"} ${res.filledSize ?? "?"} @ ${res.avgPrice ?? "?"}¢`,
+                  });
                   window.dispatchEvent(new CustomEvent("hlone:trade-filled"));
                 } else {
                   setOrderStatus({ kind: "error", message: res.error ?? "Order failed" });
@@ -4023,8 +4406,15 @@ function BucketMarketView({
             }}
             className="py-3 mono font-bold mt-1 tracking-wide"
             style={{
-              background: tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-red)",
-              color: "var(--background)",
+              background: direction === "sell"
+                ? "transparent"
+                : tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-red)",
+              color: direction === "sell"
+                ? (tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-red)")
+                : "var(--background)",
+              border: direction === "sell"
+                ? `1px solid ${tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-red)"}`
+                : "none",
               borderRadius: 6,
               opacity: !isConnected || orderStatus.kind === "pending" || parseFloat(stake) <= 0 ? 0.4 : 1,
               fontSize: "var(--t-body)",
@@ -4033,7 +4423,9 @@ function BucketMarketView({
             {orderStatus.kind === "pending"
               ? "Placing…"
               : isConnected
-                ? `${orderType === "market" ? "Buy" : "Place limit"} ${tradeSide.toUpperCase()} · ${selectedBucket?.label}`
+                ? `${direction === "buy"
+                    ? (orderType === "market" ? "Buy" : "Place limit")
+                    : "Sell"} ${tradeSide.toUpperCase()} · ${selectedBucket?.label}`
                 : "Connect wallet"}
           </button>
 
