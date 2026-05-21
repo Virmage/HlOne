@@ -272,50 +272,49 @@ export default function PredictPage() {
     let hadPositions = false;
     const fetchBalances = async () => {
       try {
-        const [spotRes, perpRes] = await Promise.all([
-          fetch(HL_INFO, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "spotClearinghouseState", user: address }),
-          }),
-          fetch(HL_INFO, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "clearinghouseState", user: address }),
-          }),
-        ]);
+        // Only spotClearinghouseState is needed now. HL stores HIP-4
+        // outcome positions in spot balances using the "+<outcome><side>"
+        // coin format (e.g. "+700" = outcome 70, side 0 = YES). The
+        // previous code looked in clearinghouseState.assetPositions for
+        // "#NNN[01]" patterns — that scan returned 0 every time because
+        // HIP-4 positions never appear there. Hence "Your Position" said
+        // "No position" right after a successful fill.
+        const spotRes = await fetch(HL_INFO, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "spotClearinghouseState", user: address }),
+        });
         if (cancelled) return;
-        if (spotRes.ok) {
-          const data = (await spotRes.json()) as { balances?: { coin: string; total: string }[] };
-          const balances = data?.balances;
-          // If balances missing entirely AND we've previously had a
-          // USDH value, that's a hiccup — keep showing the last good.
-          if (balances != null) {
-            const usdh = balances.find((b) => b.coin === "USDH");
-            const v = usdh ? parseFloat(usdh.total) : 0;
-            if (v > 0 || !hadUsdh) {
-              setUsdhBalance(v);
-              if (v > 0) hadUsdh = true;
-            }
-          }
+        if (!spotRes.ok) return;
+        const data = (await spotRes.json()) as { balances?: { coin: string; total: string }[] };
+        const balances = data?.balances;
+        if (balances == null) return;
+
+        // USDH wallet balance (drives the LIVE banner USDH pill / order
+        // panel "Available to Trade").
+        const usdh = balances.find((b) => b.coin === "USDH");
+        const v = usdh ? parseFloat(usdh.total) : 0;
+        if (v > 0 || !hadUsdh) {
+          setUsdhBalance(v);
+          if (v > 0) hadUsdh = true;
         }
-        if (perpRes.ok) {
-          const data = (await perpRes.json()) as {
-            assetPositions?: { position: { coin: string; szi: string } }[];
-          };
-          const map = new Map<string, number>();
-          for (const ap of data.assetPositions ?? []) {
-            const c = ap.position?.coin;
-            if (!c || !/^#\d+[01]$/.test(c)) continue;
-            const sz = parseFloat(ap.position.szi);
-            if (Number.isFinite(sz) && sz !== 0) map.set(c, sz);
-          }
-          // Only overwrite when we found something OR we never had any.
-          // Empty + previously-had → keep, likely transient blip.
-          if (map.size > 0 || !hadPositions) {
-            setHip4Positions(map);
-            if (map.size > 0) hadPositions = true;
-          }
+
+        // HIP-4 outcome holdings. Coin pattern in balances is
+        // "+<outcome><side>", e.g. "+700". Translate to the page's
+        // canonical "#<outcome><side>" so the rest of the page (chart,
+        // order panel, position widget) can use a single key format.
+        const map = new Map<string, number>();
+        for (const b of balances) {
+          if (!b.coin || !/^\+\d+[01]$/.test(b.coin)) continue;
+          const sz = parseFloat(b.total);
+          if (!Number.isFinite(sz) || sz === 0) continue;
+          // "+700" → "#700"
+          const canonical = "#" + b.coin.slice(1);
+          map.set(canonical, sz);
+        }
+        if (map.size > 0 || !hadPositions) {
+          setHip4Positions(map);
+          if (map.size > 0) hadPositions = true;
         }
       } catch { /* ignore — sticky preserves last-known-good */ }
     };
@@ -1234,13 +1233,26 @@ export default function PredictPage() {
                   if (!approval.success) throw new Error(approval.error || "Builder fee approval failed");
                 }
 
+                // HL enforces a 10 USDH minimum order value on HIP-4. If
+                // floor(shares) × price falls below $10, HL rejects with
+                // "Order must have minimum value of 10 USDH" and the
+                // user's order silently fails. Round UP so notional is
+                // always ≥ $10.04 (one share worth of buffer).
+                const MIN_NOTIONAL_USDH = 10;
+                const naiveShares = Math.max(1, Math.floor(shares));
+                const fillPxFraction = side === "yes" ? effectiveYesPx : 1 - effectiveYesPx;
+                const minSharesForMinimum = fillPxFraction > 0
+                  ? Math.ceil(MIN_NOTIONAL_USDH / fillPxFraction)
+                  : naiveShares;
+                const finalSize = Math.max(naiveShares, minSharesForMinimum);
+
                 const res = await exchange.placeOrder(
                   agentResult.agentKey,
                   address as `0x${string}`,
                   {
                     asset,
                     isBuy: true, // always buying YES or NO shares (HL outcome model)
-                    size: Math.max(1, Math.floor(shares)),
+                    size: finalSize,
                     orderType,
                     limitPrice,
                     slippageBps: orderType === "market" ? 200 : undefined,
@@ -3471,7 +3483,12 @@ function BucketMarketView({
                 return;
               }
               const usd = parseFloat(stake);
-              const shares = Math.max(1, Math.floor(usd / sidePx));
+              // HL enforces $10 minimum notional on HIP-4 orders. Round
+              // shares UP if floor(usd/sidePx) would land below it.
+              const MIN_NOTIONAL_USDH = 10;
+              const naiveShares = Math.max(1, Math.floor(usd / sidePx));
+              const minSharesForMinimum = Math.ceil(MIN_NOTIONAL_USDH / sidePx);
+              const shares = Math.max(naiveShares, minSharesForMinimum);
               const lpx = parseFloat(limitPx);
               const limitPrice = orderType === "limit" && Number.isFinite(lpx) && lpx > 0 ? lpx / 100 : undefined;
 
