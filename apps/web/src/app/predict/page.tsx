@@ -1258,6 +1258,13 @@ export default function PredictPage() {
           border: 1px solid var(--hl-border);
           border-radius: 5px;
         }
+        /* Carries the chart's right-gutter width (= reserved space for
+           the y-axis percent labels) so floating chips can compute
+           their x-position relative to the line endpoint via
+           calc((100% - var(--chip-gutter)) * frac). */
+        .predict-chip-anchor {
+          --chip-gutter: 32px;
+        }
         /* Number/value emphasis used inside the order summary so it
            pops vs the label. */
         .v-num { font-size: var(--t-num); font-weight: 600; }
@@ -2569,15 +2576,15 @@ function RiverChart({
             y in their absolute positioning. */}
         <div className="h-[24px] md:h-[70px]" />
         <div className="relative h-[200px] md:h-[420px]" style={{ overflow: "visible" }}>
-          {/* Right gutter widened on desktop (100px) so the YES + BTC
-              endpoint chips can sit OUTSIDE the data area, attached to
-              the right side of the chart in line with their lines.
-              Mobile keeps the original 32px since extra-wide chips
-              would crush the data area on a phone. */}
+          {/* Chart canvas reserves a 32px right margin for the y-axis
+              percent labels. Endpoint chips no longer live in this
+              gutter — they float ABOVE the line endpoint instead, so
+              the canvas can reclaim the wider gutter that earlier
+              versions used. */}
           <svg
             viewBox={`0 0 ${W} ${H}`}
             preserveAspectRatio="none"
-            className="block h-full w-[calc(100%-32px)] md:w-[calc(100%-100px)]"
+            className="block h-full w-[calc(100%-32px)]"
           >
             <defs>
               {/* Two gradients so the filled area under the probability line
@@ -2844,19 +2851,25 @@ function RiverChart({
             const bg = viewSide === "yes" ? "var(--hl-green)" : "var(--hl-red)";
             const textColor = viewSide === "yes" ? "#001d0c" : "#2a0606";
             const glow = viewSide === "yes" ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.5)";
+            // Position chips ABOVE the line endpoint, right-aligned to
+            // where the line stops (= nowX in viewBox space).
+            //   left:      anchors at the rendered line endpoint x
+            //   transform: shifts the chip LEFT by its own width
+            //              (right-aligning) and UP by its own height
+            //              plus a 6px gap (sits just above the line)
+            // --chip-gutter is set by the .predict-chip-anchor class
+            // (32px mobile, 100px desktop) so the calc tracks the SVG.
+            const lineFrac = Math.min(1, Math.max(0, nowX / W));
+            const chipLeft = `calc((100% - var(--chip-gutter)) * ${lineFrac})`;
+            const chipTransform = "translate(-100%, calc(-100% - 6px))";
             return (
               <>
                 <div
-                  // right-[4px] on mobile, right-[36px] on desktop —
-                  // the wider gutter on desktop matches the shrunken
-                  // SVG width so the chip sits OUTSIDE the data area,
-                  // not over the line endpoint. Mobile keeps the chip
-                  // hugging the right edge since the chart canvas is
-                  // already narrow on phones.
-                  className="absolute mono right-[4px] md:right-[36px]"
+                  className="absolute mono predict-chip-anchor"
                   style={{
+                    left: chipLeft,
                     top: `${yesPct}%`,
-                    transform: "translateY(-50%)",
+                    transform: chipTransform,
                     background: bg,
                     color: textColor,
                     padding: "3px 8px",
@@ -2874,10 +2887,11 @@ function RiverChart({
                 </div>
                 {btcMark != null && btcAdjustedPct != null && (
                   <div
-                    className="absolute mono right-[4px] md:right-[36px]"
+                    className="absolute mono predict-chip-anchor"
                     style={{
+                      left: chipLeft,
                       top: `${btcAdjustedPct}%`,
-                      transform: "translateY(-50%)",
+                      transform: chipTransform,
                       background: "#fb923c",
                       color: "#1d0606",
                       padding: "3px 8px",
@@ -3091,10 +3105,9 @@ function RiverChart({
               paddingTop: 4,
               borderTop: "1px solid var(--hl-border)",
             } as const;
-            // right edge tracks the SVG's right edge: 32px mobile,
-            // 100px desktop. Without this the time labels would float
-            // past the chart's data area into the empty right gutter.
-            const rightClass = "right-[32px] md:right-[100px]";
+            // right edge tracks the SVG's right edge (32px reserved for
+            // y-axis percent labels on both mobile and desktop).
+            const rightClass = "right-[32px]";
             return (
               <>
                 <div className={`hidden md:flex absolute bottom-0 justify-between mono ${rightClass}`} style={sharedStyle}>
@@ -3118,7 +3131,7 @@ function RiverChart({
               when a limit is being composed. */}
           {limitY != null && limitOrderCents != null && (
             <div
-              className="absolute mono right-[32px] md:right-[100px]"
+              className="absolute mono right-[32px]"
               style={{
                 top: `${(limitY / H) * 100}%`,
                 transform: "translate(100%, -50%)",
