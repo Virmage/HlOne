@@ -1186,7 +1186,7 @@ export default function PredictPage() {
               page. Mirrors the perp page's pattern of hiding the
               order book below lg. */}
           <div className="hidden md:block">
-            <LiveOrderBook hyperodd={hyperodd} fairCents={fairCents} now={now} />
+            <LiveOrderBook hyperodd={hyperodd} fairCents={fairCents} now={now} viewSide={side} />
           </div>
         </div>
 
@@ -2640,27 +2640,58 @@ function LegendItem({ swatch, color, label }: { swatch: "line" | "dashed" | "bar
   );
 }
 
-function LiveOrderBook({ hyperodd, fairCents, now }: { hyperodd: HyperOddState; fairCents: number; now: number }) {
-  const hasBook = hyperodd.bids.length > 0 || hyperodd.asks.length > 0;
-  const markCents = hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : null;
-  const bestBid = hyperodd.bids[0] ? parseFloat(hyperodd.bids[0].px) : null;
-  const bestAsk = hyperodd.asks[0] ? parseFloat(hyperodd.asks[0].px) : null;
-  const spread = bestBid != null && bestAsk != null ? bestAsk - bestBid : null;
+function LiveOrderBook({ hyperodd, fairCents, now, viewSide }: { hyperodd: HyperOddState; fairCents: number; now: number; viewSide: "yes" | "no" }) {
+  // We only subscribe to the YES coin's book via WS, but YES + NO are
+  // perfectly complementary at 0/1 settle:
+  //   YES bid  P,size  ⟷  NO ask  (1−P),size
+  //   YES ask  P,size  ⟷  NO bid  (1−P),size
+  // So when the user toggles BUY NO we just flip + invert the book
+  // client-side instead of subscribing to two channels. The mark/spread
+  // calculations use the post-flip values so headers read in NO space.
+  const flip = viewSide === "no";
+  const rawYesBids = hyperodd.bids;
+  const rawYesAsks = hyperodd.asks;
+  // After flip: NO "bids" = YES asks inverted, NO "asks" = YES bids inverted.
+  // Best-bid-first / best-ask-first ordering: YES bids are ranked high→low
+  // and YES asks low→high; flipping a "high→low YES bid" by (1−P) yields
+  // "low→high NO ask", which is wrong for an ask column (asks display
+  // low→high already). Reverse the array post-flip to restore the
+  // expected sort.
+  const invertRow = (l: BookLevel) => ({ ...l, px: String(1 - parseFloat(l.px)) });
+  const bids: BookLevel[] = flip ? rawYesAsks.map(invertRow) : rawYesBids;
+  const asks: BookLevel[] = flip ? rawYesBids.map(invertRow) : rawYesAsks;
 
-  const allLevels = [...hyperodd.bids.slice(0, 10), ...hyperodd.asks.slice(0, 10)];
+  const hasBook = bids.length > 0 || asks.length > 0;
+  const yesMark = hyperodd.mark;
+  const sideMark = yesMark != null ? (flip ? 1 - yesMark : yesMark) : null;
+  const markCents = sideMark != null ? Math.round(sideMark * 100) : null;
+  const bestBid = bids[0] ? parseFloat(bids[0].px) : null;
+  const bestAsk = asks[0] ? parseFloat(asks[0].px) : null;
+  const spread = bestBid != null && bestAsk != null ? Math.abs(bestAsk - bestBid) : null;
+
+  const allLevels = [...bids.slice(0, 10), ...asks.slice(0, 10)];
   const maxSize = allLevels.reduce((m, l) => Math.max(m, parseFloat(l.sz)), 0.001);
+
+  // Display coin: if user is on NO, show the NO coin name (derived from
+  // the YES one — "#700" → "#701") so the header coin code matches the
+  // side actually being quoted.
+  const displayCoin = flip && hyperodd.hip4Coin
+    ? `#${hyperodd.hip4Coin.slice(1, -1)}1`
+    : hyperodd.hip4Coin;
+  const sideLabel = flip ? "NO side" : "YES side";
+  const markColor = flip ? "var(--hl-red)" : "var(--hl-green)";
 
   return (
     <div className="panel">
       <div className="px-3 py-2 flex items-center gap-3" style={{ borderBottom: "1px solid var(--hl-border)" }}>
         <span className="ptitle">Order book</span>
         <span className="psub">
-          live · <span className="mono">{hyperodd.hip4Coin ?? "loading…"}</span> · HIP-4 mainnet · YES side
+          live · <span className="mono">{displayCoin ?? "loading…"}</span> · HIP-4 mainnet · {sideLabel}
         </span>
         <div className="ml-auto flex gap-3 text-[10px]" style={{ color: "var(--hl-muted)" }}>
           {markCents != null && (
             <span>
-              Mark <b className="mono" style={{ color: "var(--hl-green)" }}>{markCents}¢</b>
+              Mark <b className="mono" style={{ color: markColor }}>{markCents}¢</b>
             </span>
           )}
           {hyperodd.openInterest > 0 && (
@@ -2758,7 +2789,7 @@ function LiveOrderBook({ hyperodd, fairCents, now }: { hyperodd: HyperOddState; 
         </div>
       ) : (
         <div className="grid" style={{ gridTemplateColumns: "1fr 80px 1fr" }}>
-          <LiveObSide rows={hyperodd.bids.slice(0, 10).map((l) => ({ px: parseFloat(l.px), size: parseFloat(l.sz) }))} side="bid" maxSize={maxSize} />
+          <LiveObSide rows={bids.slice(0, 10).map((l) => ({ px: parseFloat(l.px), size: parseFloat(l.sz) }))} side="bid" maxSize={maxSize} />
           <div
             className="flex flex-col items-center justify-center py-2 mono"
             style={{
@@ -2775,7 +2806,7 @@ function LiveOrderBook({ hyperodd, fairCents, now }: { hyperodd: HyperOddState; 
               </span>
             )}
           </div>
-          <LiveObSide rows={hyperodd.asks.slice(0, 10).map((l) => ({ px: parseFloat(l.px), size: parseFloat(l.sz) }))} side="ask" maxSize={maxSize} />
+          <LiveObSide rows={asks.slice(0, 10).map((l) => ({ px: parseFloat(l.px), size: parseFloat(l.sz) }))} side="ask" maxSize={maxSize} />
         </div>
       )}
     </div>
