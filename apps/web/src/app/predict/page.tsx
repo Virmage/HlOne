@@ -2146,6 +2146,51 @@ function RiverChart({
                 driven by the order-panel toggle. */}
             {points && <polyline fill="none" stroke={sideColor} strokeWidth="2.4" points={points} />}
 
+            {/* SETTLE vertical line — bright yellow so it reads as "the
+                deadline / settlement moment". On 24H view this sits at
+                the right edge of the chart (since tMax === settleTs).
+                On 6H/1H views settleTs is beyond the visible window, so
+                we skip the line and the user can rely on the countdown
+                in the stats row instead.
+
+                Also paint a subtle yellow-tinted band from nowX to
+                settleX to make the "future" region of the chart
+                visually distinct from already-resolved time. */}
+            {(() => {
+              if (now <= 0) return null;
+              const settleX = ((settleTs - tMin) / (tMax - tMin)) * W;
+              if (!Number.isFinite(settleX)) return null;
+              // Off-chart on 6H/1H — settleTs > tMax = now, so nothing
+              // to draw inside the visible viewBox.
+              if (settleX > W + 1 || settleX < 0) return null;
+              return (
+                <>
+                  {/* Future band — nowX (or 0) up to settleX */}
+                  {nowX != null && nowX < settleX && (
+                    <rect
+                      x={Math.max(0, nowX)}
+                      y={0}
+                      width={Math.min(W, settleX) - Math.max(0, nowX)}
+                      height={H}
+                      fill="#f5a524"
+                      opacity={0.04}
+                    />
+                  )}
+                  {/* The settle line itself */}
+                  <line
+                    x1={settleX}
+                    y1={0}
+                    x2={settleX}
+                    y2={H}
+                    stroke="#f5a524"
+                    strokeWidth={1.5}
+                    strokeDasharray="6,3"
+                    opacity={0.7}
+                  />
+                </>
+              );
+            })()}
+
             {/* NOW vertical line */}
             {nowX != null && nowX > 0 && nowX < W && (
               <>
@@ -2299,6 +2344,41 @@ function RiverChart({
               BTC · ${btcMark.toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </div>
           )}
+
+          {/* SETTLE label — a vertical "SETTLES IN XhYm" tag that sits
+              along the settle line on 24H view (so the bright yellow
+              line on the chart is obviously labelled). Rendered as HTML
+              so the text can be vertically rotated cheaply and update
+              the countdown without a chart re-render. */}
+          {(() => {
+            if (timeframe !== "24H") return null;
+            if (now <= 0) return null;
+            const settleX = ((settleTs - tMin) / (tMax - tMin)) * W;
+            if (!Number.isFinite(settleX) || settleX < 0 || settleX > W + 1) return null;
+            return (
+              <div
+                className="absolute mono"
+                style={{
+                  left: `${(settleX / W) * 100}%`,
+                  top: "50%",
+                  transform: "translate(-100%, -50%) rotate(-90deg)",
+                  transformOrigin: "right center",
+                  marginRight: 6,
+                  color: "var(--hl-yellow)",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: 1.5,
+                  textTransform: "uppercase",
+                  pointerEvents: "none",
+                  whiteSpace: "nowrap",
+                  textShadow: "0 0 6px rgba(245,165,36,0.4)",
+                  zIndex: 2,
+                }}
+              >
+                Settles in {fmtCountdown(settleTs - now)}
+              </div>
+            );
+          })()}
 
           {/* RIGHT y-axis — probability (green) */}
           <div
