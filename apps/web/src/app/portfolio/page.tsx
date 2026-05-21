@@ -149,6 +149,23 @@ export default function PortfolioPage() {
             if (b.coin === "USDC") {
               return { coin: b.coin, total, midPrice: 1, usdValue: total };
             }
+            // HIP-4 outcome shares — stored in spot balances as
+            // "+<outcome><side>" (e.g. "+700"). Their mid price lives
+            // in allMids under the "#<outcome><side>" key. Translate
+            // and look up so the user's prediction-market shares get a
+            // proper USD valuation in the spot holdings table too,
+            // alongside their USDH / USDC / etc.
+            if (/^\+\d+[01]$/.test(b.coin)) {
+              const hashKey = "#" + b.coin.slice(1);
+              const midStr = mids?.[hashKey];
+              const midPrice = midStr != null ? parseFloat(midStr) : 0;
+              return {
+                coin: b.coin,
+                total,
+                midPrice: Number.isFinite(midPrice) ? midPrice : 0,
+                usdValue: Number.isFinite(midPrice) ? total * midPrice : 0,
+              };
+            }
             const atCode = atCodeByName.get(b.coin);
             const midStr = atCode ? mids?.[atCode] : null;
             const midPrice = midStr != null ? parseFloat(midStr) : 0;
@@ -893,35 +910,63 @@ function PositionsTable({
             next to the coin. Many perp columns (Side, Leverage, Liq,
             Funding, Actions) don't apply, so they show "—". Mirrors
             Hyperliquid's UX of mixing spot + perp in a single list. */}
-        {spotHoldings.map((h) => (
-          <tr key={`spot:${h.coin}`} className="border-b border-[var(--hl-border)] border-opacity-30 hover:bg-[var(--hl-surface)] transition-colors">
-            <td className="px-4 py-2.5 font-medium text-[var(--foreground)]">
-              {h.coin}
-              <span
-                className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                style={{ background: "rgba(0,240,255,0.08)", color: "var(--hl-accent)" }}
-              >
-                spot
-              </span>
-            </td>
-            <td className="px-2 py-2.5 text-[var(--hl-muted)]">—</td>
-            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--foreground)]">
-              {h.total.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-            </td>
-            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--foreground)]">
-              ${h.usdValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </td>
-            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
-            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-text)]">
-              {h.midPrice > 0 ? `$${h.midPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}` : "—"}
-            </td>
-            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
-            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
-            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
-            <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
-            <td className="px-4 py-2.5 text-right text-[var(--hl-muted)]">—</td>
-          </tr>
-        ))}
+        {spotHoldings.map((h) => {
+          // HIP-4 outcome shares have coin like "+700". Display as
+          // "Prediction · YES" with the outcome ID + side, and tag the
+          // chip as "PREDICT" instead of the generic "SPOT" so the
+          // user understands what they're holding. Price renders as
+          // cents (matching how the predict page presents it).
+          const hip4Match = /^\+(\d+)([01])$/.exec(h.coin);
+          const isHip4 = !!hip4Match;
+          const hip4Outcome = hip4Match?.[1];
+          const hip4Side = hip4Match?.[2] === "0" ? "YES" : hip4Match?.[2] === "1" ? "NO" : null;
+          const chipBg = isHip4 ? "rgba(74,222,128,0.10)" : "rgba(0,240,255,0.08)";
+          const chipColor = isHip4 ? "var(--hl-green)" : "var(--hl-accent)";
+          const chipLabel = isHip4 ? "predict" : "spot";
+
+          // For HIP-4: format mid as ¢ instead of $ (matches predict
+          // page convention). 0.69 → "69¢".
+          const markCell = isHip4
+            ? (h.midPrice > 0 ? `${Math.round(h.midPrice * 100)}¢` : "—")
+            : (h.midPrice > 0 ? `$${h.midPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}` : "—");
+          const sizeCell = isHip4
+            ? `${h.total.toLocaleString(undefined, { maximumFractionDigits: 0 })} shares`
+            : h.total.toLocaleString(undefined, { maximumFractionDigits: 4 });
+
+          return (
+            <tr key={`spot:${h.coin}`} className="border-b border-[var(--hl-border)] border-opacity-30 hover:bg-[var(--hl-surface)] transition-colors">
+              <td className="px-4 py-2.5 font-medium text-[var(--foreground)]">
+                {isHip4
+                  ? <a
+                      href="/predict"
+                      className="hover:underline"
+                      title={`Open prediction market #${hip4Outcome} — your ${hip4Side} side position`}
+                    >
+                      {hip4Side} <span className="text-[10px] text-[var(--hl-muted)]">#{hip4Outcome}</span>
+                    </a>
+                  : h.coin}
+                <span
+                  className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                  style={{ background: chipBg, color: chipColor }}
+                >
+                  {chipLabel}
+                </span>
+              </td>
+              <td className="px-2 py-2.5 text-[var(--hl-muted)]">—</td>
+              <td className="px-2 py-2.5 text-right tabular-nums text-[var(--foreground)]">{sizeCell}</td>
+              <td className="px-2 py-2.5 text-right tabular-nums text-[var(--foreground)]">
+                ${h.usdValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </td>
+              <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+              <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-text)]">{markCell}</td>
+              <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+              <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+              <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+              <td className="px-2 py-2.5 text-right tabular-nums text-[var(--hl-muted)]">—</td>
+              <td className="px-4 py-2.5 text-right text-[var(--hl-muted)]">—</td>
+            </tr>
+          );
+        })}
       </tbody>
       {positions.length > 1 && (
         <tfoot>

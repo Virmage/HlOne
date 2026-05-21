@@ -81,13 +81,72 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
     if (!address) return;
     if (!hasFetchedRef.current) setLoading(true);
     try {
-      const data = await getUserPositions(address);
+      // Three things fetched in parallel:
+      //   1. Perp positions (our /api/market/positions/:addr route).
+      //   2. Spot clearinghouse — HIP-4 outcome positions live here as
+      //      balances with coin format "+NNN" (e.g. "+700"). Without
+      //      this, the user's prediction-market shares were invisible
+      //      in the Positions tab even though they fully exist on HL.
+      //   3. allMids — for HIP-4 mark prices (keyed by "#NNN"); we
+      //      need them to fill markPx + positionValue on the synthesised
+      //      rows.
+      const [data, spotRes, midsRes] = await Promise.all([
+        getUserPositions(address),
+        fetch(HL_API + "/info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "spotClearinghouseState", user: address }),
+        }).catch(() => null),
+        fetch(HL_API + "/info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "allMids" }),
+        }).catch(() => null),
+      ]);
+
+      // Build HIP-4 synthetic positions from spot balances. The existing
+      // PositionsTab already detects "#NNN[01]" coins and renders them
+      // with the "Prediction" label + YES/NO chip, so we shape these to
+      // match the UserPosition type and let the table do its thing.
+      const hip4Synth: UserPosition[] = [];
+      if (spotRes && spotRes.ok) {
+        const spotData = await spotRes.json() as { balances?: { coin: string; total: string }[] };
+        const mids = midsRes && midsRes.ok ? await midsRes.json() as Record<string, string> : {};
+        for (const b of spotData.balances ?? []) {
+          if (!b.coin || !/^\+\d+[01]$/.test(b.coin)) continue;
+          const size = parseFloat(b.total);
+          if (!Number.isFinite(size) || size === 0) continue;
+          // "+700" → "#700" — the canonical coin name used elsewhere on
+          // the page (chart, predict tab, allMids).
+          const hashCoin = "#" + b.coin.slice(1);
+          const markPx = parseFloat(mids[hashCoin] ?? "0") || 0;
+          hip4Synth.push({
+            coin: hashCoin,
+            side: "long",                       // always "long" — you only buy outcome shares
+            size,
+            entryPx: 0,                         // no per-share entry tracked
+            markPx,
+            positionValue: size * markPx,
+            unrealizedPnl: 0,                   // can't compute without entry
+            leverage: 1,
+            leverageType: "cross",
+            liquidationPx: null,
+            marginUsed: 0,
+            returnOnEquity: 0,
+            cumFunding: 0,
+          });
+        }
+      }
+
       if (data && Array.isArray(data.positions)) {
         // If backend returned empty but we already have positions, skip update (likely HL API hiccup)
-        if (data.positions.length === 0 && posCountRef.current > 0 && data.account === null) {
+        if (data.positions.length === 0 && hip4Synth.length === 0 && posCountRef.current > 0 && data.account === null) {
           return;
         }
-        setPositions(data.positions);
+        // Perp positions first, HIP-4 synthetics after — matches how
+        // they appear on the predict page's positions row.
+        const combined: UserPosition[] = [...data.positions, ...hip4Synth];
+        setPositions(combined);
         setAccount(data.account);
         setOpenOrders(data.openOrders || []);
         setTriggerOrders(data.triggerOrders || {});
@@ -99,9 +158,12 @@ export function PositionsPanel({ onSelectToken }: PositionsPanelProps) {
           totalMarginUsed: data.account.totalMarginUsed,
           totalNotional: data.account.totalNotional,
           withdrawable: data.account.withdrawable,
-          positionCount: data.positions.length,
+          positionCount: combined.length,
         } : null);
         setError(null);
+      } else if (hip4Synth.length > 0) {
+        // No perp data but HIP-4 holdings exist — still show them.
+        setPositions(hip4Synth);
       }
       hasFetchedRef.current = true;
     } catch (err) {
