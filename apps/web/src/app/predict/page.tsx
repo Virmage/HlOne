@@ -1593,7 +1593,10 @@ export default function PredictPage() {
             const hasPos = yesSharesPanel > 0 || noSharesPanel > 0;
             return (
           <div className={`panel ${hasPos ? "" : "hidden md:block"}`}>
-            <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
+            <div
+              className="px-3 py-2 flex items-center"
+              style={{ borderBottom: "1px solid var(--hl-border)", minHeight: 40 }}
+            >
               <span className="ptitle">Your position</span>
               <span className="psub ml-auto">on this market</span>
             </div>
@@ -2442,7 +2445,14 @@ function RiverChart({
             consistent down the page. */}
       <div
         className="px-3 py-2 flex items-center gap-2"
-        style={{ borderBottom: "1px solid var(--hl-border)" }}
+        style={{
+          borderBottom: "1px solid var(--hl-border)",
+          // Lock the header height so it aligns with the Order Entry
+          // panel header beside it (which has the same min-h). Without
+          // this the chart header was a few px taller because its
+          // values use 15px text while Order Entry uses 11px ptitle.
+          minHeight: 40,
+        }}
       >
         {/* Mobile chart header — countdown to settle. The live YES %
             is already visible via the hero swap pill ('YES 58¢ ⇄') and
@@ -2458,10 +2468,12 @@ function RiverChart({
             {fmtCountdown(settleTs - now)}
           </span>
         </span>
-        {/* Desktop pricing — full MARKET / THEORY / vs-theory inline.
-            Replaces the old "Probability river · live · BTC mark vs
-            strike" caption AND the standalone CompareStrip card above
-            the chart. One row, less chrome. */}
+        {/* Desktop pricing — MARKET / THEORY / vs-theory inline.
+            Heights normalised to match the Order Entry header beside
+            it: all values at t-num (15px), all labels at t-micro
+            (10px). Without this the 18px numbers made this header
+            taller than the order-entry header and threw the side-by-
+            side panel alignment out. */}
         {(() => {
           const theoryCents = Math.round(yesProb * 100);
           const gapCents = yesCents - theoryCents;
@@ -2469,13 +2481,18 @@ function RiverChart({
             yesCents >= 55 ? "var(--hl-green)" :
             yesCents <= 45 ? "var(--hl-red)" :
             "var(--foreground)";
+          const labelStyle = {
+            color: "var(--hl-muted)",
+            fontSize: "var(--t-micro)",
+            fontWeight: 600,
+            letterSpacing: 0.4,
+          } as const;
+          const valueStyle = { fontSize: "var(--t-num)" } as const;
           return (
-            <div className="hidden md:flex items-center gap-4" style={{ fontSize: "var(--t-caption)" }}>
+            <div className="hidden md:flex items-baseline gap-4">
               <span className="flex items-baseline gap-1.5">
-                <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", fontWeight: 600, letterSpacing: 0.4 }}>
-                  MARKET
-                </span>
-                <span className="mono font-bold" style={{ color: marketColor, fontSize: "var(--t-num-lg)" }}>
+                <span style={labelStyle}>MARKET</span>
+                <span className="mono font-bold" style={{ ...valueStyle, color: marketColor }}>
                   {yesCents}%
                 </span>
               </span>
@@ -2491,20 +2508,18 @@ function RiverChart({
                     : "σ√t implied YES probability at 65% annualised vol."
                 }
               >
-                <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", fontWeight: 600, letterSpacing: 0.4 }}>
-                  THEORY
-                </span>
-                <span className="mono font-bold" style={{ color: "var(--hl-text)", fontSize: "var(--t-num-lg)" }}>
+                <span style={labelStyle}>THEORY</span>
+                <span className="mono font-bold" style={{ ...valueStyle, color: "var(--hl-text)" }}>
                   {theoryCents}%
                 </span>
               </span>
-              <span className="flex items-baseline gap-1" title="Gap between market and theory.">
-                <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>vs theory</span>
+              <span className="flex items-baseline gap-1.5" title="Gap between market and theory.">
+                <span style={labelStyle}>vs theory</span>
                 <span
                   className="mono font-bold"
                   style={{
+                    ...valueStyle,
                     color: gapCents > 0 ? "var(--hl-green)" : gapCents < 0 ? "var(--hl-red)" : "var(--hl-muted)",
-                    fontSize: "var(--t-num)",
                   }}
                 >
                   {gapCents > 0 ? "+" : ""}{gapCents}%
@@ -3452,7 +3467,16 @@ function TradePanel({
 
   return (
     <div className="panel">
-      <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
+      <div
+        className="px-3 py-2 flex items-center"
+        style={{
+          borderBottom: "1px solid var(--hl-border)",
+          // Locked to 40px so this header lines up vertically with the
+          // chart panel header beside it. See chart-panel header for
+          // the matching minHeight.
+          minHeight: 40,
+        }}
+      >
         <span className="ptitle">Order entry</span>
         {/* bid/ask hidden on mobile — too dense, the hero already shows
             the live market % and the YES/NO swap shows cents. */}
