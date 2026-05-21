@@ -1595,7 +1595,7 @@ export default function PredictPage() {
           <div className={`panel ${hasPos ? "" : "hidden md:block"}`}>
             <div
               className="px-3 py-2 flex items-center"
-              style={{ borderBottom: "1px solid var(--hl-border)", minHeight: 40 }}
+              style={{ borderBottom: "1px solid var(--hl-border)", height: 44, boxSizing: "border-box" as const }}
             >
               <span className="ptitle">Your position</span>
               <span className="psub ml-auto">on this market</span>
@@ -2451,7 +2451,7 @@ function RiverChart({
           // panel header beside it (which has the same min-h). Without
           // this the chart header was a few px taller because its
           // values use 15px text while Order Entry uses 11px ptitle.
-          minHeight: 40,
+          height: 44, boxSizing: "border-box" as const,
         }}
       >
         {/* Mobile chart header — countdown to settle. The live YES %
@@ -3474,7 +3474,7 @@ function TradePanel({
           // Locked to 40px so this header lines up vertically with the
           // chart panel header beside it. See chart-panel header for
           // the matching minHeight.
-          minHeight: 40,
+          height: 44, boxSizing: "border-box" as const,
         }}
       >
         <span className="ptitle">Order entry</span>
