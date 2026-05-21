@@ -2053,28 +2053,36 @@ function RiverChart({
   const W = 800;
   const H = 420; // bumped from 360 to give whales more vertical room
 
-  // X-axis spans the contract's actual lifetime: 24h ending at settleTs.
-  // This way the chart reads as "open → settle" and an in-progress market
-  // shows a clear NOW marker, not a half-empty canvas.
-  // Chart x-window driven by the active timeframe.
-  //  - 24H: full contract lifetime (settleTs−24h → settleTs). Familiar
-  //    "open → settle" framing with NOW marker.
-  //  - 1H / 6H: the last N hours ending at NOW, CLAMPED to the contract
-  //    open (settleTs − 24h). Without the clamp, picking 6H during the
-  //    first 6h of the contract requested data from before the contract
-  //    existed, so HIP-4 data only filled the right half of the canvas
-  //    while the BTC line (always available) stretched all the way left.
-  //    Clamping means the chart always fills its width with real data —
-  //    it just compresses to a sub-6h window early in the day.
+  // X-axis spans the contract's lifetime, but the *visible window* is
+  // sized to the data we actually have so a brand-new market doesn't
+  // render as a 30-pixel strip on the left edge of an otherwise empty
+  // canvas (the failure mode the user reported on 24H view during the
+  // first 30min of a fresh contract).
+  //
+  // 24H: starts at contractOpen. Right edge stretches as data accrues:
+  //      tMax = contractOpen + max(1h, 2 × elapsed), capped at settleTs.
+  //      → 30min in: 1h window (data fills 50% of canvas).
+  //      → 6h  in: 12h window (data fills 50%).
+  //      → 12h in: full session (data fills 50%+, settle line visible).
+  //   This keeps the "open → settle" mental model while making the data
+  //   actually readable from minute one.
+  // 1H / 6H: last N hours ending at NOW, clamped to contractOpen so it
+  //   never asks for pre-contract data.
   const contractOpen = settleTs - 24 * 60 * 60 * 1000;
   const nowSafe = now > 0 ? now : Date.now();
+  const elapsed = Math.max(0, nowSafe - contractOpen);
   const tMin =
     timeframe === "24H"
       ? contractOpen
       : Math.max(contractOpen, nowSafe - tfParams(timeframe).lookbackMs);
   const tMax =
     timeframe === "24H"
-      ? settleTs
+      ? Math.min(
+          settleTs,
+          // Min 1h window so a fresh contract still has SOME readable
+          // canvas; otherwise scales to keep data at ~50% of the width.
+          contractOpen + Math.max(60 * 60 * 1000, elapsed * 2),
+        )
       : nowSafe;
 
   // BTC y-axis: auto-fit to the actual BTC range in the visible window
@@ -3018,14 +3026,18 @@ function RiverChart({
                 const ts = tMin + (i / (N - 1)) * (tMax - tMin);
                 ticks.push({ label: fmtTime(ts), ts });
               }
-              // Special markers on the bookend ticks
+              // Special markers on the bookend ticks. Match the actual
+              // tMax — on 24H with a brand-new contract the right edge
+              // is "now + elapsed buffer" (not settleTs), so hard-coding
+              // "settle ▶" gave a misleading label.
               const isLeftEdgeContractOpen = Math.abs(tMin - contractOpen) < 60_000;
-              const isRightEdgeSettle = timeframe === "24H";
+              const isRightEdgeSettle = Math.abs(tMax - settleTs) < 60_000;
+              const isRightEdgeNow = Math.abs(tMax - nowSafe) < 60_000;
               return ticks.map((t, i) => (
                 <span key={i}>
                   {i === 0 && isLeftEdgeContractOpen ? `open · ${t.label}`
                     : i === N - 1 && isRightEdgeSettle ? `${t.label} · settle ▶`
-                    : i === N - 1 ? `${t.label} · now ▶`
+                    : i === N - 1 && isRightEdgeNow ? `${t.label} · now ▶`
                     : t.label}
                 </span>
               ));
