@@ -1400,17 +1400,158 @@ export default function PredictPage() {
 
       {/* ── BINARY MARKET (existing UI) ─────────────────────────────────── */}
       {activeMarket === "binary" && <>
-      {/* market strip */}
-      <div className="max-w-[1440px] mx-auto px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
+
+      {/* ── MOBILE HERO (md:hidden) ─────────────────────────────────────
+          Polymarket / Kalshi-style hero: big question, twin YES/NO trade
+          cards as the visual anchor (one tap selects the side in the
+          order panel below), a single context line, and a one-tap chip
+          for market sentiment. Replaces the desktop's H1 + 3x2 stat
+          grid + CompareStrip block that was too dense for phones. */}
+      <div className="md:hidden px-4 pt-4 pb-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
+        <div className="flex items-start gap-3">
+          <h1
+            className="font-bold tracking-tight leading-tight flex-1 min-w-0"
+            style={{ fontSize: 22 }}
+          >
+            BTC &gt; ${strike?.toLocaleString() ?? "…"}?
+          </h1>
+          <button
+            onClick={() => setShowRules(true)}
+            className="flex-shrink-0 px-2 py-1"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--hl-border)",
+              color: "var(--hl-muted)",
+              fontSize: "var(--t-micro)",
+              borderRadius: 4,
+              letterSpacing: 0.5,
+            }}
+          >
+            RULES
+          </button>
+        </div>
+
+        {/* Single context line — BTC mark + distance from strike +
+            countdown. Replaces the 6-cell stat grid: that grid was
+            functional but tasted like a data dump. One line is enough
+            to orient the user; the chart is right below if they want
+            more detail. */}
+        <div
+          className="mt-1.5 flex items-center gap-2 flex-wrap"
+          style={{ fontSize: "var(--t-caption)" }}
+        >
+          <span className="mono" style={{ color: "var(--hl-text)", fontWeight: 600 }}>
+            BTC {btcMark ? `$${btcMark.toLocaleString(undefined, { maximumFractionDigits: 1 })}` : "—"}
+          </span>
+          {btcMark != null && (
+            <span
+              className="mono"
+              style={{ color: distance < 0 ? "var(--hl-green)" : "var(--hl-yellow)" }}
+            >
+              {distance >= 0 ? "+" : ""}${Math.abs(distance).toFixed(0)} ({distancePct >= 0 ? "+" : ""}{distancePct.toFixed(2)}%)
+            </span>
+          )}
+          <span style={{ color: "var(--hl-muted)" }}>·</span>
+          <span className="mono" style={{ color: "var(--hl-yellow)" }}>
+            {fmtCountdown(settleTs - now)} left
+          </span>
+        </div>
+
+        {/* Twin YES/NO trade cards. Each card:
+              · is the side selector (tap = setSide), so the same control
+                drives the chart's viewSide and the order panel
+              · shows live cents in a big tabular-num readout
+              · shows a tiny market-sentiment cue ("favoured" / "—")
+            The chosen side is highlighted (filled bg + colored border),
+            the other dims out. Whole card is the tap target — no
+            "click here" affordance needed. */}
+        <div className="mt-4 grid grid-cols-2 gap-2.5">
+          <button
+            onClick={() => setSide("yes")}
+            className="text-left p-3 transition-all"
+            style={{
+              background: side === "yes" ? "rgba(74,222,128,0.14)" : "var(--hl-surface)",
+              border: `1.5px solid ${side === "yes" ? "var(--hl-green)" : "var(--hl-border)"}`,
+              borderRadius: 8,
+            }}
+          >
+            <div
+              className="flex items-center justify-between"
+              style={{ fontSize: "var(--t-micro)", letterSpacing: 0.6, fontWeight: 700 }}
+            >
+              <span style={{ color: side === "yes" ? "var(--hl-green)" : "var(--hl-muted)" }}>YES</span>
+              {side === "yes" && (
+                <span style={{ color: "var(--hl-green)", fontSize: 14 }}>●</span>
+              )}
+            </div>
+            <div
+              className="mono font-bold tracking-tight"
+              style={{
+                color: side === "yes" ? "var(--hl-green)" : "var(--foreground)",
+                fontSize: 30,
+                lineHeight: 1.1,
+                marginTop: 2,
+              }}
+            >
+              {yesCents}¢
+            </div>
+            <div
+              className="mono mt-0.5"
+              style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
+            >
+              pays $1.00 if yes
+            </div>
+          </button>
+          <button
+            onClick={() => setSide("no")}
+            className="text-left p-3 transition-all"
+            style={{
+              background: side === "no" ? "rgba(248,113,113,0.14)" : "var(--hl-surface)",
+              border: `1.5px solid ${side === "no" ? "var(--hl-red)" : "var(--hl-border)"}`,
+              borderRadius: 8,
+            }}
+          >
+            <div
+              className="flex items-center justify-between"
+              style={{ fontSize: "var(--t-micro)", letterSpacing: 0.6, fontWeight: 700 }}
+            >
+              <span style={{ color: side === "no" ? "var(--hl-red)" : "var(--hl-muted)" }}>NO</span>
+              {side === "no" && (
+                <span style={{ color: "var(--hl-red)", fontSize: 14 }}>●</span>
+              )}
+            </div>
+            <div
+              className="mono font-bold tracking-tight"
+              style={{
+                color: side === "no" ? "var(--hl-red)" : "var(--foreground)",
+                fontSize: 30,
+                lineHeight: 1.1,
+                marginTop: 2,
+              }}
+            >
+              {noCents}¢
+            </div>
+            <div
+              className="mono mt-0.5"
+              style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
+            >
+              pays $1.00 if no
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* ── DESKTOP MARKET STRIP (hidden on mobile) ───────────────────── */}
+      <div
+        className="hidden md:block max-w-[1440px] mx-auto px-4 py-3 border-b"
+        style={{ borderColor: "var(--hl-border)" }}
+      >
         <div className="flex items-center gap-4 mb-3 flex-wrap">
           <h1
             className="font-bold tracking-tight leading-tight"
-            style={{ fontSize: "var(--t-title)" }}
+            style={{ fontSize: "var(--t-title-lg)" }}
           >
-            <span className="md:hidden">BTC &gt; ${strike?.toLocaleString() ?? "…"}?</span>
-            <span className="hidden md:inline" style={{ fontSize: "var(--t-title-lg)" }}>
-              Will BTC close above ${strike?.toLocaleString() ?? "…"} today?
-            </span>
+            Will BTC close above ${strike?.toLocaleString() ?? "…"} today?
           </h1>
           <div className="ml-auto flex gap-2">
             <button
@@ -1428,12 +1569,9 @@ export default function PredictPage() {
           </div>
         </div>
 
-        {/* Stat strip — 3×2 grid on mobile (reads at a glance, no scroll
-            required) and a single row on desktop where horizontal space
-            is cheap. Mobile cells have a subtle bottom border so the
-            two rows feel like a unit instead of floating chips. */}
+        {/* Desktop stat strip — horizontal scroll row. */}
         <div
-          className="grid grid-cols-3 md:flex md:items-stretch md:overflow-x-auto md:whitespace-nowrap scrollbar-none"
+          className="flex items-stretch overflow-x-auto whitespace-nowrap scrollbar-none"
           style={{ fontSize: "var(--t-body)" }}
         >
           <Stat label="YES" value={`${yesCents}¢`} cls="text-[var(--hl-green)]" />
@@ -2581,20 +2719,47 @@ function RiverChart({
 
   return (
     <div className="panel" style={{ minHeight: 540, overflow: "hidden" }}>
-      <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
-        <span className="ptitle">Probability river</span>
-        <span className="psub ml-3">live · computed from BTC mark vs strike</span>
-        <div className="ml-auto flex gap-1 text-[10px]" style={{ color: "var(--hl-muted)" }}>
+      {/* Chart header — different on mobile vs desktop.
+          Desktop: "Probability river · live · computed from BTC mark vs
+            strike" + timeframe pills. Plenty of horizontal room.
+          Mobile: just "Probability" + a tighter pill group right-aligned.
+            The full caption was running onto multiple lines on phones,
+            crammed against the timeframe buttons. */}
+      <div
+        className="px-3 py-2 flex items-center gap-2"
+        style={{ borderBottom: "1px solid var(--hl-border)" }}
+      >
+        <span className="ptitle">
+          <span className="hidden md:inline">Probability river</span>
+          <span className="md:hidden">Probability</span>
+        </span>
+        <span className="psub ml-2 hidden md:inline">
+          live · BTC mark vs strike
+        </span>
+        {/* Segmented control for the timeframe pills — single pill
+            background on mobile so the row reads as one control rather
+            than three loose buttons floating to the right. */}
+        <div
+          className="ml-auto flex p-0.5"
+          style={{
+            background: "var(--background)",
+            border: "1px solid var(--hl-border)",
+            borderRadius: 6,
+            fontSize: "var(--t-micro)",
+          }}
+        >
           {(["1H", "6H", "24H"] as const).map((tf) => (
             <button
               key={tf}
               onClick={() => setTimeframe(tf)}
-              className="px-2 py-0.5 rounded transition-colors"
+              className="px-2.5 py-1 transition-colors"
               style={{
                 background: timeframe === tf ? "var(--hl-surface-hover)" : "transparent",
                 color: timeframe === tf ? "var(--hl-accent)" : "var(--hl-muted)",
-                fontWeight: timeframe === tf ? 600 : 400,
+                fontWeight: timeframe === tf ? 700 : 500,
                 cursor: "pointer",
+                borderRadius: 4,
+                letterSpacing: 0.4,
               }}
             >
               {tf}
@@ -3123,12 +3288,15 @@ function RiverChart({
             the active side at the top, so this strip was always
             empty and just created dead space below the chart. */}
 
-        {/* Legend strip — each line on the chart explained with a
-            colour swatch + short label. Helps anyone landing on the
-            page cold understand what they're looking at. */}
+        {/* Legend strip.
+            Desktop: full 7-item legend with technical detail.
+            Mobile: tight 2-column grid of just the 4 lines that change
+              colour on screen. Theory / volume / whale-flow are
+              technical enough that hiding them on mobile reduces
+              clutter without hurting comprehension. */}
         <div
-          className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-1 px-1 text-[10px]"
-          style={{ color: "var(--hl-muted)" }}
+          className="hidden md:flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-1 px-1"
+          style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
         >
           <LegendItem swatch="line" color="var(--hl-green)" label="YES probability" />
           <LegendItem swatch="line" color="#fb923c" label="BTC price" />
@@ -3137,6 +3305,15 @@ function RiverChart({
           <LegendItem swatch="dashed" color="#f5a524" label="Settles" />
           <LegendItem swatch="bar" color="var(--hl-green)" label="Volume (bull/bear)" />
           <LegendItem swatch="whale" color="var(--hl-green)" label="Trade flow · solid=fill, dashed=inferred" />
+        </div>
+        <div
+          className="md:hidden grid grid-cols-2 gap-x-3 gap-y-1.5 mt-2 px-1"
+          style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
+        >
+          <LegendItem swatch="line" color="var(--hl-green)" label="YES" />
+          <LegendItem swatch="line" color="#fb923c" label="BTC" />
+          <LegendItem swatch="dashed" color="#f5a524" label="Strike" />
+          <LegendItem swatch="dashed" color="#f5a524" label="Settles" />
         </div>
       </div>
     </div>
@@ -4223,17 +4400,137 @@ function BucketMarketView({
 
   return (
     <>
-      {/* Header strip — picker + stats row, mirrors the binary's market strip */}
-      <div className="max-w-[1440px] mx-auto px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
+      {/* ── MOBILE HERO (md:hidden) ───────────────────────────────────
+          Same hero pattern as the binary view: big question, big bucket
+          picker, YES/NO cards for the chosen bucket, single context
+          line. The bucket dropdown takes full width since it's the
+          primary navigation in this view. */}
+      <div className="md:hidden px-4 pt-4 pb-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
+        <h1
+          className="font-bold tracking-tight leading-tight"
+          style={{ fontSize: 22 }}
+        >
+          BTC price range?
+        </h1>
+        <div
+          className="mt-1.5 flex items-center gap-2 flex-wrap"
+          style={{ fontSize: "var(--t-caption)" }}
+        >
+          <span className="mono" style={{ color: "var(--hl-text)", fontWeight: 600 }}>
+            BTC {btcMark ? `$${btcMark.toLocaleString(undefined, { maximumFractionDigits: 1 })}` : "—"}
+          </span>
+          <span style={{ color: "var(--hl-muted)" }}>·</span>
+          <span className="mono" style={{ color: "var(--hl-yellow)" }}>
+            {fmtCountdown(market.expiryMs - now)} left
+          </span>
+        </div>
+
+        {/* Full-width bucket picker — the chosen range becomes the
+            user's market. Bigger touch target than the inline desktop
+            select, and shows the range it represents. */}
+        <select
+          value={selectedBucketIdx}
+          onChange={(e) => setSelectedBucketIdx(parseInt(e.target.value, 10))}
+          className="mt-3 w-full px-3 py-2.5 mono font-semibold"
+          style={{
+            background: "var(--hl-surface)",
+            border: "1px solid var(--hl-accent)",
+            color: "var(--hl-accent)",
+            borderRadius: 8,
+            fontSize: "var(--t-body)",
+          }}
+        >
+          {market.buckets.map((b, idx) => {
+            const cents = b.yesPrice != null ? Math.round(b.yesPrice * 100) : null;
+            return (
+              <option key={b.outcomeId} value={idx}>
+                {b.label}{cents != null ? `  ·  ${cents}% YES` : ""}
+              </option>
+            );
+          })}
+        </select>
+
+        {/* Twin YES/NO trade cards for the selected bucket. */}
+        <div className="mt-3 grid grid-cols-2 gap-2.5">
+          <button
+            onClick={() => setTradeSide("yes")}
+            className="text-left p-3 transition-all"
+            style={{
+              background: tradeSide === "yes" ? "rgba(74,222,128,0.14)" : "var(--hl-surface)",
+              border: `1.5px solid ${tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-border)"}`,
+              borderRadius: 8,
+            }}
+          >
+            <div
+              className="flex items-center justify-between"
+              style={{ fontSize: "var(--t-micro)", letterSpacing: 0.6, fontWeight: 700 }}
+            >
+              <span style={{ color: tradeSide === "yes" ? "var(--hl-green)" : "var(--hl-muted)" }}>YES</span>
+              {tradeSide === "yes" && <span style={{ color: "var(--hl-green)", fontSize: 14 }}>●</span>}
+            </div>
+            <div
+              className="mono font-bold tracking-tight"
+              style={{
+                color: tradeSide === "yes" ? "var(--hl-green)" : "var(--foreground)",
+                fontSize: 30,
+                lineHeight: 1.1,
+                marginTop: 2,
+              }}
+            >
+              {yesCents}¢
+            </div>
+            <div
+              className="mono mt-0.5"
+              style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
+            >
+              if BTC in {rangeDesc || "—"}
+            </div>
+          </button>
+          <button
+            onClick={() => setTradeSide("no")}
+            className="text-left p-3 transition-all"
+            style={{
+              background: tradeSide === "no" ? "rgba(248,113,113,0.14)" : "var(--hl-surface)",
+              border: `1.5px solid ${tradeSide === "no" ? "var(--hl-red)" : "var(--hl-border)"}`,
+              borderRadius: 8,
+            }}
+          >
+            <div
+              className="flex items-center justify-between"
+              style={{ fontSize: "var(--t-micro)", letterSpacing: 0.6, fontWeight: 700 }}
+            >
+              <span style={{ color: tradeSide === "no" ? "var(--hl-red)" : "var(--hl-muted)" }}>NO</span>
+              {tradeSide === "no" && <span style={{ color: "var(--hl-red)", fontSize: 14 }}>●</span>}
+            </div>
+            <div
+              className="mono font-bold tracking-tight"
+              style={{
+                color: tradeSide === "no" ? "var(--hl-red)" : "var(--foreground)",
+                fontSize: 30,
+                lineHeight: 1.1,
+                marginTop: 2,
+              }}
+            >
+              {noCents}¢
+            </div>
+            <div
+              className="mono mt-0.5"
+              style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
+            >
+              if BTC outside that range
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* ── DESKTOP HEADER (hidden on mobile) ─────────────────────────── */}
+      <div className="hidden md:block max-w-[1440px] mx-auto px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
         <div className="flex items-center gap-3 mb-3 flex-wrap">
           <h1
             className="font-bold tracking-tight leading-tight"
-            style={{ fontSize: "var(--t-title)" }}
+            style={{ fontSize: "var(--t-title-lg)" }}
           >
-            <span className="md:hidden">BTC range?</span>
-            <span className="hidden md:inline" style={{ fontSize: "var(--t-title-lg)" }}>
-              BTC price range on {market.expiryMs ? new Date(market.expiryMs).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "expiry"}?
-            </span>
+            BTC price range on {market.expiryMs ? new Date(market.expiryMs).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "expiry"}?
           </h1>
           <select
             value={selectedBucketIdx}
@@ -4258,10 +4555,8 @@ function BucketMarketView({
           </select>
         </div>
 
-        {/* Same 3×2 grid pattern as the binary stat strip on mobile;
-            full-width horizontal flex on md+. */}
         <div
-          className="grid grid-cols-3 md:flex md:items-stretch md:overflow-x-auto md:whitespace-nowrap scrollbar-none"
+          className="flex items-stretch overflow-x-auto whitespace-nowrap scrollbar-none"
           style={{ fontSize: "var(--t-body)" }}
         >
           <Stat label="YES" value={`${yesCents}¢`} cls="text-[var(--hl-green)]" />
