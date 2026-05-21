@@ -2419,7 +2419,10 @@ function RiverChart({
   // chart already shows full depth with proper price/size info.
 
   return (
-    <div className="panel" style={{ minHeight: 540, overflow: "hidden" }}>
+    // min-h compressed on mobile (380px) so the chart doesn't dominate
+    // the viewport. Desktop keeps the original ~540px so the canvas has
+    // breathing room.
+    <div className="panel min-h-[380px] md:min-h-[540px]" style={{ overflow: "hidden" }}>
       {/* Chart header.
           Desktop: "Probability river · live · BTC mark vs strike" caption
             + timeframe pills.
@@ -2486,15 +2489,15 @@ function RiverChart({
         </div>
       </div>
       <div className="p-3 flex flex-col">
-        {/* 70px spacer ABOVE the chart — hosts the YES whale stack. The
-            chart-canvas div below keeps its original 420px height +
-            positioning, so the SVG and all child absolute-positioning math
-            stays unchanged. overflow:visible on chart-canvas lets whale
-            divs (which the memo positions with negative y) render UP into
-            this zone, and equivalent positive y values render DOWN into
-            the matching spacer below. */}
-        <div style={{ height: 70 }} />
-        <div className="relative" style={{ height: 420, overflow: "visible" }}>
+        {/* Whale-stack spacer above the chart. Desktop reserves 70px
+            for the YES whale stack; mobile shrinks to 28px since
+            (a) the synthetic candle-fallback whales are gone so the
+            stack is rarely more than 1-2 deep and (b) we want to
+            reclaim viewport. overflow:visible on the chart-canvas
+            below lets whales render UP into this zone via negative
+            y in their absolute positioning. */}
+        <div className="h-[28px] md:h-[70px]" />
+        <div className="relative h-[260px] md:h-[420px]" style={{ overflow: "visible" }}>
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "calc(100% - 32px)", height: "100%", display: "block" }}>
             <defs>
               {/* Two gradients so the filled area under the probability line
@@ -3377,7 +3380,9 @@ function TradePanel({
     <div className="panel">
       <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
         <span className="ptitle">Order entry</span>
-        <span className="psub ml-auto">
+        {/* bid/ask hidden on mobile — too dense, the hero already shows
+            the live market % and the YES/NO swap shows cents. */}
+        <span className="psub ml-auto hidden md:inline">
           bid {(liveYesBid * 100).toFixed(1)}¢ · ask {(liveYesAsk * 100).toFixed(1)}¢
         </span>
       </div>
@@ -3421,12 +3426,11 @@ function TradePanel({
           </button>
         </div>
 
-        {/* YES / NO side. In SELL mode the cents shown is the BID
-            (what you'd receive); in BUY mode it's the ASK (what you'd
-            pay). Position count is shown in SELL mode so it's obvious
-            which side has shares to close. */}
+        {/* YES / NO side — DESKTOP ONLY. On mobile the hero's swap
+            button is the side selector; duplicating it here would be
+            redundant chrome. */}
         <div
-          className="grid grid-cols-2 gap-1 p-1"
+          className="hidden md:grid grid-cols-2 gap-1 p-1"
           style={{ background: "var(--background)", border: "1px solid var(--hl-border)", borderRadius: 5 }}
         >
           <button
@@ -3483,9 +3487,11 @@ function TradePanel({
           </button>
         </div>
 
-        {/* Market / Limit toggle */}
+        {/* Market / Limit toggle — DESKTOP ONLY. Mobile defaults to
+            market orders; limit ordering is a power-user flow that
+            belongs on the desktop UI. */}
         <div
-          className="grid grid-cols-2 gap-1 p-1"
+          className="hidden md:grid grid-cols-2 gap-1 p-1"
           style={{ background: "var(--background)", border: "1px solid var(--hl-border)", borderRadius: 5 }}
         >
           <button
@@ -3533,11 +3539,10 @@ function TradePanel({
           </div>
         )}
 
-        {/* Wallet context — mirrors the HL trading panel pattern.
-            "Available to Trade" is the USDH balance the user can spend.
-            "Current Position" shows shares already held on this market
-            (YES or NO depending on the side they're viewing). */}
-        <div className="field-row flex flex-col" style={{ fontSize: "var(--t-caption)" }}>
+        {/* Wallet context — DESKTOP ONLY. On mobile the dedicated
+            "Your position" panel below + the hero's BTC line already
+            show this info; duplicating it here was redundant chrome. */}
+        <div className="hidden md:flex field-row flex-col" style={{ fontSize: "var(--t-caption)" }}>
           <div className="flex items-center justify-between px-2 py-1.5">
             <span style={{ color: "var(--hl-muted)" }}>Available</span>
             <span className="mono" style={{ fontWeight: 600 }}>
@@ -3611,11 +3616,10 @@ function TradePanel({
           ))}
         </div>
 
-        {/* Summary. BUY shows shares + max payout. SELL shows proceeds
-            + the implied loss/gain vs $1 settle (since closing early
-            takes whatever the bid is — usually < $1 if winning,
-            > $0 if losing — both are realised P&L vs holding). */}
-        <div className="field-row px-2 py-2">
+        {/* Summary — DESKTOP gets the full breakdown (avg fill / shares
+            / profit if win / max payout). MOBILE gets a single muted
+            line above the submit button to keep noise down. */}
+        <div className="hidden md:block field-row px-2 py-2">
           <SumRow l={orderType === "market" ? "Avg fill" : "Limit price"} v={`${fillPriceCents.toFixed(1)}¢`} />
           {!isSell && <SumRow l="Shares" v={shares.toFixed(0)} />}
           {orderType === "limit" && slippageBps > 0 && (
@@ -3625,6 +3629,16 @@ function TradePanel({
           {!isSell && <SumRow l="Max payout" v={`$${maxPayout.toFixed(2)}`} total />}
           {isSell && <SumRow l="Selling" v={`${sellSharesClamped.toLocaleString()} ${side.toUpperCase()}`} />}
           {isSell && <SumRow l="You receive" v={`≈ $${sellProceedsUsd.toFixed(2)}`} total />}
+        </div>
+        {/* Mobile one-liner — minimum info that still lets the user
+            sanity-check before tapping the button. */}
+        <div
+          className="md:hidden text-center mono"
+          style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
+        >
+          {isSell
+            ? `Selling ${sellSharesClamped.toLocaleString()} ${side.toUpperCase()} · receive ≈ $${sellProceedsUsd.toFixed(2)}`
+            : `${shares.toFixed(0)} shares · max payout $${maxPayout.toFixed(0)}`}
         </div>
 
         <button
@@ -3686,8 +3700,10 @@ function TradePanel({
           </div>
         )}
 
+        {/* Footer — desktop only. Mobile already shows the settle
+            countdown in the hero context line. */}
         <div
-          className="text-center tracking-wide"
+          className="hidden md:block text-center tracking-wide"
           style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
         >
           Settles 06:00 UTC · 1.5 bps builder fee
