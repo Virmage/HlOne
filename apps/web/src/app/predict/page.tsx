@@ -2012,7 +2012,7 @@ function RiverChart({
   // chart already shows full depth with proper price/size info.
 
   return (
-    <div className="panel" style={{ minHeight: 610, overflow: "hidden" }}>
+    <div className="panel" style={{ minHeight: 540, overflow: "hidden" }}>
       <div className="px-3 py-2 flex items-center" style={{ borderBottom: "1px solid var(--hl-border)" }}>
         <span className="ptitle">Probability river</span>
         <span className="psub ml-3">live · computed from BTC mark vs strike</span>
@@ -2550,10 +2550,10 @@ function RiverChart({
           {/* HIP-4 horizontal label removed — the green river IS the HIP-4 mark. */}
         </div>
 
-        {/* 70px spacer BELOW the chart — hosts the NO whale stack
-            (mirror of the spacer above). overflow:visible on the canvas
-            allows the whale divs (y > H) to render down into this area. */}
-        <div style={{ height: 70 }} />
+        {/* Bottom whale spacer removed — was originally for the NO
+            stack when whales rendered on both sides; we now show only
+            the active side at the top, so this strip was always
+            empty and just created dead space below the chart. */}
 
         {/* Legend strip — each line on the chart explained with a
             colour swatch + short label. Helps anyone landing on the
