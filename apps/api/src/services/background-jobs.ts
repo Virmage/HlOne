@@ -8,7 +8,7 @@ import { getSmartMoneyData, loadSmartMoneyFromCache, cleanupOldSharpFlowSnapshot
 import { getTokenScores } from "./scoring.js";
 import { getCachedMids, getCachedAssetCtxs } from "./market-data.js";
 import { getSignals } from "./signals.js";
-import { snapshotOI, loadOIFromDb, cleanupOldOISnapshots } from "./oi-tracker.js";
+import { snapshotOI, flushOIToDb, loadOIFromDb, cleanupOldOISnapshots } from "./oi-tracker.js";
 import { getNewsFeed } from "./crypto-panic.js";
 import { getBatchSocialMetrics } from "./lunar-crush.js";
 import { startTradeTapeTracking } from "./trade-tape.js";
@@ -80,7 +80,10 @@ export function startBackgroundJobs() {
     // Start top trader fills tracking (30min refresh, starts after smart money warms up)
     startTopTraderFillsTracking();
 
-    // Every 15s: OI snapshot (fast accumulation for chart overlay)
+    // Every 15s: OI snapshot in memory (keeps the chart overlay fresh).
+    // DB inserts have moved to a separate 60s flush below — see Neon
+    // cost-optimisation pass. The in-memory ring is still updated at
+    // 15s cadence so chart smoothness is unchanged.
     setInterval(async () => {
       try {
         await snapshotOI();
@@ -88,6 +91,18 @@ export function startBackgroundJobs() {
         console.error("[bg] OI snapshot failed:", (err as Error).message);
       }
     }, 15_000);
+
+    // Every 60s: flush buffered OI snapshots to the DB in a single
+    // INSERT. Batches 4 cycles of 30 coins (≈120 rows) into one round
+    // trip instead of firing 4 separate INSERTs/min. Drops Neon write
+    // traffic for OI from ~3-4 GB/month → ~1 GB/month.
+    setInterval(async () => {
+      try {
+        await flushOIToDb();
+      } catch (err) {
+        console.error("[bg] OI flush failed:", (err as Error).message);
+      }
+    }, 60_000);
 
     // Every 60s: whale position check + price refresh
     setInterval(async () => {

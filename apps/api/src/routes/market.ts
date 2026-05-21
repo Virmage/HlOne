@@ -31,7 +31,7 @@ import { getEcosystemCached, fetchEcosystemData } from "../services/hyperliquid-
 import { logTrade, getTradeLog, getTradeStats } from "../services/trade-log.js";
 import { verifyReadSignature, verifyWalletSignature, hashRequestBody } from "../lib/auth.js";
 import { sharpFlowSnapshots } from "@hl-copy/db";
-import { and, gte, lte as le, eq as eqDrizzle } from "drizzle-orm";
+import { and, gte, lte as le, eq as eqDrizzle, sql } from "drizzle-orm";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { ethAddress, positiveNumber, nonNegativeNumber, coinName } from "../lib/validation.js";
@@ -894,33 +894,54 @@ export const marketRoutes: FastifyPluginAsync = async (app) => {
       return { error: "DATABASE_URL not configured" };
     }
     try {
-      const all = await db.select({
-        snapshotAt: sharpFlowSnapshots.snapshotAt,
-        coin: sharpFlowSnapshots.coin,
-      }).from(sharpFlowSnapshots);
-      if (all.length === 0) {
+      // Aggregates only — the previous implementation did SELECT *
+      // (snapshotAt + coin) over the full table, which on Neon was
+      // returning ~150 MB per call (3M rows × ~50 B). This version
+      // pulls a single summary row plus a tiny per-coin GROUP BY for
+      // the last 24h, so each call is < 1 KB.
+      const oneDayAgo = new Date(Date.now() - 86400_000);
+      const [summary, perCoinRows] = await Promise.all([
+        db
+          .select({
+            total: sql<number>`count(*)::int`,
+            firstSnapshot: sql<Date | null>`min(${sharpFlowSnapshots.snapshotAt})`,
+            lastSnapshot: sql<Date | null>`max(${sharpFlowSnapshots.snapshotAt})`,
+          })
+          .from(sharpFlowSnapshots),
+        db
+          .select({
+            coin: sharpFlowSnapshots.coin,
+            n: sql<number>`count(*)::int`,
+          })
+          .from(sharpFlowSnapshots)
+          .where(gte(sharpFlowSnapshots.snapshotAt, oneDayAgo))
+          .groupBy(sharpFlowSnapshots.coin)
+          .orderBy(sql`count(*) desc`)
+          .limit(10),
+      ]) as [
+        Array<{ total: number; firstSnapshot: Date | null; lastSnapshot: Date | null }>,
+        Array<{ coin: string; n: number }>,
+      ];
+
+      const s = summary[0];
+      if (!s || s.total === 0) {
         return {
           total: 0,
           note: "Table exists but is empty — next 5-min smart-money refresh will write the first rows.",
         };
       }
-      const times = (all as { snapshotAt: Date }[]).map(r => r.snapshotAt.getTime());
-      const first = new Date(Math.min(...times));
-      const last = new Date(Math.max(...times));
-      const hoursCovered = (Math.max(...times) - Math.min(...times)) / 3600_000;
-      const perCoin: Record<string, number> = {};
-      const oneDayAgo = Date.now() - 86400_000;
-      for (const r of all as { coin: string; snapshotAt: Date }[]) {
-        if (r.snapshotAt.getTime() < oneDayAgo) continue;
-        perCoin[r.coin] = (perCoin[r.coin] || 0) + 1;
-      }
+      const first = s.firstSnapshot;
+      const last = s.lastSnapshot;
+      const hoursCovered = first && last
+        ? (last.getTime() - first.getTime()) / 3600_000
+        : 0;
       return {
-        total: all.length,
-        firstSnapshot: first.toISOString(),
-        lastSnapshot: last.toISOString(),
+        total: s.total,
+        firstSnapshot: first?.toISOString() ?? null,
+        lastSnapshot: last?.toISOString() ?? null,
         hoursCovered: +hoursCovered.toFixed(2),
-        coinsSeenLast24h: Object.keys(perCoin).length,
-        topCoinsLast24h: Object.entries(perCoin).sort((a, b) => b[1] - a[1]).slice(0, 10),
+        coinsSeenLast24h: perCoinRows.length,
+        topCoinsLast24h: perCoinRows.map(r => [r.coin, r.n] as const),
       };
     } catch (err) {
       reply.code(500);

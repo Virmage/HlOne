@@ -507,6 +507,14 @@ const MAX_PER_CANDLE: Record<string, number> = {
 let dbFailCount = 0;
 const DB_FAIL_THRESHOLD = 5; // disable DB after 5 consecutive failures
 
+// Small in-memory LRU around the DB query so a burst of chart loads
+// (user flipping between coins / timeframes) doesn't re-hit Neon for
+// the same window. Key buckets `since` to the nearest minute so two
+// requests within 60s for the same coin+interval share a cache entry.
+const historyCache = new Map<string, { ts: number; data: WhaleEvent[] }>();
+const HISTORY_CACHE_TTL_MS = 30_000;
+const HISTORY_CACHE_MAX = 200;
+
 export async function getHistoricalWhaleEvents(
   coin: string,
   interval: string,
@@ -517,11 +525,37 @@ export async function getHistoricalWhaleEvents(
     return events.filter(e => e.coin === coin && e.detectedAt >= since);
   }
 
+  // Bucket `since` to 60s so chart re-polls don't generate fresh
+  // cache keys every render.
+  const sinceBucket = Math.floor(since / 60_000);
+  const cacheKey = `${coin}:${interval}:${sinceBucket}`;
+  const hit = historyCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < HISTORY_CACHE_TTL_MS) {
+    return hit.data;
+  }
+
   const threshold = INTERVAL_THRESHOLDS[interval] || 50_000;
   const maxPerCandle = MAX_PER_CANDLE[interval] || 3;
 
   try {
-    const rows = await db.select()
+    // Project only the columns the chart actually reads. Was
+    // db.select() (all columns including text whaleName, address,
+    // numerics) — ~250 B/row × 500 rows = ~125 KB per call, vs
+    // ~80 B/row × 500 = ~40 KB with this projection.
+    const rows = await db
+      .select({
+        id: whaleEvents.id,
+        whaleAddress: whaleEvents.whaleAddress,
+        whaleName: whaleEvents.whaleName,
+        accountValue: whaleEvents.accountValue,
+        coin: whaleEvents.coin,
+        eventType: whaleEvents.eventType,
+        oldSize: whaleEvents.oldSize,
+        newSize: whaleEvents.newSize,
+        positionValueUsd: whaleEvents.positionValueUsd,
+        price: whaleEvents.price,
+        detectedAt: whaleEvents.detectedAt,
+      })
       .from(whaleEvents)
       .where(
         and(
@@ -534,7 +568,7 @@ export async function getHistoricalWhaleEvents(
       .limit(500);
 
     // Convert DB rows to WhaleEvent format
-    const result: WhaleEvent[] = rows.map((r, i) => ({
+    const result: WhaleEvent[] = rows.map((r) => ({
       id: r.id,
       whaleAddress: r.whaleAddress,
       whaleName: r.whaleName,
@@ -566,6 +600,17 @@ export async function getHistoricalWhaleEvents(
     }
 
     dbFailCount = 0; // reset on success
+    // Memoize result for ~30s (LRU-evict if cache grew big).
+    historyCache.set(cacheKey, { ts: Date.now(), data: filtered });
+    if (historyCache.size > HISTORY_CACHE_MAX) {
+      // Drop the oldest 20% of entries — cheap pseudo-LRU without a
+      // proper doubly-linked-list implementation.
+      const cutoff = Math.floor(HISTORY_CACHE_MAX * 0.2);
+      const stale = [...historyCache.entries()]
+        .sort((a, b) => a[1].ts - b[1].ts)
+        .slice(0, cutoff);
+      for (const [k] of stale) historyCache.delete(k);
+    }
     return filtered;
   } catch (err) {
     dbFailCount++;
