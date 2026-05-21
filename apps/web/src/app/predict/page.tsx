@@ -1027,12 +1027,15 @@ export default function PredictPage() {
           and bucket (multi-outcome range question). Both settle at the same
           06:00 UTC. */}
       <div
-        className="max-w-[1440px] mx-auto px-4 pt-3 flex items-center gap-2 text-[12px]"
+        // overflow-x-auto + flex-nowrap so the tabs scroll horizontally on
+        // narrow screens instead of stacking weirdly underneath the
+        // bottom border.
+        className="max-w-[1440px] mx-auto px-4 pt-3 flex items-center gap-2 text-[12px] overflow-x-auto whitespace-nowrap"
         style={{ borderBottom: "1px solid var(--hl-border)" }}
       >
         <button
           onClick={() => setActiveMarket("binary")}
-          className="px-3 py-1.5 mono font-semibold"
+          className="px-3 py-1.5 mono font-semibold flex-shrink-0"
           style={{
             color: activeMarket === "binary" ? "var(--hl-accent)" : "var(--hl-muted)",
             borderBottom: `2px solid ${activeMarket === "binary" ? "var(--hl-accent)" : "transparent"}`,
@@ -1043,7 +1046,7 @@ export default function PredictPage() {
         </button>
         <button
           onClick={() => setActiveMarket("bucket")}
-          className="px-3 py-1.5 mono font-semibold"
+          className="px-3 py-1.5 mono font-semibold flex-shrink-0"
           disabled={!bucketMarket}
           style={{
             color: activeMarket === "bucket" ? "var(--hl-accent)" : "var(--hl-muted)",
@@ -1106,7 +1109,7 @@ export default function PredictPage() {
       {/* market strip */}
       <div className="max-w-[1440px] mx-auto px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
         <div className="flex items-center gap-4 mb-3 flex-wrap">
-          <h1 className="text-[28px] font-bold tracking-tight leading-tight">
+          <h1 className="text-[20px] sm:text-[28px] font-bold tracking-tight leading-tight">
             Will BTC close above ${strike?.toLocaleString() ?? "…"} today?
           </h1>
           <div className="ml-auto flex gap-2">
@@ -1137,8 +1140,11 @@ export default function PredictPage() {
         <CompareStrip yesProb={yesProb} compare={compare} strike={strike} hyperodd={hyperodd} now={now} expiryTier={expiryTier} />
       </div>
 
-      {/* main grid */}
-      <main className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3" style={{ gridTemplateColumns: "1fr 320px", alignItems: "start" }}>
+      {/* main grid — single column on mobile (chart + order panel stack
+          vertically), two columns (chart + sticky-width 320px order panel)
+          at md+ as before. Was a rigid `1fr 320px` for both layouts which
+          crushed everything on mobile. */}
+      <main className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3 grid-cols-1 md:grid-cols-[1fr_320px]" style={{ alignItems: "start" }}>
         <div className="flex flex-col gap-3 min-w-0">
           <RiverChart
             timeframe={timeframe}
@@ -3113,12 +3119,16 @@ function CompareStrip({
 
   return (
     <div
-      className="mt-2 px-3 py-2 grid gap-3 text-[11px]"
+      // Tailwind responsive: single column on mobile (stacks Pricing
+      // label + MARKET + THEORY + gap chip vertically) and the 4-column
+      // desktop layout (auto/1fr/1fr/auto) at sm+. Border-l dividers
+      // between cells become border-t on mobile so the visual rhythm
+      // still works stacked.
+      className="mt-2 px-3 py-2 grid gap-3 text-[11px] grid-cols-1 sm:grid-cols-[auto_1fr_1fr_auto]"
       style={{
         background: "rgba(0,240,255,0.04)",
         border: "1px solid rgba(0,240,255,0.18)",
         borderRadius: 4,
-        gridTemplateColumns: "auto 1fr 1fr auto",
         alignItems: "center",
       }}
     >
@@ -3454,7 +3464,7 @@ function BucketMarketView({
       {/* Header strip — picker + stats row, mirrors the binary's market strip */}
       <div className="max-w-[1440px] mx-auto px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
         <div className="flex items-center gap-3 mb-3 flex-wrap">
-          <h1 className="text-[22px] font-bold tracking-tight leading-tight">
+          <h1 className="text-[17px] sm:text-[22px] font-bold tracking-tight leading-tight">
             BTC price range on {market.expiryMs ? new Date(market.expiryMs).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "expiry"}?
           </h1>
           <select
@@ -3493,8 +3503,8 @@ function BucketMarketView({
         </div>
       </div>
 
-      {/* Main grid — chart left, order panel right (same as binary) */}
-      <main className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3" style={{ gridTemplateColumns: "1fr 320px", alignItems: "start" }}>
+      {/* Main grid — stacks vertically on mobile, two columns at md+. */}
+      <main className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3 grid-cols-1 md:grid-cols-[1fr_320px]" style={{ alignItems: "start" }}>
         <div className="grid gap-3" style={{ gridAutoRows: "min-content" }}>
           <RiverChart
             timeframe={timeframe}
