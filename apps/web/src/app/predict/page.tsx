@@ -1278,9 +1278,12 @@ export default function PredictPage() {
         className="md:static sticky top-0 z-20"
         style={{ background: "var(--background)" }}
       >
-        {/* LIVE banner — single chunk "● LIVE · HIP-4 MAINNET #600" */}
+        {/* LIVE banner — single chunk "● LIVE · HIP-4 MAINNET #600".
+            Tighter vertical padding on mobile (py-1 vs py-1.5) saves
+            another ~6px since mobile users see no other contextual
+            chrome (tabs removed). */}
         <div
-          className="max-w-[1440px] mx-auto px-4 py-1.5 flex items-center gap-3"
+          className="max-w-[1440px] mx-auto px-4 py-1 md:py-1.5 flex items-center gap-3"
           style={{
             background: "rgba(74,222,128,0.06)",
             borderBottom: "1px solid rgba(74,222,128,0.2)",
@@ -1307,14 +1310,12 @@ export default function PredictPage() {
           </span>
         </div>
 
-        {/* Market-selector tabs — swap between binary (single YES/NO threshold)
-            and bucket (multi-outcome range question). Both settle at the same
-            06:00 UTC. */}
+        {/* Market-selector tabs — desktop only. On mobile the bucket
+            market is reachable from the desktop view; the tab strip
+            was eating ~32px of viewport without adding value to the
+            mobile single-market flow. */}
         <div
-          // overflow-x-auto + flex-nowrap so the tabs scroll horizontally on
-          // narrow screens instead of stacking weirdly underneath the
-          // bottom border.
-          className="max-w-[1440px] mx-auto px-4 flex items-center gap-2 overflow-x-auto whitespace-nowrap"
+          className="hidden md:flex max-w-[1440px] mx-auto px-4 items-center gap-2 overflow-x-auto whitespace-nowrap"
           style={{
             borderBottom: "1px solid var(--hl-border)",
             background: "var(--background)",
@@ -1402,40 +1403,60 @@ export default function PredictPage() {
       {activeMarket === "binary" && <>
 
       {/* ── MOBILE HERO (md:hidden) ─────────────────────────────────────
-          Polymarket / Kalshi-style hero: big question, twin YES/NO trade
-          cards as the visual anchor (one tap selects the side in the
-          order panel below), a single context line, and a one-tap chip
-          for market sentiment. Replaces the desktop's H1 + 3x2 stat
-          grid + CompareStrip block that was too dense for phones. */}
-      <div className="md:hidden px-4 pt-4 pb-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
-        <div className="flex items-start gap-3">
+          Tight, single-row hero. Question + context inline; one compact
+          side-swap button on the right showing the active YES/NO + cents,
+          tapping flips to the other. Massively reduces hero height vs the
+          twin trade-card layout. */}
+      <div className="md:hidden px-4 py-3 border-b" style={{ borderColor: "var(--hl-border)" }}>
+        <div className="flex items-center gap-2">
           <h1
             className="font-bold tracking-tight leading-tight flex-1 min-w-0"
-            style={{ fontSize: 22 }}
+            style={{ fontSize: 18 }}
           >
             BTC &gt; ${strike?.toLocaleString() ?? "…"}?
           </h1>
+          {/* Side-swap button — tap flips YES↔NO. The active side's
+              colour fills the bg so it's visually obvious which side
+              you're acting on. Compact (~32px tall) vs the previous
+              ~70px twin cards. */}
+          <button
+            onClick={() => setSide(side === "yes" ? "no" : "yes")}
+            className="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 font-bold mono"
+            style={{
+              background: side === "yes" ? "rgba(74,222,128,0.16)" : "rgba(248,113,113,0.16)",
+              border: `1px solid ${side === "yes" ? "var(--hl-green)" : "var(--hl-red)"}`,
+              color: side === "yes" ? "var(--hl-green)" : "var(--hl-red)",
+              borderRadius: 6,
+              fontSize: "var(--t-body)",
+              letterSpacing: 0.3,
+            }}
+            aria-label={`Switch to ${side === "yes" ? "NO" : "YES"}`}
+          >
+            <span>{side === "yes" ? "YES" : "NO"}</span>
+            <span style={{ fontWeight: 700 }}>
+              {side === "yes" ? yesCents : noCents}¢
+            </span>
+            <span style={{ opacity: 0.6, fontSize: 10, marginLeft: 1 }}>⇄</span>
+          </button>
           <button
             onClick={() => setShowRules(true)}
-            className="flex-shrink-0 px-2 py-1"
+            className="flex-shrink-0 px-1.5 py-1.5"
             style={{
               background: "transparent",
               border: "1px solid var(--hl-border)",
               color: "var(--hl-muted)",
               fontSize: "var(--t-micro)",
               borderRadius: 4,
-              letterSpacing: 0.5,
+              letterSpacing: 0.4,
             }}
+            aria-label="Resolution rules"
           >
-            RULES
+            ⓘ
           </button>
         </div>
 
         {/* Single context line — BTC mark + distance from strike +
-            countdown. Replaces the 6-cell stat grid: that grid was
-            functional but tasted like a data dump. One line is enough
-            to orient the user; the chart is right below if they want
-            more detail. */}
+            countdown. One row, tight. */}
         <div
           className="mt-1.5 flex items-center gap-2 flex-wrap"
           style={{ fontSize: "var(--t-caption)" }}
@@ -1455,74 +1476,6 @@ export default function PredictPage() {
           <span className="mono" style={{ color: "var(--hl-yellow)" }}>
             {fmtCountdown(settleTs - now)} left
           </span>
-        </div>
-
-        {/* Twin YES/NO trade cards — side selector + price readout.
-            Subtitles dropped for the cleanest possible look — the YES/NO
-            tag + cents value is enough. */}
-        <div className="mt-4 grid grid-cols-2 gap-2.5">
-          <button
-            onClick={() => setSide("yes")}
-            className="text-left px-3 py-2.5 transition-all"
-            style={{
-              background: side === "yes" ? "rgba(74,222,128,0.14)" : "var(--hl-surface)",
-              border: `1.5px solid ${side === "yes" ? "var(--hl-green)" : "var(--hl-border)"}`,
-              borderRadius: 8,
-            }}
-          >
-            <div
-              style={{
-                color: side === "yes" ? "var(--hl-green)" : "var(--hl-muted)",
-                fontSize: "var(--t-micro)",
-                letterSpacing: 0.6,
-                fontWeight: 700,
-              }}
-            >
-              YES
-            </div>
-            <div
-              className="mono font-bold tracking-tight"
-              style={{
-                color: side === "yes" ? "var(--hl-green)" : "var(--foreground)",
-                fontSize: 28,
-                lineHeight: 1.1,
-                marginTop: 1,
-              }}
-            >
-              {yesCents}¢
-            </div>
-          </button>
-          <button
-            onClick={() => setSide("no")}
-            className="text-left px-3 py-2.5 transition-all"
-            style={{
-              background: side === "no" ? "rgba(248,113,113,0.14)" : "var(--hl-surface)",
-              border: `1.5px solid ${side === "no" ? "var(--hl-red)" : "var(--hl-border)"}`,
-              borderRadius: 8,
-            }}
-          >
-            <div
-              style={{
-                color: side === "no" ? "var(--hl-red)" : "var(--hl-muted)",
-                fontSize: "var(--t-micro)",
-                letterSpacing: 0.6,
-                fontWeight: 700,
-              }}
-            >
-              NO
-            </div>
-            <div
-              className="mono font-bold tracking-tight"
-              style={{
-                color: side === "no" ? "var(--hl-red)" : "var(--foreground)",
-                fontSize: 28,
-                lineHeight: 1.1,
-                marginTop: 1,
-              }}
-            >
-              {noCents}¢
-            </div>
-          </button>
         </div>
       </div>
 
@@ -1573,13 +1526,9 @@ export default function PredictPage() {
 
       {/* main grid — single column on mobile (chart + order panel stack
           vertically), two columns (chart + sticky-width 320px order panel)
-          at md+ as before. Was a rigid `1fr 320px` for both layouts which
-          crushed everything on mobile.
-
-          pb-24 on mobile (matches sticky bottom-bar height) so the order
-          panel + position widget aren't hidden behind the floating CTA. */}
+          at md+ as before. */}
       <main
-        className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3 grid-cols-1 md:grid-cols-[1fr_320px] pb-24 md:pb-3"
+        className="max-w-[1440px] mx-auto px-4 py-3 grid gap-3 grid-cols-1 md:grid-cols-[1fr_320px]"
         style={{ alignItems: "start" }}
       >
         <div className="flex flex-col gap-3 min-w-0">
@@ -1860,177 +1809,9 @@ export default function PredictPage() {
         </div>
       </main>
 
-      {/* Sticky mobile Buy/Sell CTA — thumb-reachable bar pinned to the
-          bottom of the viewport. Carries:
-            - BUY/SELL direction toggle
-            - YES/NO side selector with the relevant cents (ask for buy,
-              bid for sell) + held-share badge when in SELL mode
-            - submit button (red/green by side; outline-only in SELL mode
-              so it visually reads as "closing" not "opening")
-          Shares the SAME page-level state as the TradePanel above so any
-          edit in one is reflected in the other.
-          md:hidden — desktop has the side panel; sticky bar would be
-          redundant + visually noisy. */}
-      {(() => {
-        // Mirror the TradePanel's derived values so labels stay in sync.
-        const yesPosBar = hyperodd.hip4Coin ? hip4Positions.get(hyperodd.hip4Coin) ?? 0 : 0;
-        const noPosBar = hyperodd.hip4Coin ? hip4Positions.get(`#${hyperodd.hip4Coin.slice(1, -1)}1`) ?? 0 : 0;
-        const isSellBar = direction === "sell";
-        const sellYesPxBar = liveYesBid;
-        const sellNoPxBar = 1 - liveYesAsk;
-        const yesCentsBar = isSellBar ? sellYesPxBar * 100 : yesCents;
-        const noCentsBar = isSellBar ? sellNoPxBar * 100 : noCents;
-        const sideColor = side === "yes" ? "var(--hl-green)" : "var(--hl-red)";
-        return (
-          <div
-            className="md:hidden fixed left-0 right-0 z-30"
-            style={{
-              bottom: 0,
-              paddingBottom: "max(env(safe-area-inset-bottom), 8px)",
-              paddingTop: 8,
-              background: "var(--hl-surface)",
-              borderTop: "1px solid var(--hl-border)",
-              boxShadow: "0 -8px 24px rgba(0,0,0,0.45)",
-            }}
-          >
-            {/* BUY/SELL toggle */}
-            <div className="grid grid-cols-2 gap-1 px-3 pb-2">
-              <button
-                onClick={() => setDirection("buy")}
-                className="py-1.5 font-bold"
-                style={{
-                  background: !isSellBar ? "var(--hl-surface-hover)" : "var(--background)",
-                  color: !isSellBar ? "var(--foreground)" : "var(--hl-muted)",
-                  border: `1px solid ${!isSellBar ? "var(--hl-border)" : "transparent"}`,
-                  borderRadius: 5,
-                  fontSize: "var(--t-micro)",
-                  letterSpacing: 0.5,
-                }}
-              >
-                BUY
-              </button>
-              <button
-                onClick={() => setDirection("sell")}
-                className="py-1.5 font-bold"
-                style={{
-                  background: isSellBar ? "var(--hl-surface-hover)" : "var(--background)",
-                  color: isSellBar ? "var(--foreground)" : "var(--hl-muted)",
-                  border: `1px solid ${isSellBar ? "var(--hl-border)" : "transparent"}`,
-                  borderRadius: 5,
-                  fontSize: "var(--t-micro)",
-                  letterSpacing: 0.5,
-                }}
-              >
-                SELL
-              </button>
-            </div>
-            {/* Side toggle */}
-            <div className="grid grid-cols-2 gap-2 px-3 pb-2">
-              <button
-                onClick={() => {
-                  setSide("yes");
-                  if (isSellBar) setStake(Math.floor(yesPosBar).toString());
-                }}
-                className="py-2 flex items-center justify-between px-3 font-bold"
-                style={{
-                  background: side === "yes" ? "rgba(74,222,128,0.14)" : "transparent",
-                  color: side === "yes" ? "var(--hl-green)" : "var(--hl-muted)",
-                  border: `1px solid ${side === "yes" ? "rgba(74,222,128,0.5)" : "var(--hl-border)"}`,
-                  borderRadius: 6,
-                  fontSize: "var(--t-caption)",
-                }}
-              >
-                <span>
-                  YES
-                  {isSellBar && yesPosBar > 0 && (
-                    <span className="mono" style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", marginLeft: 6 }}>
-                      ({Math.floor(yesPosBar)})
-                    </span>
-                  )}
-                </span>
-                <span className="mono" style={{ fontSize: "var(--t-num)" }}>
-                  {isSellBar ? `${yesCentsBar.toFixed(1)}¢` : `${yesCents}¢`}
-                </span>
-              </button>
-              <button
-                onClick={() => {
-                  setSide("no");
-                  if (isSellBar) setStake(Math.floor(noPosBar).toString());
-                }}
-                className="py-2 flex items-center justify-between px-3 font-bold"
-                style={{
-                  background: side === "no" ? "rgba(248,113,113,0.14)" : "transparent",
-                  color: side === "no" ? "var(--hl-red)" : "var(--hl-muted)",
-                  border: `1px solid ${side === "no" ? "rgba(248,113,113,0.5)" : "var(--hl-border)"}`,
-                  borderRadius: 6,
-                  fontSize: "var(--t-caption)",
-                }}
-              >
-                <span>
-                  NO
-                  {isSellBar && noPosBar > 0 && (
-                    <span className="mono" style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", marginLeft: 6 }}>
-                      ({Math.floor(noPosBar)})
-                    </span>
-                  )}
-                </span>
-                <span className="mono" style={{ fontSize: "var(--t-num)" }}>
-                  {isSellBar ? `${noCentsBar.toFixed(1)}¢` : `${noCents}¢`}
-                </span>
-              </button>
-            </div>
-            {/* Size summary + submit button */}
-            <div className="px-3 flex items-center gap-2">
-              <button
-                onClick={() => {
-                  // Scroll to the trade panel so the user can edit stake/limit.
-                  const root = document.querySelector(".predict-root");
-                  const panel = root?.querySelector(".panel");
-                  panel?.scrollIntoView({ behavior: "smooth", block: "center" });
-                }}
-                className="flex-1 py-2.5 px-3 flex items-center justify-between"
-                style={{
-                  background: "var(--background)",
-                  border: "1px solid var(--hl-border)",
-                  borderRadius: 6,
-                  color: "var(--hl-text)",
-                  fontSize: "var(--t-body)",
-                }}
-                aria-label="Edit order size"
-              >
-                <span style={{ color: "var(--hl-muted)" }}>{isSellBar ? "Shares" : "Size"}</span>
-                <span className="mono font-semibold" style={{ fontSize: "var(--t-num)" }}>
-                  {isSellBar ? (stake || "0") : `$${stake || "0"}`}
-                </span>
-              </button>
-              <button
-                onClick={handleBinarySubmit}
-                disabled={orderStatus.kind === "pending"}
-                className="font-bold tracking-wide"
-                style={{
-                  background: orderStatus.kind === "pending"
-                    ? "var(--hl-muted)"
-                    : isSellBar
-                      ? "transparent"
-                      : sideColor,
-                  color: isSellBar ? sideColor : "#001d0c",
-                  border: isSellBar ? `1px solid ${sideColor}` : "none",
-                  borderRadius: 6,
-                  padding: "10px 18px",
-                  minWidth: 130,
-                  cursor: orderStatus.kind === "pending" ? "wait" : "pointer",
-                  opacity: orderStatus.kind === "pending" ? 0.7 : 1,
-                  fontSize: "var(--t-body)",
-                }}
-              >
-                {orderStatus.kind === "pending"
-                  ? "Placing…"
-                  : `${isSellBar ? "SELL" : "BUY"} ${side === "yes" ? "YES" : "NO"}`}
-              </button>
-            </div>
-          </div>
-        );
-      })()}
+      {/* Sticky mobile Buy/Sell CTA was removed — user prefers buying
+          via the in-flow TradePanel below the chart rather than a
+          floating bar. Saved ~140px of viewport. */}
       </>}
 
       {/* ── BUCKET MARKET ───────────────────────────────────────────────── */}
@@ -3670,7 +3451,9 @@ function TradePanel({
           bid {(liveYesBid * 100).toFixed(1)}¢ · ask {(liveYesAsk * 100).toFixed(1)}¢
         </span>
       </div>
-      <div className="p-3 flex flex-col gap-2.5">
+      {/* gap-2 on mobile (was 2.5) saves ~10-12px across the order
+          form. Desktop keeps gap-2.5 for breathing room. */}
+      <div className="p-3 flex flex-col gap-2 md:gap-2.5">
 
         {/* BUY / SELL direction. Sell is only meaningful if the user
             holds shares on at least one side — but we don't disable it
