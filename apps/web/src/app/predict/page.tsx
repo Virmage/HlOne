@@ -1455,21 +1455,9 @@ export default function PredictPage() {
           </button>
         </div>
 
-        {/* Single context line — BTC mark + countdown. The distance%
-            line was dropped per user feedback: the chart itself shows
-            BTC vs strike visually, so the text was redundant. */}
-        <div
-          className="mt-1.5 flex items-center gap-2"
-          style={{ fontSize: "var(--t-caption)" }}
-        >
-          <span className="mono" style={{ color: "var(--hl-text)", fontWeight: 600 }}>
-            BTC {btcMark ? `$${btcMark.toLocaleString(undefined, { maximumFractionDigits: 1 })}` : "—"}
-          </span>
-          <span style={{ color: "var(--hl-muted)" }}>·</span>
-          <span className="mono" style={{ color: "var(--hl-yellow)" }}>
-            {fmtCountdown(settleTs - now)} left
-          </span>
-        </div>
+        {/* BTC-price context line removed per user feedback — the
+            chart's BTC line + orange endpoint chip already shows the
+            same number. Countdown timer moved into the chart header. */}
       </div>
 
       {/* ── DESKTOP MARKET STRIP (hidden on mobile) ───────────────────── */}
@@ -2456,20 +2444,18 @@ function RiverChart({
         className="px-3 py-2 flex items-center gap-2"
         style={{ borderBottom: "1px solid var(--hl-border)" }}
       >
-        {/* Mobile pricing — MARKET label + colour-coded YES % */}
+        {/* Mobile chart header — countdown to settle. The live YES %
+            is already visible via the hero swap pill ('YES 58¢ ⇄') and
+            the chart's right-edge endpoint chip, so we don't repeat it
+            here. The countdown was the user's other primary context
+            data point so it lives in this slot. */}
         <span className="md:hidden flex items-center gap-1.5">
-          <span className="ptitle">MARKET</span>
+          <span className="ptitle">SETTLES</span>
           <span
             className="mono font-bold"
-            style={{
-              color:
-                yesCents >= 55 ? "var(--hl-green)" :
-                yesCents <= 45 ? "var(--hl-red)" :
-                "var(--foreground)",
-              fontSize: "var(--t-num)",
-            }}
+            style={{ color: "var(--hl-yellow)", fontSize: "var(--t-num)" }}
           >
-            {yesCents}%
+            {fmtCountdown(settleTs - now)}
           </span>
         </span>
         {/* Desktop pricing — full MARKET / THEORY / vs-theory inline.
@@ -2806,62 +2792,83 @@ function RiverChart({
               chart's right edge. The fix moves them to a fixed
               `right: 4px` slot just inside the right y-axis labels area
               (which lives in the 32px reserved strip on the right). */}
+          {/* Endpoint chips: YES/NO + BTC, both anchored right.
+              When the YES line and BTC line cross (close in y-space)
+              the chips were stacking on top of each other. Detect
+              that case and shift the BTC chip up or down so the two
+              never overlap. */}
           {nowX != null && (() => {
             const sideCents = viewSide === "yes" ? yesCents : 100 - yesCents;
-            const yPct = viewSide === "yes" ? (endY / H) * 100 : ((H - endY) / H) * 100;
+            const yesPct = viewSide === "yes" ? (endY / H) * 100 : ((H - endY) / H) * 100;
+            const btcPct = btcMark != null ? (btcToY(btcMark) / H) * 100 : null;
+
+            // Vertical separation threshold — if BTC chip's centre is
+            // within ~8% of the YES chip's centre, push BTC away.
+            // 8% on a 200-420px tall canvas = ~16-34px, just enough to
+            // clear the ~24px chip height.
+            const MIN_SEP_PCT = 8;
+            let btcAdjustedPct = btcPct;
+            if (btcPct != null && Math.abs(btcPct - yesPct) < MIN_SEP_PCT) {
+              // Push the BTC chip away from the YES chip. If BTC y is
+              // numerically larger (lower on screen), push it further
+              // down; otherwise push it up. Clamped to [4, 96].
+              btcAdjustedPct = btcPct > yesPct
+                ? Math.min(96, yesPct + MIN_SEP_PCT)
+                : Math.max(4, yesPct - MIN_SEP_PCT);
+            }
+
             const bg = viewSide === "yes" ? "var(--hl-green)" : "var(--hl-red)";
             const textColor = viewSide === "yes" ? "#001d0c" : "#2a0606";
             const glow = viewSide === "yes" ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.5)";
             return (
-              <div
-                className="absolute mono"
-                style={{
-                  right: 4,
-                  top: `${yPct}%`,
-                  transform: "translateY(-50%)",
-                  background: bg,
-                  color: textColor,
-                  padding: "3px 8px",
-                  borderRadius: 3,
-                  fontSize: 11,
-                  fontWeight: 800,
-                  letterSpacing: 0.3,
-                  whiteSpace: "nowrap",
-                  pointerEvents: "none",
-                  zIndex: 5,
-                  boxShadow: `0 0 10px ${glow}`,
-                }}
-              >
-                {viewSide === "yes" ? "YES" : "NO"} · {sideCents}¢
-              </div>
+              <>
+                <div
+                  className="absolute mono"
+                  style={{
+                    right: 4,
+                    top: `${yesPct}%`,
+                    transform: "translateY(-50%)",
+                    background: bg,
+                    color: textColor,
+                    padding: "3px 8px",
+                    borderRadius: 3,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    letterSpacing: 0.3,
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
+                    zIndex: 5,
+                    boxShadow: `0 0 10px ${glow}`,
+                  }}
+                >
+                  {viewSide === "yes" ? "YES" : "NO"} · {sideCents}¢
+                </div>
+                {btcMark != null && btcAdjustedPct != null && (
+                  <div
+                    className="absolute mono"
+                    style={{
+                      right: 4,
+                      top: `${btcAdjustedPct}%`,
+                      transform: "translateY(-50%)",
+                      background: "#fb923c",
+                      color: "#1d0606",
+                      padding: "3px 8px",
+                      borderRadius: 3,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      letterSpacing: 0.3,
+                      whiteSpace: "nowrap",
+                      pointerEvents: "none",
+                      zIndex: 5,
+                      boxShadow: "0 0 10px rgba(251,146,60,0.55)",
+                    }}
+                  >
+                    BTC · ${btcMark.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </div>
+                )}
+              </>
             );
           })()}
-          {/* BTC mark endpoint label — true orange (#fb923c) to actually
-              match the "orange line = BTC price" legend label. Anchored
-              right same as the YES/NO chip above. */}
-          {nowX != null && btcMark != null && (
-            <div
-              className="absolute mono"
-              style={{
-                right: 4,
-                top: `${(btcToY(btcMark) / H) * 100}%`,
-                transform: "translateY(-50%)",
-                background: "#fb923c",
-                color: "#1d0606",
-                padding: "3px 8px",
-                borderRadius: 3,
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: 0.3,
-                whiteSpace: "nowrap",
-                pointerEvents: "none",
-                zIndex: 5,
-                boxShadow: "0 0 10px rgba(251,146,60,0.55)",
-              }}
-            >
-              BTC · ${btcMark.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </div>
-          )}
 
           {/* SETTLE label — a vertical "SETTLES IN XhYm" tag that sits
               along the settle line on 24H view (so the bright yellow
@@ -3493,11 +3500,12 @@ function TradePanel({
           </button>
         </div>
 
-        {/* YES / NO side — DESKTOP ONLY. On mobile the hero's swap
-            button is the side selector; duplicating it here would be
-            redundant chrome. */}
+        {/* YES / NO side selector. Shown on both mobile and desktop —
+            user feedback: the hero swap pill alone wasn't obvious as the
+            order-side control. Stays in sync with the hero pill via
+            shared `side` state, so either control flips both. */}
         <div
-          className="hidden md:grid grid-cols-2 gap-1 p-1"
+          className="grid grid-cols-2 gap-1 p-1"
           style={{ background: "var(--background)", border: "1px solid var(--hl-border)", borderRadius: 5 }}
         >
           <button
