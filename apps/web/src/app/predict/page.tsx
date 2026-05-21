@@ -10,7 +10,7 @@
  *  - placeOrder() in hl-exchange.ts for actual trade execution (1.5 bps builder fee)
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSafeAccount } from "@/hooks/use-safe-account";
 
 const HL_INFO = "https://api.hyperliquid.xyz/info";
@@ -1513,8 +1513,11 @@ export default function PredictPage() {
           <Stat label="Settles" value={fmtCountdown(settleTs - now)} cls="text-[var(--hl-yellow)]" />
         </div>
 
-        {/* Compare strip — HLOne implied vs HL testnet (HyperOdd) */}
-        <CompareStrip yesProb={yesProb} compare={compare} strike={strike} hyperodd={hyperodd} now={now} expiryTier={expiryTier} />
+        {/* CompareStrip removed — its MARKET/THEORY/vs-theory content
+            now lives inline in the chart header. Mark `compare` as
+            void so the TS unused-import lint stays clean (it's still
+            populated by /api/predict/compare for potential reuse). */}
+        {void compare}
       </div>
 
       {/* main grid — single column on mobile (chart + order panel stack
@@ -1538,6 +1541,8 @@ export default function PredictPage() {
             settleTs={settleTs}
             now={now}
             yesCents={yesCents}
+            yesProb={yesProb}
+            expiryTier={expiryTier}
             trades={hyperodd.trades}
             hip4Coin={hyperodd.hip4Coin}
             viewSide={side}
@@ -2020,6 +2025,8 @@ function RiverChart({
   settleTs,
   now,
   yesCents,
+  yesProb,
+  expiryTier,
   trades,
   hip4Coin,
   viewSide,
@@ -2048,6 +2055,12 @@ function RiverChart({
   settleTs: number;
   now: number;
   yesCents: number;
+  // σ√t theory probability (0..1) — used by the desktop header to show
+  // the MARKET / THEORY / vs-theory pricing inline (was a separate
+  // CompareStrip card; user wanted it folded into the chart header).
+  yesProb: number;
+  // Drives the "strikethrough THEORY when σ√t collapses" affordance.
+  expiryTier: "none" | "soon" | "imminent";
   trades: HyperOddTrade[];
   hip4Coin: string | null;  // e.g. "#400" — used to derive the NO coin "#401"
   // tradeSide removed — whales now always render both YES (top stack) and
@@ -2443,11 +2456,6 @@ function RiverChart({
         className="px-3 py-2 flex items-center gap-2"
         style={{ borderBottom: "1px solid var(--hl-border)" }}
       >
-        {/* Desktop label */}
-        <span className="ptitle hidden md:inline">Probability river</span>
-        <span className="psub ml-2 hidden md:inline">
-          live · BTC mark vs strike
-        </span>
         {/* Mobile pricing — MARKET label + colour-coded YES % */}
         <span className="md:hidden flex items-center gap-1.5">
           <span className="ptitle">MARKET</span>
@@ -2464,6 +2472,61 @@ function RiverChart({
             {yesCents}%
           </span>
         </span>
+        {/* Desktop pricing — full MARKET / THEORY / vs-theory inline.
+            Replaces the old "Probability river · live · BTC mark vs
+            strike" caption AND the standalone CompareStrip card above
+            the chart. One row, less chrome. */}
+        {(() => {
+          const theoryCents = Math.round(yesProb * 100);
+          const gapCents = yesCents - theoryCents;
+          const marketColor =
+            yesCents >= 55 ? "var(--hl-green)" :
+            yesCents <= 45 ? "var(--hl-red)" :
+            "var(--foreground)";
+          return (
+            <div className="hidden md:flex items-center gap-4" style={{ fontSize: "var(--t-caption)" }}>
+              <span className="flex items-baseline gap-1.5">
+                <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", fontWeight: 600, letterSpacing: 0.4 }}>
+                  MARKET
+                </span>
+                <span className="mono font-bold" style={{ color: marketColor, fontSize: "var(--t-num-lg)" }}>
+                  {yesCents}%
+                </span>
+              </span>
+              <span
+                className="flex items-baseline gap-1.5"
+                style={{
+                  opacity: expiryTier === "imminent" ? 0.4 : 1,
+                  textDecoration: expiryTier === "imminent" ? "line-through" : "none",
+                }}
+                title={
+                  expiryTier === "imminent"
+                    ? "Theory unreliable — σ√t collapses near expiry."
+                    : "σ√t implied YES probability at 65% annualised vol."
+                }
+              >
+                <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", fontWeight: 600, letterSpacing: 0.4 }}>
+                  THEORY
+                </span>
+                <span className="mono font-bold" style={{ color: "var(--hl-text)", fontSize: "var(--t-num-lg)" }}>
+                  {theoryCents}%
+                </span>
+              </span>
+              <span className="flex items-baseline gap-1" title="Gap between market and theory.">
+                <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>vs theory</span>
+                <span
+                  className="mono font-bold"
+                  style={{
+                    color: gapCents > 0 ? "var(--hl-green)" : gapCents < 0 ? "var(--hl-red)" : "var(--hl-muted)",
+                    fontSize: "var(--t-num)",
+                  }}
+                >
+                  {gapCents > 0 ? "+" : ""}{gapCents}%
+                </span>
+              </span>
+            </div>
+          );
+        })()}
         {/* Segmented control for the timeframe pills — single pill
             background so the row reads as one control rather than three
             loose buttons. Right-aligned in both layouts. */}
@@ -3719,228 +3782,10 @@ function TradePanel({
   );
 }
 
-function CompareStrip({
-  yesProb,
-  compare,
-  strike,
-  hyperodd,
-  now,
-  expiryTier,
-}: {
-  yesProb: number;          // σ√t fair value, exact 0..1 (for display precision)
-  compare: CompareData | null;
-  strike: number | null;
-  hyperodd: HyperOddState;
-  now: number;
-  expiryTier: "none" | "soon" | "imminent";
-}) {
-  const [showHelp, setShowHelp] = useState(false);
-  void compare; void strike; void now;
-  // Kalshi + Polymarket cells removed — cross-venue arb wasn't actionable
-  // enough to justify the cognitive load. Strip is now just MARKET (live
-  // HIP-4) vs THEORY (σ√t implied prob) with the gap explicit.
-
-  const hyperoddCents = hyperodd.mark != null ? Math.round(hyperodd.mark * 100) : null;
-  const theoryCents = Math.round(yesProb * 100);
-  const gapCents = hyperoddCents != null ? hyperoddCents - theoryCents : null;
-
-  // Color-code the market percentage based on YES probability.
-  //   ≥55%: green (YES is favoured)
-  //   ≤45%: red (NO is favoured / YES unlikely)
-  //   45-55%: muted (genuinely uncertain)
-  const marketColor =
-    hyperoddCents == null ? "var(--hl-muted)" :
-    hyperoddCents >= 55 ? "var(--hl-green)" :
-    hyperoddCents <= 45 ? "var(--hl-red)" :
-    "var(--hl-text)";
-
-  return (
-    <div
-      // Tailwind responsive: single column on mobile (stacks Pricing
-      // label + MARKET + THEORY + gap chip vertically) and the 4-column
-      // desktop layout (auto/1fr/1fr/auto) at sm+. Border-l dividers
-      // between cells become border-t on mobile so the visual rhythm
-      // still works stacked.
-      className="mt-3 px-3 py-2 grid gap-2 sm:gap-3 grid-cols-1 sm:grid-cols-[auto_1fr_1fr_auto]"
-      style={{
-        background: "rgba(0,240,255,0.04)",
-        border: "1px solid rgba(0,240,255,0.18)",
-        borderRadius: 6,
-        alignItems: "center",
-        fontSize: "var(--t-caption)",
-      }}
-    >
-      <span className="flex items-center gap-1.5">
-        <span className="cellL" style={{ color: "var(--hl-accent)", fontWeight: 600, letterSpacing: 0.6 }}>
-          Pricing
-        </span>
-        <button
-          onClick={() => setShowHelp(true)}
-          aria-label="How to read this strip"
-          title="How to read this strip"
-          className="mono"
-          style={{
-            width: 16,
-            height: 16,
-            borderRadius: "50%",
-            border: "1px solid var(--hl-accent)",
-            color: "var(--hl-accent)",
-            background: "transparent",
-            fontSize: 10,
-            lineHeight: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-          }}
-        >
-          ?
-        </button>
-      </span>
-
-      {/* MARKET — live HIP-4 price (what people are paying right now).
-          Colour-coded green when YES is favoured, red when NO is favoured,
-          so a glance tells you which side the market thinks is winning. */}
-      <div
-        // sm:border-l on desktop becomes border-t on mobile so the
-        // stacked cells get horizontal separators instead of an
-        // unanchored left-edge bar.
-        className="flex items-baseline gap-2 px-2 py-1 sm:py-0 border-t sm:border-t-0 sm:border-l"
-        style={{ borderColor: "var(--hl-border)", boxShadow: "inset 2px 0 0 var(--hl-accent)" }}
-        title="The live HIP-4 market price — the actual probability you'd pay to buy YES right now."
-      >
-        <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", fontWeight: 600, letterSpacing: 0.4 }}>MARKET</span>
-        {hyperoddCents != null ? (
-          <>
-            <span className="mono font-bold" style={{ color: marketColor, fontSize: "var(--t-num-lg)" }}>{hyperoddCents}%</span>
-            <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>
-              {hyperoddCents >= 55 ? "YES favoured" : hyperoddCents <= 45 ? "NO favoured" : "toss-up"}
-            </span>
-          </>
-        ) : (
-          <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-caption)" }}>loading…</span>
-        )}
-      </div>
-
-      {/* THEORY — σ√t implied probability (what GBM model says it
-          "should" be given current BTC + 65% annual vol). Different
-          number from MARKET because theory ≠ market. Gap chip shows
-          which side the market is leaning relative to fair value:
-          mean-reversion signal (not arb — you can't trade the model). */}
-      <div
-        className="flex items-baseline gap-2 px-2 py-1 sm:py-0 border-t sm:border-t-0 sm:border-l"
-        style={{
-          borderColor: "var(--hl-border)",
-          opacity: expiryTier === "imminent" ? 0.4 : 1,
-          textDecoration: expiryTier === "imminent" ? "line-through" : "none",
-        }}
-        title={
-          expiryTier === "imminent"
-            ? "Theory unreliable — σ√t collapses to ~0 near expiry. Trust the live MARKET number instead."
-            : "Theoretical YES probability computed from BTC mark vs strike at 65% annualised vol (σ√t model). Compare with MARKET to see if the market is pricing above or below fair value."
-        }
-      >
-        <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)", fontWeight: 600, letterSpacing: 0.4 }}>THEORY</span>
-        <span className="mono font-bold" style={{ color: "var(--hl-text)", fontSize: "var(--t-num-lg)" }}>
-          {theoryCents}%
-        </span>
-        <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>σ·√t · 65% vol</span>
-      </div>
-
-      {/* Market-vs-theory gap — explicit signal at the right edge. */}
-      <div
-        className="flex items-center gap-1.5 px-2 py-1 sm:py-0 border-t sm:border-t-0 sm:border-l"
-        style={{ borderColor: "var(--hl-border)" }}
-        title="Gap between market and theory. Positive = market thinks YES is more likely than the model. Negative = market thinks YES is less likely. Mean-reversion signal."
-      >
-        {gapCents != null && (
-          <>
-            <span style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>vs theory</span>
-            <span
-              className="mono font-bold"
-              style={{
-                color: gapCents > 0 ? "var(--hl-green)" : gapCents < 0 ? "var(--hl-red)" : "var(--hl-muted)",
-                fontSize: "var(--t-num)",
-              }}
-            >
-              {gapCents > 0 ? "+" : ""}{gapCents}%
-            </span>
-          </>
-        )}
-      </div>
-
-      {showHelp && <CompareStripHelp onClose={() => setShowHelp(false)} />}
-    </div>
-  );
-}
-
-// Plain-English explainer for the cross-venue strip. Triggered by the
-// "?" button next to "Cross-venue" — opens a modal with what each
-// column is, how to read the gap, and what to do with that signal.
-function CompareStripHelp({ onClose }: { onClose: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
-      onClick={onClose}
-    >
-      <div
-        className="max-w-[560px] w-full p-6 text-[13px] leading-relaxed"
-        style={{ background: "var(--hl-surface)", border: "1px solid var(--hl-border)", color: "var(--foreground)", borderRadius: 4 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-baseline mb-4">
-          <h2 className="text-[16px] font-bold tracking-tight">How to read the pricing strip</h2>
-          <button onClick={onClose} className="ml-auto text-[22px] leading-none" style={{ color: "var(--hl-muted)" }}>×</button>
-        </div>
-
-        <p className="mb-4" style={{ color: "var(--hl-text)" }}>
-          The strip shows two probabilities for the same question — &ldquo;Will BTC settle above $X by 06:00 UTC?&rdquo; — and the gap between them.
-        </p>
-
-        <div className="grid gap-3">
-          <ExplainRow
-            color="var(--hl-green)"
-            label="MARKET"
-            body={<>
-              The live HIP-4 price — the actual probability the market is currently paying to buy YES. This is the only number you can <i>trade against</i>. Colour-coded: green when ≥55% (YES is favoured), red when ≤45% (NO is favoured), neutral in the 45–55% &ldquo;toss-up&rdquo; band so a glance tells you which side the market thinks is winning.
-            </>}
-          />
-          <ExplainRow
-            color="var(--hl-text)"
-            label="THEORY"
-            body={<>
-              What the YES probability <i>should</i> be according to a basic σ√t model: BTC&rsquo;s current spot + 65% annualised volatility (Black-Scholes-ish). NOT a price you can trade — it&rsquo;s a reference line. Becomes unreliable in the last ~30 min before settle where the model collapses.
-            </>}
-          />
-          <ExplainRow
-            color="var(--hl-yellow)"
-            label="vs theory"
-            body={<>
-              The gap. Positive = market is pricing YES <i>above</i> what theory says (people are paying a premium for YES; mean-reversion signal might suggest selling). Negative = market is below theory (a possible discount on YES). Not a direct arb — you can&rsquo;t trade theory — just a signal worth noting.
-            </>}
-          />
-        </div>
-
-        <div className="mt-4 pt-3 text-[11px]" style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)" }}>
-          <b style={{ color: "var(--hl-text)" }}>Why these aren&rsquo;t the same thing.</b> MARKET = revealed preference (what traders are paying right now). THEORY = a model (what an equation says is &ldquo;fair&rdquo; given BTC&rsquo;s position vs the strike). They diverge constantly because the market also prices in things the model ignores: sentiment, recent news, liquidity, time-of-day effects. The interesting trades happen at the gap.
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ExplainRow({ color, label, body }: { color: string; label: string; body: ReactNode }) {
-  // On mobile the body needs full width — the 140px label column was
-  // crushing it to ~180px on a 360px modal. Stack label-over-body on
-  // mobile, side-by-side at sm+.
-  return (
-    <div className="grid gap-1 sm:gap-3 grid-cols-1 sm:grid-cols-[140px_1fr]" style={{ alignItems: "baseline" }}>
-      <span className="mono font-bold" style={{ color }}>{label}</span>
-      <span style={{ color: "var(--hl-text)" }}>{body}</span>
-    </div>
-  );
-}
+// CompareStrip, CompareStripHelp, ExplainRow components removed —
+// their MARKET / THEORY / vs-theory content was moved inline into
+// the RiverChart desktop header so the chart panel and pricing live
+// on the same row. Saves a full panel-card of vertical space.
 
 // InterpBracketSubtitle removed alongside Kalshi/Polymarket cells.
 
@@ -4308,6 +4153,8 @@ function BucketMarketView({
             settleTs={settleTs}
             now={now}
             yesCents={yesCents}
+            yesProb={(selectedBucket?.yesPrice ?? 0)}
+            expiryTier="none"
             trades={bucketTrades}
             hip4Coin={selectedYesCoin}
             viewSide={tradeSide}
