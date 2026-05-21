@@ -278,6 +278,18 @@ export default function PredictPage() {
   //   / "#N1" coin name the page already tracks.
   const [usdhBalance, setUsdhBalance] = useState<number | null>(null);
   const [hip4Positions, setHip4Positions] = useState<Map<string, number>>(new Map());
+  // Cost basis per HIP-4 coin, computed from the user's fill history.
+  // For each "#NNN0" / "#NNN1" coin: total shares bought, total USDH
+  // spent on those buys, total shares sold, total USDH received from
+  // sells. Used in "Your Position" to show avg entry + profit math
+  // (paid $X, value now $Y, profit if win = $Z).
+  type CostBasisEntry = {
+    totalBuyShares: number;
+    totalBuyUsd: number;
+    totalSellShares: number;
+    totalSellUsd: number;
+  };
+  const [hip4CostBasis, setHip4CostBasis] = useState<Map<string, CostBasisEntry>>(new Map());
   useEffect(() => {
     if (!address) {
       setUsdhBalance(null);
@@ -352,6 +364,91 @@ export default function PredictPage() {
       setTimeout(fetchBalances, 400);
       // Second fetch covers any propagation lag.
       setTimeout(fetchBalances, 2_000);
+    };
+    window.addEventListener("hlone:trade-filled", onFill);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      window.removeEventListener("hlone:trade-filled", onFill);
+    };
+  }, [address]);
+
+  // Fetch the user's fill history and compute cost basis for every
+  // HIP-4 outcome coin they've traded. This drives the profit math in
+  // "Your Position" (paid $X, value now $Y, profit if win = +$Z).
+  //
+  // Why fills and not the spot-balance entryNtl: HL's spot balances
+  // don't include an entry-notional field for HIP-4 outcomes, so the
+  // only source of truth for "what did the user actually pay" is the
+  // fills endpoint. 7-day lookback is plenty since HIP-4 markets
+  // roll daily — anything older is settled.
+  useEffect(() => {
+    if (!address) {
+      setHip4CostBasis(new Map());
+      return;
+    }
+    let cancelled = false;
+    let hadFills = false;
+    const fetchCostBasis = async () => {
+      try {
+        const res = await fetch(HL_INFO, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "userFillsByTime",
+            user: address,
+            startTime: Date.now() - 7 * 24 * 60 * 60 * 1000,
+            endTime: Date.now(),
+          }),
+        });
+        if (cancelled || !res.ok) return;
+        const fills = (await res.json()) as Array<{
+          coin: string;
+          side: "B" | "A";
+          px: string;
+          sz: string;
+          fee?: string;
+        }>;
+        if (!Array.isArray(fills)) return;
+
+        // Aggregate buys/sells per HIP-4 coin. Filter to outcome
+        // shares only (#NNN0 / #NNN1) — perp / spot fills are
+        // tracked elsewhere.
+        const byCoin = new Map<string, CostBasisEntry>();
+        for (const f of fills) {
+          if (!f.coin || !/^#\d+[01]$/.test(f.coin)) continue;
+          const px = parseFloat(f.px);
+          const sz = parseFloat(f.sz);
+          if (!Number.isFinite(px) || !Number.isFinite(sz) || sz <= 0) continue;
+          const usd = px * sz;
+          let entry = byCoin.get(f.coin);
+          if (!entry) {
+            entry = { totalBuyShares: 0, totalBuyUsd: 0, totalSellShares: 0, totalSellUsd: 0 };
+            byCoin.set(f.coin, entry);
+          }
+          if (f.side === "B") {
+            entry.totalBuyShares += sz;
+            entry.totalBuyUsd += usd;
+          } else {
+            entry.totalSellShares += sz;
+            entry.totalSellUsd += usd;
+          }
+        }
+        // Sticky guard — if we've seen real data before, don't blow
+        // it away on a transient empty response.
+        if (byCoin.size > 0 || !hadFills) {
+          setHip4CostBasis(byCoin);
+          if (byCoin.size > 0) hadFills = true;
+        }
+      } catch { /* ignore — sticky preserves last-known-good */ }
+    };
+    fetchCostBasis();
+    const id = setInterval(fetchCostBasis, 30_000);
+    const onFill = () => {
+      // Same dual-fetch as the balance handler: fast first attempt,
+      // then a slower fallback to catch HL API propagation lag.
+      setTimeout(fetchCostBasis, 600);
+      setTimeout(fetchCostBasis, 3_000);
     };
     window.addEventListener("hlone:trade-filled", onFill);
     return () => {
@@ -1459,10 +1556,43 @@ export default function PredictPage() {
               // Payoff if NO settles: noShares × $1 (YES shares lose).
               const ifYesWins = yesShares;
               const ifNoWins = noShares;
+
+              // Cost basis from fill history. Weighted-average entry
+              // assumes uniform per-share cost across the open
+              // position — a perfectly accurate FIFO breakdown isn't
+              // worth the complexity for daily-rolling markets where
+              // most users open + close in one or two clicks.
+              // Falls back to current-market value if we don't have
+              // fill data yet (e.g. user just connected, fetcher
+              // hasn't fired) so the panel still renders sensibly.
+              const yesCb = yesCoin ? hip4CostBasis.get(yesCoin) : undefined;
+              const noCb = noCoin ? hip4CostBasis.get(noCoin) : undefined;
+              const yesAvgEntry = yesCb && yesCb.totalBuyShares > 0
+                ? yesCb.totalBuyUsd / yesCb.totalBuyShares
+                : null;
+              const noAvgEntry = noCb && noCb.totalBuyShares > 0
+                ? noCb.totalBuyUsd / noCb.totalBuyShares
+                : null;
+              const yesCostBasis = yesAvgEntry != null ? yesShares * yesAvgEntry : null;
+              const noCostBasis = noAvgEntry != null ? noShares * noAvgEntry : null;
+              // Unrealised P&L = current value − cost basis.
+              const yesUnrealPnl = yesCostBasis != null ? yesVal - yesCostBasis : null;
+              const noUnrealPnl = noCostBasis != null ? noVal - noCostBasis : null;
+              // Net P&L per outcome:
+              //   YES wins → YES shares pay $1 each, NO shares are worthless.
+              //   profit = (yesShares - yesCostBasis) - noCostBasis
+              //   (yesShares is also yesShares×$1, the full payout)
+              //   NO wins is the mirror.
+              const profitIfYesWins = (yesCb || noCb)
+                ? (yesShares - (yesCostBasis ?? 0)) - (noCostBasis ?? 0)
+                : null;
+              const profitIfNoWins = (yesCb || noCb)
+                ? (noShares - (noCostBasis ?? 0)) - (yesCostBasis ?? 0)
+                : null;
+
               // One-tap shortcut: switch the order panel into SELL mode
               // for this side and scroll the panel into view so the user
-              // can confirm the share count + tap Sell. Saves them
-              // hunting for the BUY/SELL toggle up in the order panel.
+              // can confirm the share count + tap Sell.
               const closeSide = (s: "yes" | "no", shares: number) => {
                 setSide(s);
                 setDirection("sell");
@@ -1472,75 +1602,130 @@ export default function PredictPage() {
                 const panel = root?.querySelector(".panel");
                 panel?.scrollIntoView({ behavior: "smooth", block: "center" });
               };
+
+              // Helper: format a signed dollar number with colour.
+              // Positive = green, negative = red, zero = muted.
+              const fmtSigned = (n: number) => {
+                const sign = n > 0 ? "+" : n < 0 ? "−" : "";
+                return `${sign}$${Math.abs(n).toFixed(2)}`;
+              };
+              const colorForPnl = (n: number | null) =>
+                n == null ? "var(--hl-muted)" : n > 0 ? "var(--hl-green)" : n < 0 ? "var(--hl-red)" : "var(--hl-muted)";
+
               return (
-                <div className="p-3 flex flex-col gap-2" style={{ fontSize: "var(--t-caption)" }}>
+                <div className="p-3 flex flex-col gap-2.5" style={{ fontSize: "var(--t-caption)" }}>
                   {yesShares > 0 && (
-                    <div className="flex items-center justify-between gap-2">
-                      <span style={{ color: "var(--hl-green)" }}>
-                        <b>{yesShares.toLocaleString()}</b> YES shares
-                      </span>
-                      <span className="flex items-center gap-2">
-                        <span className="mono" style={{ color: "var(--hl-muted)" }}>
-                          ≈ ${yesVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span style={{ color: "var(--hl-green)" }}>
+                          <b>{yesShares.toLocaleString()}</b> YES shares
                         </span>
-                        <button
-                          onClick={() => closeSide("yes", yesShares)}
-                          className="mono font-semibold px-2 py-0.5"
-                          style={{
-                            background: "transparent",
-                            border: "1px solid var(--hl-green)",
-                            color: "var(--hl-green)",
-                            borderRadius: 4,
-                            fontSize: "var(--t-micro)",
-                            letterSpacing: 0.4,
-                          }}
-                        >
-                          Close
-                        </button>
-                      </span>
+                        <span className="flex items-center gap-2">
+                          <span className="mono" style={{ color: "var(--hl-muted)" }}>
+                            ≈ ${yesVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </span>
+                          <button
+                            onClick={() => closeSide("yes", yesShares)}
+                            className="mono font-semibold px-2 py-0.5"
+                            style={{
+                              background: "transparent",
+                              border: "1px solid var(--hl-green)",
+                              color: "var(--hl-green)",
+                              borderRadius: 4,
+                              fontSize: "var(--t-micro)",
+                              letterSpacing: 0.4,
+                            }}
+                          >
+                            Close
+                          </button>
+                        </span>
+                      </div>
+                      {/* Cost-basis sub-line: avg entry, paid, and
+                          unrealised P&L vs current market. Only shows
+                          when we have fill data — otherwise the panel
+                          looks cluttered with em-dashes. */}
+                      {yesAvgEntry != null && yesCostBasis != null && (
+                        <div className="flex items-center justify-between" style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>
+                          <span>
+                            Avg {(yesAvgEntry * 100).toFixed(1)}¢ · paid ${yesCostBasis.toFixed(2)}
+                          </span>
+                          <span className="mono" style={{ color: colorForPnl(yesUnrealPnl) }}>
+                            {fmtSigned(yesUnrealPnl ?? 0)} now
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                   {noShares > 0 && (
-                    <div className="flex items-center justify-between gap-2">
-                      <span style={{ color: "var(--hl-red)" }}>
-                        <b>{noShares.toLocaleString()}</b> NO shares
-                      </span>
-                      <span className="flex items-center gap-2">
-                        <span className="mono" style={{ color: "var(--hl-muted)" }}>
-                          ≈ ${noVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span style={{ color: "var(--hl-red)" }}>
+                          <b>{noShares.toLocaleString()}</b> NO shares
                         </span>
-                        <button
-                          onClick={() => closeSide("no", noShares)}
-                          className="mono font-semibold px-2 py-0.5"
-                          style={{
-                            background: "transparent",
-                            border: "1px solid var(--hl-red)",
-                            color: "var(--hl-red)",
-                            borderRadius: 4,
-                            fontSize: "var(--t-micro)",
-                            letterSpacing: 0.4,
-                          }}
-                        >
-                          Close
-                        </button>
-                      </span>
+                        <span className="flex items-center gap-2">
+                          <span className="mono" style={{ color: "var(--hl-muted)" }}>
+                            ≈ ${noVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </span>
+                          <button
+                            onClick={() => closeSide("no", noShares)}
+                            className="mono font-semibold px-2 py-0.5"
+                            style={{
+                              background: "transparent",
+                              border: "1px solid var(--hl-red)",
+                              color: "var(--hl-red)",
+                              borderRadius: 4,
+                              fontSize: "var(--t-micro)",
+                              letterSpacing: 0.4,
+                            }}
+                          >
+                            Close
+                          </button>
+                        </span>
+                      </div>
+                      {noAvgEntry != null && noCostBasis != null && (
+                        <div className="flex items-center justify-between" style={{ color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}>
+                          <span>
+                            Avg {(noAvgEntry * 100).toFixed(1)}¢ · paid ${noCostBasis.toFixed(2)}
+                          </span>
+                          <span className="mono" style={{ color: colorForPnl(noUnrealPnl) }}>
+                            {fmtSigned(noUnrealPnl ?? 0)} now
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
+                  {/* Settle scenarios. With cost basis available, we
+                      show the NET P&L (payout − total cost) so the user
+                      sees "+$X profit" / "−$Y loss" instead of just the
+                      gross payout. Without cost basis, we fall back to
+                      the old gross-payout view. */}
                   <div
-                    className="mt-1 pt-2 flex flex-col gap-1"
+                    className="mt-0.5 pt-2 flex flex-col gap-1"
                     style={{ borderTop: "1px solid var(--hl-border)" }}
                   >
                     <div className="flex items-center justify-between" style={{ color: "var(--hl-muted)" }}>
                       <span>If YES wins</span>
-                      <span className="mono font-semibold" style={{ color: "var(--hl-green)" }}>
-                        ${ifYesWins.toLocaleString()}
-                      </span>
+                      {profitIfYesWins != null ? (
+                        <span className="mono font-semibold" style={{ color: colorForPnl(profitIfYesWins) }}>
+                          {fmtSigned(profitIfYesWins)}
+                        </span>
+                      ) : (
+                        <span className="mono font-semibold" style={{ color: "var(--hl-green)" }}>
+                          ${ifYesWins.toLocaleString()}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center justify-between" style={{ color: "var(--hl-muted)" }}>
                       <span>If NO wins</span>
-                      <span className="mono font-semibold" style={{ color: "var(--hl-red)" }}>
-                        ${ifNoWins.toLocaleString()}
-                      </span>
+                      {profitIfNoWins != null ? (
+                        <span className="mono font-semibold" style={{ color: colorForPnl(profitIfNoWins) }}>
+                          {fmtSigned(profitIfNoWins)}
+                        </span>
+                      ) : (
+                        <span className="mono font-semibold" style={{ color: "var(--hl-red)" }}>
+                          ${ifNoWins.toLocaleString()}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1739,6 +1924,7 @@ export default function PredictPage() {
           setTimeframe={setTimeframe}
           usdhBalance={usdhBalance}
           hip4Positions={hip4Positions}
+          hip4CostBasis={hip4CostBasis}
         />
       )}
 
@@ -3902,6 +4088,7 @@ function BucketMarketView({
   setTimeframe,
   usdhBalance,
   hip4Positions,
+  hip4CostBasis,
 }: {
   market: BucketMarket | null;
   btcMark: number | null;
@@ -3916,6 +4103,14 @@ function BucketMarketView({
   // Available-to-Trade + Current-Position rows.
   usdhBalance: number | null;
   hip4Positions: Map<string, number>;
+  // Cost basis per HIP-4 coin — drives profit display in the active
+  // bucket's order panel when the user already holds shares.
+  hip4CostBasis: Map<string, {
+    totalBuyShares: number;
+    totalBuyUsd: number;
+    totalSellShares: number;
+    totalSellUsd: number;
+  }>;
 }) {
   const [selectedBucketIdx, setSelectedBucketIdx] = useState(0);
   const [tradeSide, setTradeSide] = useState<"yes" | "no">("yes");
@@ -4240,30 +4435,59 @@ function BucketMarketView({
 
           {/* Wallet context — Available-to-Trade + Current-Position rows,
               same shape as the binary TradePanel. Position is whichever
-              side (YES/NO) the user is currently buying for this bucket. */}
-          <div className="field-row flex flex-col" style={{ fontSize: "var(--t-caption)" }}>
-            <div className="flex items-center justify-between px-2 py-1.5">
-              <span style={{ color: "var(--hl-muted)" }}>Available</span>
-              <span className="mono" style={{ fontWeight: 600 }}>
-                {usdhBalance == null
-                  ? "—"
-                  : `${usdhBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDH`}
-              </span>
-            </div>
-            <div className="flex items-center justify-between px-2 py-1.5" style={{ borderTop: "1px solid var(--hl-border)" }}>
-              <span style={{ color: "var(--hl-muted)" }}>Position</span>
-              <span className="mono" style={{ fontWeight: 600 }}>
-                {(() => {
-                  if (!selectedBucket) return "0";
-                  const coin = tradeSide === "yes" ? selectedBucket.yesCoin : selectedBucket.noCoin;
-                  const pos = hip4Positions.get(coin) ?? 0;
-                  const label = tradeSide === "yes" ? "YES" : "NO";
-                  if (!pos) return `0 ${label}`;
-                  return `${pos.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${label}`;
-                })()}
-              </span>
-            </div>
-          </div>
+              side (YES/NO) the user is currently buying for this bucket.
+              When the user holds shares we also show an "If wins" net
+              P&L underneath using cost basis from fill history. */}
+          {(() => {
+            const coin = selectedBucket
+              ? (tradeSide === "yes" ? selectedBucket.yesCoin : selectedBucket.noCoin)
+              : null;
+            const pos = coin ? hip4Positions.get(coin) ?? 0 : 0;
+            const cb = coin ? hip4CostBasis.get(coin) : undefined;
+            const avgEntry = cb && cb.totalBuyShares > 0
+              ? cb.totalBuyUsd / cb.totalBuyShares
+              : null;
+            const costBasis = avgEntry != null ? pos * avgEntry : null;
+            // If this side wins, every share pays $1 → profit = shares − cost.
+            const profitIfWins = costBasis != null ? pos - costBasis : null;
+            const label = tradeSide === "yes" ? "YES" : "NO";
+            return (
+              <div className="field-row flex flex-col" style={{ fontSize: "var(--t-caption)" }}>
+                <div className="flex items-center justify-between px-2 py-1.5">
+                  <span style={{ color: "var(--hl-muted)" }}>Available</span>
+                  <span className="mono" style={{ fontWeight: 600 }}>
+                    {usdhBalance == null
+                      ? "—"
+                      : `${usdhBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDH`}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between px-2 py-1.5" style={{ borderTop: "1px solid var(--hl-border)" }}>
+                  <span style={{ color: "var(--hl-muted)" }}>Position</span>
+                  <span className="mono" style={{ fontWeight: 600 }}>
+                    {pos > 0 ? `${pos.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${label}` : `0 ${label}`}
+                  </span>
+                </div>
+                {/* Cost-basis sub-line: only shown when user has a real
+                    position + we have fill history to compute it. */}
+                {pos > 0 && avgEntry != null && costBasis != null && (
+                  <div
+                    className="flex items-center justify-between px-2 py-1"
+                    style={{ borderTop: "1px solid var(--hl-border)", color: "var(--hl-muted)", fontSize: "var(--t-micro)" }}
+                  >
+                    <span>Avg {(avgEntry * 100).toFixed(1)}¢ · paid ${costBasis.toFixed(2)}</span>
+                    {profitIfWins != null && (
+                      <span
+                        className="mono"
+                        style={{ color: profitIfWins >= 0 ? "var(--hl-green)" : "var(--hl-red)", fontWeight: 600 }}
+                      >
+                        {profitIfWins >= 0 ? "+" : "−"}${Math.abs(profitIfWins).toFixed(2)} if win
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <label className="cellL">{direction === "sell" ? "Shares" : "Stake (USD)"}</label>
           <input
