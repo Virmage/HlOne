@@ -2851,23 +2851,32 @@ function RiverChart({
             const bg = viewSide === "yes" ? "var(--hl-green)" : "var(--hl-red)";
             const textColor = viewSide === "yes" ? "#001d0c" : "#2a0606";
             const glow = viewSide === "yes" ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.5)";
-            // Position chips ABOVE the line endpoint. The chip flips
-            // between left-of-endpoint and right-of-endpoint depending
-            // on where the line is so the chip never falls off-canvas:
-            //   - lineFrac low  (line just starting, endpoint near left
-            //     wall): chip goes to the RIGHT of the endpoint
-            //   - lineFrac high (line near right wall): chip goes to
-            //     the LEFT of the endpoint
-            // Threshold of 0.25 leaves ~80px of room for the chip on
-            // either side on a typical chart canvas.
+            // Position chips at the line endpoint with edge-aware flips
+            // so they never fall off-canvas:
+            //   horizontal: lineFrac < 0.25 → chip to the RIGHT of the
+            //               endpoint (line is short, room is on the right)
+            //               otherwise        → chip to the LEFT of endpoint
+            //   vertical:   yesPct < 12% → chip BELOW the line (not enough
+            //               room above)
+            //               otherwise     → chip ABOVE the line (default)
+            // Both YES and BTC chips use the same horizontal flip; the
+            // vertical flip is computed per-chip below.
             const lineFrac = Math.min(1, Math.max(0, nowX / W));
             const chipOnLeft = lineFrac >= 0.25;
             const chipLeft = `calc((100% - var(--chip-gutter)) * ${lineFrac})`;
-            const chipTransform = chipOnLeft
-              // Chip's RIGHT edge at endpoint - 4px gap, BOTTOM at endpoint - 6px
-              ? "translate(calc(-100% - 4px), calc(-100% - 6px))"
-              // Chip's LEFT edge at endpoint + 4px gap, BOTTOM at endpoint - 6px
-              : "translate(4px, calc(-100% - 6px))";
+            const horizontalShift = chipOnLeft
+              ? "calc(-100% - 4px)" // chip's right edge at endpoint − 4px
+              : "4px";              // chip's left edge at endpoint + 4px
+            const transformFor = (pct: number) => {
+              // 12% threshold: chip is ~24px tall + 6px gap ≈ 30px. On a
+              // 200-420px canvas that's ~7-15% of height. 12% is the
+              // safe middle ground; below it, render the chip below.
+              const above = pct >= 12;
+              const vShift = above
+                ? "calc(-100% - 6px)" // chip's bottom at endpoint − 6px (above)
+                : "6px";              // chip's top at endpoint + 6px (below)
+              return `translate(${horizontalShift}, ${vShift})`;
+            };
             return (
               <>
                 <div
@@ -2875,7 +2884,7 @@ function RiverChart({
                   style={{
                     left: chipLeft,
                     top: `${yesPct}%`,
-                    transform: chipTransform,
+                    transform: transformFor(yesPct),
                     background: bg,
                     color: textColor,
                     padding: "3px 8px",
@@ -2897,7 +2906,7 @@ function RiverChart({
                     style={{
                       left: chipLeft,
                       top: `${btcAdjustedPct}%`,
-                      transform: chipTransform,
+                      transform: transformFor(btcAdjustedPct),
                       background: "#fb923c",
                       color: "#1d0606",
                       padding: "3px 8px",
