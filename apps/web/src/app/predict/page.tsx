@@ -3251,22 +3251,22 @@ function LiveOrderBook({ hyperodd, fairCents, now, viewSide }: { hyperodd: Hyper
   const allLevels = [...bids.slice(0, 10), ...asks.slice(0, 10)];
   const maxSize = allLevels.reduce((m, l) => Math.max(m, parseFloat(l.sz)), 0.001);
 
-  // Display coin: if user is on NO, show the NO coin name (derived from
-  // the YES one — "#700" → "#701") so the header coin code matches the
-  // side actually being quoted.
-  const displayCoin = flip && hyperodd.hip4Coin
-    ? `#${hyperodd.hip4Coin.slice(1, -1)}1`
-    : hyperodd.hip4Coin;
-  const sideLabel = flip ? "NO side" : "YES side";
+  // displayCoin + sideLabel removed alongside the panel-header caption
+  // they used to populate. markColor stays — Mark cents value below
+  // colour-codes based on which side the user is viewing.
   const markColor = flip ? "var(--hl-red)" : "var(--hl-green)";
 
   return (
     <div className="panel">
-      <div className="px-3 py-2 flex items-center gap-3" style={{ borderBottom: "1px solid var(--hl-border)" }}>
+      <div
+        className="px-3 py-2 flex items-center gap-3"
+        style={{ borderBottom: "1px solid var(--hl-border)", height: 44, boxSizing: "border-box" }}
+      >
         <span className="ptitle">Order book</span>
-        <span className="psub">
-          live · <span className="mono">{displayCoin ?? "loading…"}</span> · HIP-4 mainnet · {sideLabel}
-        </span>
+        {/* Caption ('live · #750 · HIP-4 mainnet · YES side') removed
+            per user request — the panel is obviously live in context,
+            the coin tag is duplicated elsewhere, and the side label is
+            already implicit in the order book contents below. */}
         <div className="ml-auto flex gap-3 text-[10px]" style={{ color: "var(--hl-muted)" }}>
           {markCents != null && (
             <span>
