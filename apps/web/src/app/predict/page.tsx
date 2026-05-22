@@ -2851,17 +2851,23 @@ function RiverChart({
             const bg = viewSide === "yes" ? "var(--hl-green)" : "var(--hl-red)";
             const textColor = viewSide === "yes" ? "#001d0c" : "#2a0606";
             const glow = viewSide === "yes" ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.5)";
-            // Position chips ABOVE the line endpoint, right-aligned to
-            // where the line stops (= nowX in viewBox space).
-            //   left:      anchors at the rendered line endpoint x
-            //   transform: shifts the chip LEFT by its own width
-            //              (right-aligning) and UP by its own height
-            //              plus a 6px gap (sits just above the line)
-            // --chip-gutter is set by the .predict-chip-anchor class
-            // (32px mobile, 100px desktop) so the calc tracks the SVG.
+            // Position chips ABOVE the line endpoint. The chip flips
+            // between left-of-endpoint and right-of-endpoint depending
+            // on where the line is so the chip never falls off-canvas:
+            //   - lineFrac low  (line just starting, endpoint near left
+            //     wall): chip goes to the RIGHT of the endpoint
+            //   - lineFrac high (line near right wall): chip goes to
+            //     the LEFT of the endpoint
+            // Threshold of 0.25 leaves ~80px of room for the chip on
+            // either side on a typical chart canvas.
             const lineFrac = Math.min(1, Math.max(0, nowX / W));
+            const chipOnLeft = lineFrac >= 0.25;
             const chipLeft = `calc((100% - var(--chip-gutter)) * ${lineFrac})`;
-            const chipTransform = "translate(-100%, calc(-100% - 6px))";
+            const chipTransform = chipOnLeft
+              // Chip's RIGHT edge at endpoint - 4px gap, BOTTOM at endpoint - 6px
+              ? "translate(calc(-100% - 4px), calc(-100% - 6px))"
+              // Chip's LEFT edge at endpoint + 4px gap, BOTTOM at endpoint - 6px
+              : "translate(4px, calc(-100% - 6px))";
             return (
               <>
                 <div
