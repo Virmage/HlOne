@@ -1258,13 +1258,9 @@ export default function PredictPage() {
           border: 1px solid var(--hl-border);
           border-radius: 5px;
         }
-        /* Carries the chart's right-gutter width (= reserved space for
-           the y-axis percent labels) so floating chips can compute
-           their x-position relative to the line endpoint via
-           calc((100% - var(--chip-gutter)) * frac). */
-        .predict-chip-anchor {
-          --chip-gutter: 32px;
-        }
+        /* (predict-chip-anchor CSS variable removed — chip gutter is
+           now hardcoded inline in RiverChart since the styled-jsx
+           scope didn't reach across components.) */
         /* Number/value emphasis used inside the order summary so it
            pops vs the label. */
         .v-num { font-size: var(--t-num); font-weight: 600; }
@@ -2863,7 +2859,14 @@ function RiverChart({
             // vertical flip is computed per-chip below.
             const lineFrac = Math.min(1, Math.max(0, nowX / W));
             const chipOnLeft = lineFrac >= 0.25;
-            const chipLeft = `calc((100% - var(--chip-gutter)) * ${lineFrac})`;
+            // 32px = right gutter reserved for the y-axis percent labels
+            // (matches the SVG's `width: calc(100% - 32px)` in this same
+            // component). Hardcoded rather than via a CSS variable — the
+            // var was set in a styled-jsx block scoped to PredictPage,
+            // but RiverChart is a sibling component, so the variable
+            // never resolved and `left` collapsed to 0, shoving every
+            // chip off the left edge of the canvas. THAT was the bug.
+            const chipLeft = `calc((100% - 32px) * ${lineFrac})`;
             const horizontalShift = chipOnLeft
               ? "calc(-100% - 4px)" // chip's right edge at endpoint − 4px
               : "4px";              // chip's left edge at endpoint + 4px
@@ -2880,7 +2883,7 @@ function RiverChart({
             return (
               <>
                 <div
-                  className="absolute mono predict-chip-anchor"
+                  className="absolute mono"
                   style={{
                     left: chipLeft,
                     top: `${yesPct}%`,
@@ -2902,7 +2905,7 @@ function RiverChart({
                 </div>
                 {btcMark != null && btcAdjustedPct != null && (
                   <div
-                    className="absolute mono predict-chip-anchor"
+                    className="absolute mono"
                     style={{
                       left: chipLeft,
                       top: `${btcAdjustedPct}%`,
