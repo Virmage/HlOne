@@ -2863,16 +2863,14 @@ function RiverChart({
             return (
               <>
                 <div
-                  className="absolute mono"
+                  className="absolute mono text-[9px] md:text-[11px] px-[5px] md:px-[8px] py-[2px] md:py-[3px]"
                   style={{
                     left: chipLeft,
                     top: `${yesPct}%`,
                     transform: chipTransform,
                     background: bg,
                     color: textColor,
-                    padding: "3px 8px",
                     borderRadius: 3,
-                    fontSize: 11,
                     fontWeight: 800,
                     letterSpacing: 0.3,
                     whiteSpace: "nowrap",
@@ -2885,16 +2883,14 @@ function RiverChart({
                 </div>
                 {btcMark != null && btcAdjustedPct != null && (
                   <div
-                    className="absolute mono"
+                    className="absolute mono text-[9px] md:text-[11px] px-[5px] md:px-[8px] py-[2px] md:py-[3px]"
                     style={{
                       left: chipLeft,
                       top: `${btcAdjustedPct}%`,
                       transform: chipTransform,
                       background: "#fb923c",
                       color: "#1d0606",
-                      padding: "3px 8px",
                       borderRadius: 3,
-                      fontSize: 11,
                       fontWeight: 800,
                       letterSpacing: 0.3,
                       whiteSpace: "nowrap",
@@ -2924,11 +2920,14 @@ function RiverChart({
               <div
                 className="absolute mono"
                 style={{
-                  left: `${(settleX / W) * 100}%`,
+                  // Anchor 18px LEFT of the settle line (was at the
+                  // line, which sat right on the chart panel's right
+                  // edge and clipped against the Order Entry panel
+                  // next door).
+                  left: `calc(${(settleX / W) * 100}% - 18px)`,
                   top: "50%",
                   transform: "translate(-100%, -50%) rotate(-90deg)",
                   transformOrigin: "right center",
-                  marginRight: 6,
                   color: "var(--hl-yellow)",
                   fontSize: 10,
                   fontWeight: 700,
@@ -3017,7 +3016,7 @@ function RiverChart({
               orange BTC ticks behind it. */}
           {strike != null && (
             <div
-              className="absolute mono"
+              className="absolute mono text-[8px] md:text-[10px] px-[3px] md:px-[6px] py-[1px] md:py-[2px]"
               style={{
                 left: 0,
                 top: `${(strikeY / H) * 100}%`,
@@ -3025,8 +3024,6 @@ function RiverChart({
                 background: "rgba(245,165,36,0.18)",
                 color: "var(--hl-yellow)",
                 border: "1px solid rgba(245,165,36,0.6)",
-                padding: "2px 6px",
-                fontSize: 10,
                 fontWeight: 800,
                 letterSpacing: 0.3,
                 pointerEvents: "none",

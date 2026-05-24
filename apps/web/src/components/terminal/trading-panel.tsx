@@ -367,9 +367,11 @@ export function TradingPanel({ coin, overview, score, onOpenOptionsChain, tradin
 
   return (
     <div className="flex flex-col h-full border-l border-[var(--hl-border)] bg-[var(--background)]">
-      {/* Perps / Options tab bar — ALWAYS visible (not gated on coinHasOptions)
-          so users can swap tabs regardless of what's currently selected. */}
-      <div className="flex items-center border-b border-[var(--hl-border)] shrink-0">
+      {/* Perps / Options / Predictions tab bar — DESKTOP ONLY. On
+          mobile this is redundant with the bottom-nav (Perps + Options
+          + Predict are already there) and was double-stacking nav
+          chrome below the 'Connect wallet to view positions' message. */}
+      <div className="hidden md:flex items-center border-b border-[var(--hl-border)] shrink-0">
         <button
           onClick={() => setMode("perp")}
           className={`px-4 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px ${

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useTerminal } from "@/hooks/use-terminal";
 import { TickerBar } from "@/components/terminal/ticker-bar";
 import { MarketPulse } from "@/components/terminal/market-pulse";
@@ -55,10 +56,9 @@ const SocialPanel = dynamic(
   () => import("@/components/terminal/social-panel").then(m => ({ default: m.SocialPanel })),
   { ssr: false, loading: () => <PanelSkeleton /> }
 );
-const FundingLeaderboardPanel = dynamic(
-  () => import("@/components/terminal/funding-leaderboard").then(m => ({ default: m.FundingLeaderboardPanel })),
-  { ssr: false, loading: () => <PanelSkeleton /> }
-);
+// FundingLeaderboardPanel import removed — only consumer was the
+// deleted mobile-data 'flows' sub-tab. Desktop's below-fold grid uses
+// the panel via a different dynamic import path.
 const LargeTradeTape = dynamic(
   () => import("@/components/terminal/large-trade-tape").then(m => ({ default: m.LargeTradeTape })),
   { ssr: false, loading: () => <PanelSkeleton /> }
@@ -110,12 +110,17 @@ const CopyDialog = dynamic(
 );
 
 /* ── Mobile tab types ────────────────────────────────────────────────────── */
-type MobileTab = "perps" | "options" | "data" | "account";
+// 'predict' = bottom-nav slot that NAVIGATES to /predict instead of swapping
+// in-page content. Handled specially in the tab onClick.
+type MobileTab = "perps" | "options" | "predict" | "account";
 
-const MOBILE_TABS: { key: MobileTab; label: string; icon: string }[] = [
-  { key: "perps", label: "Perps", icon: "M3 3h18v18H3z" },       // chart icon placeholder
+const MOBILE_TABS: { key: MobileTab; label: string; icon: string; href?: string }[] = [
+  { key: "perps", label: "Perps", icon: "M3 3h18v18H3z" },
   { key: "options", label: "Options", icon: "M12 2l9 4.5v11L12 22l-9-4.5v-11z" },
-  { key: "data", label: "Data", icon: "M4 6h16M4 12h16M4 18h16" },
+  // 'Data' tab removed per user request — Predictions takes the slot. Tap
+  // opens the dedicated /predict page since the prediction UI is its own
+  // first-class flow now.
+  { key: "predict", label: "Predict", icon: "M3 12l4-8 4 6 5-10 5 12", href: "/predict" },
   { key: "account", label: "Account", icon: "M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-5.33 0-8 2.67-8 4v2h16v-2c0-1.33-2.67-4-8-4z" },
 ];
 
@@ -331,9 +336,10 @@ export default function HomePage() {
   const [tradingMode, setTradingMode] = useState<"perp" | "options">("perp");
   const [selectedOption, setSelectedOption] = useState<SelectedOption | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>("perps");
+  const router = useRouter();
   const [dataTab, setDataTab] = useState<DataTab>("signals");
-  type MobileDataSubTab = "signals" | "whales" | "flows" | "news";
-  const [mobileDataSubTab, setMobileDataSubTab] = useState<MobileDataSubTab>("signals");
+  // mobileDataSubTab removed — the data tab is gone from mobile, the
+  // Predictions tab took its slot and navigates to /predict instead.
 
   // Defer below-fold grid rendering briefly after data loads
   const [showBelow, setShowBelow] = useState(false);
@@ -497,81 +503,10 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ═══ MOBILE: Data tab ══════════════════════════════════════════════
-          Grouped into 4 sub-tabs so users can jump straight to the section
-          they want instead of scrolling through 8 stacked panels.
-      */}
-      {mobileTab === "data" && (
-        <div className="md:hidden">
-          {/* Sub-tab bar — sticky at top while scrolling sections */}
-          <div className="sticky top-10 z-30 flex border-b border-[var(--hl-border)] bg-[var(--hl-nav)] overflow-x-auto">
-            {([
-              { key: "signals", label: "Signals" },
-              { key: "whales",  label: "Whales"  },
-              { key: "flows",   label: "Flows"   },
-              { key: "news",    label: "News"    },
-            ] as const).map(t => (
-              <button
-                key={t.key}
-                onClick={() => setMobileDataSubTab(t.key)}
-                className={`flex-1 px-3 py-2 text-[11px] font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
-                  mobileDataSubTab === t.key
-                    ? "text-[var(--foreground)] border-[var(--hl-accent)]"
-                    : "text-[var(--hl-muted)] border-transparent hover:text-[var(--foreground)]"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Sub-tab content — panels render their own titles, so we don't
-              add a separate h3 above them (was producing doubled headlines). */}
-          {mobileDataSubTab === "signals" && (
-            <div>
-              <div className="p-2 border-b border-[var(--hl-border)]">
-                <SharpFlowTable flows={data?.sharpFlow || []} onSelectToken={handleSelectToken} />
-              </div>
-              <div className="p-2 border-b border-[var(--hl-border)]">
-                <PositionConcentrationPanel data={data?.positionConcentration || []} onSelectToken={handleSelectToken} />
-              </div>
-            </div>
-          )}
-
-          {mobileDataSubTab === "whales" && (
-            <div>
-              <div className="p-2 border-b border-[var(--hl-border)]">
-                <WhaleFeed alerts={data?.whaleAlerts || []} onSelectToken={handleSelectToken} onSelectTrader={handleSelectTrader} onCopy={handleCopy} />
-              </div>
-              <div className="p-2 border-b border-[var(--hl-border)]">
-                <LargeTradeTape trades={data?.largeTrades || []} onSelectToken={handleSelectToken} />
-              </div>
-            </div>
-          )}
-
-          {mobileDataSubTab === "flows" && (
-            <div>
-              <div className="p-2 border-b border-[var(--hl-border)]">
-                <FundingLeaderboardPanel funding={data?.funding || { topPositive: [], topNegative: [] }} onSelectToken={handleSelectToken} />
-              </div>
-              <div className="p-2 border-b border-[var(--hl-border)]">
-                <LendingRatesPanel />
-              </div>
-            </div>
-          )}
-
-          {mobileDataSubTab === "news" && (
-            <div>
-              <div className="p-2 border-b border-[var(--hl-border)]">
-                <NewsFeed news={data?.news || []} onSelectToken={handleSelectToken} />
-              </div>
-              <div className="p-2 border-b border-[var(--hl-border)]">
-                <SocialPanel social={data?.social || []} onSelectToken={handleSelectToken} />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {/* The 'data' mobile tab + its 4 sub-tabs (signals / whales / flows
+          / news) were removed — that slot is now 'Predict' and navigates
+          to the dedicated /predict page. Desktop still has access to
+          all the data panels via the below-fold tabs further down. */}
 
       {/* ═══ MOBILE: Account tab ═══════════════════════════════════════════ */}
       {mobileTab === "account" && (
@@ -693,9 +628,14 @@ export default function HomePage() {
         {MOBILE_TABS.map(t => (
           <button
             key={t.key}
-            onClick={() => setMobileTab(t.key)}
+            onClick={() => {
+              // Tabs with `href` navigate to a separate page (currently
+              // just /predict). All other tabs swap in-page content.
+              if (t.href) router.push(t.href);
+              else setMobileTab(t.key);
+            }}
             className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors ${
-              mobileTab === t.key
+              !t.href && mobileTab === t.key
                 ? "text-[var(--hl-accent)]"
                 : "text-[var(--hl-muted)]"
             }`}
@@ -703,7 +643,7 @@ export default function HomePage() {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               {t.key === "perps" && <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M7 17V13M12 17V7M17 17V11" /></>}
               {t.key === "options" && <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" /></>}
-              {t.key === "data" && <><path d="M4 6h16M4 12h10M4 18h14" /></>}
+              {t.key === "predict" && <path d="M3 16l4-6 4 4 4-10 6 14" />}
               {t.key === "account" && <><circle cx="12" cy="8" r="4" /><path d="M5 20c0-3 3.5-5 7-5s7 2 7 5" /></>}
             </svg>
             <span className="text-[9px] font-medium">{t.label}</span>
