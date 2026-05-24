@@ -2849,16 +2849,19 @@ function RiverChart({
             const glow = viewSide === "yes" ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.5)";
             // Position chips at the line endpoint with edge-aware flips
             // so they never fall off-canvas:
-            //   horizontal: lineFrac < 0.25 → chip to the RIGHT of the
-            //               endpoint (line is short, room is on the right)
-            //               otherwise        → chip to the LEFT of endpoint
+            //   horizontal: chip stays to the RIGHT of the endpoint for
+            //               most of the prediction-market lifetime; only
+            //               flips to the LEFT once the line crosses 75%
+            //               of the chart width (line is approaching the
+            //               right wall and would otherwise push the chip
+            //               off-canvas to the right).
             //   vertical:   yesPct < 12% → chip BELOW the line (not enough
             //               room above)
             //               otherwise     → chip ABOVE the line (default)
             // Both YES and BTC chips use the same horizontal flip; the
             // vertical flip is computed per-chip below.
             const lineFrac = Math.min(1, Math.max(0, nowX / W));
-            const chipOnLeft = lineFrac >= 0.25;
+            const chipOnLeft = lineFrac >= 0.75;
             // 32px = right gutter reserved for the y-axis percent labels
             // (matches the SVG's `width: calc(100% - 32px)` in this same
             // component). Hardcoded rather than via a CSS variable — the
