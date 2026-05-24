@@ -2847,42 +2847,19 @@ function RiverChart({
             const bg = viewSide === "yes" ? "var(--hl-green)" : "var(--hl-red)";
             const textColor = viewSide === "yes" ? "#001d0c" : "#2a0606";
             const glow = viewSide === "yes" ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.5)";
-            // Position chips at the line endpoint with edge-aware flips
-            // so they never fall off-canvas:
-            //   horizontal: chip stays to the RIGHT of the endpoint for
-            //               the vast majority of the prediction-market
-            //               lifetime; only flips to the LEFT once the
-            //               line crosses 88% of the chart width — the
-            //               last ~3h of a 24h market — where the chip
-            //               would otherwise extend off the right edge.
-            //   vertical:   yesPct < 12% → chip BELOW the line (not enough
-            //               room above)
-            //               otherwise     → chip ABOVE the line (default)
-            // Both YES and BTC chips use the same horizontal flip; the
-            // vertical flip is computed per-chip below.
-            const lineFrac = Math.min(1, Math.max(0, nowX / W));
-            const chipOnLeft = lineFrac >= 0.88;
-            // 32px = right gutter reserved for the y-axis percent labels
-            // (matches the SVG's `width: calc(100% - 32px)` in this same
-            // component). Hardcoded rather than via a CSS variable — the
-            // var was set in a styled-jsx block scoped to PredictPage,
-            // but RiverChart is a sibling component, so the variable
-            // never resolved and `left` collapsed to 0, shoving every
-            // chip off the left edge of the canvas. THAT was the bug.
-            const chipLeft = `calc((100% - 32px) * ${lineFrac})`;
-            const horizontalShift = chipOnLeft
-              ? "calc(-100% - 4px)" // chip's right edge at endpoint − 4px
-              : "4px";              // chip's left edge at endpoint + 4px
-            const transformFor = (pct: number) => {
-              // 12% threshold: chip is ~24px tall + 6px gap ≈ 30px. On a
-              // 200-420px canvas that's ~7-15% of height. 12% is the
-              // safe middle ground; below it, render the chip below.
-              const above = pct >= 12;
-              const vShift = above
-                ? "calc(-100% - 6px)" // chip's bottom at endpoint − 6px (above)
-                : "6px";              // chip's top at endpoint + 6px (below)
-              return `translate(${horizontalShift}, ${vShift})`;
-            };
+            // Chips pinned to the LEFT edge of the chart, vertically
+            // tracking the line's current y-position. Acts as a live
+            // 'y-axis extension' — like the moving current-price tag
+            // on a TradingView chart, but on the left side next to the
+            // BTC price ladder. Never covers the line endpoint on the
+            // right where the most recent data is.
+            //
+            // Horizontal: fixed at left: 4px (just inside canvas).
+            // Vertical: top = line y%; translateY(-50%) centers chip on
+            //   the line. No "above vs below" flip needed since the
+            //   chip is sitting at the y-axis, not at the line endpoint.
+            const chipLeft = "4px";
+            const chipTransform = "translateY(-50%)";
             return (
               <>
                 <div
@@ -2890,7 +2867,7 @@ function RiverChart({
                   style={{
                     left: chipLeft,
                     top: `${yesPct}%`,
-                    transform: transformFor(yesPct),
+                    transform: chipTransform,
                     background: bg,
                     color: textColor,
                     padding: "3px 8px",
@@ -2912,7 +2889,7 @@ function RiverChart({
                     style={{
                       left: chipLeft,
                       top: `${btcAdjustedPct}%`,
-                      transform: transformFor(btcAdjustedPct),
+                      transform: chipTransform,
                       background: "#fb923c",
                       color: "#1d0606",
                       padding: "3px 8px",
