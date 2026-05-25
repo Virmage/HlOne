@@ -736,7 +736,7 @@ export default function PredictPage() {
           if (!fresh.length) return s;
           const merged = [...fresh, ...s.trades]
             .sort((a, b) => b.time - a.time)
-            .slice(0, 500);
+            .slice(0, 2500);
           return { ...s, trades: merged };
         });
       } catch { /* ignore */ }
@@ -788,7 +788,11 @@ export default function PredictPage() {
     // history for the current contract (not just the last ~30s).
     const fetchServerTrades = async () => {
       try {
-        const res = await fetch(`/api/market/predict-trades?limit=500`);
+        // limit=2500 pulls deeper trade history on initial load so the
+        // chart's whale icons can spread across the visible window
+        // (was 500 — typically only covered the last ~30 min of an
+        // active market, clustering every whale at the right edge).
+        const res = await fetch(`/api/market/predict-trades?limit=2500`);
         if (!res.ok) return;
         const data = (await res.json()) as {
           coin: string | null;
@@ -811,7 +815,7 @@ export default function PredictPage() {
           // Merge + sort newest first + cap
           const merged = [...incoming, ...s.trades]
             .sort((a, b) => b.time - a.time)
-            .slice(0, 500);
+            .slice(0, 2500);
           return { ...s, trades: merged };
         });
       } catch { /* ignore */ }
@@ -873,8 +877,10 @@ export default function PredictPage() {
                     (t) => !tids.has((t as unknown as { tid?: number }).tid),
                   );
                   if (newOnes.length === 0) return s;
-                  // Newest first, capped at 500
-                  const merged = [...newOnes, ...s.trades].slice(0, 500);
+                  // Newest first, capped at 2500 (was 500 — same reason
+                  // as the REST fetch: chart whales need enough history
+                  // to spread across the visible window).
+                  const merged = [...newOnes, ...s.trades].slice(0, 2500);
                   return { ...s, trades: merged };
                 });
               }
@@ -4007,11 +4013,12 @@ function BucketMarketView({
           const tids = new Set(prev.map((t) => t.tid).filter((x): x is number => x != null));
           const fresh = incoming.filter((t) => t.tid == null || !tids.has(t.tid));
           if (!fresh.length) return prev;
-          // Newest first, capped at 500 so the array doesn't grow
-          // unbounded on long-running sessions.
+          // Newest first, capped at 2500 so chart whales can spread
+          // across the visible time window without older trades being
+          // evicted as new ones stream in.
           return [...fresh, ...prev]
             .sort((a, b) => b.time - a.time)
-            .slice(0, 500);
+            .slice(0, 2500);
         });
       } catch { /* ignore — sticky preserves last known */ }
     };
