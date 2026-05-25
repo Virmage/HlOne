@@ -2282,18 +2282,23 @@ function RiverChart({
       }
     }
 
-    // Helper: convert a bucket centre timestamp to an x pixel position,
-    // clamped to NOW. The "current" bucket's midpoint is naturally in
-    // the future (e.g., a 10-min bucket whose first 5 min just elapsed
-    // has a midpoint 5 min ahead of now) — uncalmped that pushed whales
-    // past the right edge of 6H/1H views OR, worse, into the future-
-    // projection space of the 24H view (which spans contract-open to
-    // settle, with "now" in the MIDDLE). The earlier version clamped
-    // to tMax, but tMax == settleTs on 24H so whales for the current
-    // bucket leaked rightward of the now-line, looking like fills in
-    // the future. nowSafe is the only correct ceiling.
+    // Helper: convert a trade timestamp to an x pixel position.
+    // Clamped to the LATER of:
+    //   - the last market-candle time (= where the YES probability
+    //     line actually ends — candles fetch every 60s but a single
+    //     candle covers up to 15min, so the line lags real-time)
+    //   - we never push past nowSafe regardless
+    // Without this, the line could end at 11:15 (last 15-min candle)
+    // and a whale at 11:25 (just-fired trade) would render to the
+    // RIGHT of the line endpoint — visually placing the whale in the
+    // 'future' empty zone of the chart, which is the user-reported
+    // bug. Now the whale tucks up against the line endpoint instead.
+    const lastLineTime = marketCandles.length > 0
+      ? marketCandles[marketCandles.length - 1].t
+      : nowSafe;
+    const ceiling = Math.min(nowSafe, lastLineTime);
     const xForBucketCenter = (bucketCenter: number) => {
-      const t = Math.min(bucketCenter, nowSafe);
+      const t = Math.min(bucketCenter, ceiling);
       return ((t - tMin) / (tMax - tMin)) * W;
     };
 
@@ -2393,7 +2398,7 @@ function RiverChart({
       });
     }
     return placed;
-  }, [trades, hip4Coin, tMin, tMax, viewSide, nowSafe]);
+  }, [trades, marketCandles, hip4Coin, tMin, tMax, viewSide, nowSafe]);
   const maxWhaleUsd = whales.reduce((m, w) => Math.max(m, w.usd), 1);
 
   // ── Volume profile — one thin bar per HIP-4 candle, scaled by the candle's
