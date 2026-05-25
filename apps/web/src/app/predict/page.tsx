@@ -2293,20 +2293,26 @@ function RiverChart({
 
     const raw: Whale[] = [];
     for (const b of buckets.values()) {
-      const bucketCenter = (b.bucketIdx + 0.5) * BUCKET_MS;
-      // Skip whales whose bucket entirely precedes the visible window —
-      // pertinent now that tMin clamps to contract open on 6H/1H views.
-      if (bucketCenter < tMin - BUCKET_MS / 2) continue;
+      // X position based on the AVERAGE time of trades in this bucket
+      // — not the bucket center. With 30-min buckets on 24H view, a
+      // trade at 09:32 and another at 09:34 share the same bucket;
+      // using the bucket centre (09:45) put both whales 11+ minutes
+      // RIGHT of where they actually happened, which the user noticed
+      // as 'whales all clustered to the right of where the price
+      // moved'. Avg-time anchors the whale to roughly where the
+      // trade(s) actually fired in time.
+      const avgTime = b.tSum / b.count;
+      if (avgTime < tMin) continue;
       const px = b.pxSum / b.count;
       raw.push({
-        x: xForBucketCenter(bucketCenter),
+        x: xForBucketCenter(avgTime),
         y: 0,           // filled in by the placement loop below
         usd: b.usd,
         px,
         side: b.side,
         isYes: b.isYes,
         count: b.count,
-        time: bucketCenter,
+        time: avgTime,
         bucketIdx: b.bucketIdx,
       });
     }
@@ -2358,46 +2364,27 @@ function RiverChart({
       ranked.push(w);
     }
 
-    // Position each whale AT the y-coordinate of the price it was
-    // traded at — so a fill at 27¢ sits on the chart at the 27¢ line,
-    // a 75¢ fill sits at 75¢. Previously every whale stacked above
-    // the chart in a fixed spacer regardless of price, which made it
-    // impossible to read 'this whale bought at the recent dip' vs
-    // 'this whale chased the spike'.
-    //
-    // Stack-collision: when two whales in the same bucket end up at
-    // a similar y (e.g. BUY + SELL within ~3% of each other), bump
-    // subsequent ones up by DIAMETER + 2px so they don't overlap.
-    const DIAMETER_GAP = DIAMETER + 2;
-    const placed: (Whale & { d: number; outline: number })[] = [];
-    // Group by bucketIdx so within-bucket whales can be ordered by px
-    // for collision detection.
-    const byBucket = new Map<number, Whale[]>();
+    // Whales stack in the top SPACER above the chart (negative y), so
+    // they don't cover price lines. Each whale's x already encodes the
+    // trade time (via xForBucketCenter on b.tSum / b.count above).
+    // Within a single bucket, multiple whales (e.g. BUY + SELL) stack
+    // vertically — biggest USD closest to the chart top edge.
+    const SPACER_PAD = 8;
+    const SLOT_GAP = DIAMETER + 2;
+
+    const byBucket = new Map<number, (Whale & { d: number; outline: number })[]>();
     for (const w of ranked) {
       const arr = byBucket.get(w.bucketIdx) ?? [];
-      arr.push(w);
+      arr.push({ ...w, d: DIAMETER, outline: outlineFor(w.usd) });
       byBucket.set(w.bucketIdx, arr);
     }
+    const placed: (Whale & { d: number; outline: number })[] = [];
     for (const arr of byBucket.values()) {
-      // Sort by descending USD so the biggest trade in the bucket
-      // sits AT its price and smaller ones get bumped above if needed.
       arr.sort((a, b) => b.usd - a.usd);
-      const placedYs: number[] = [];
-      for (const w of arr) {
-        // Map trade px (0..1, in this whale's contract space) to the
-        // chart's y. Since `ranked` is already filtered to the active
-        // viewSide, w.px IS the displayed line's price.
-        let y = H - w.px * H;
-        // Collision: if within DIAMETER of an already-placed whale in
-        // this bucket, bump up by DIAMETER + 2.
-        let safety = 0;
-        while (placedYs.some((py) => Math.abs(py - y) < DIAMETER) && safety < 10) {
-          y -= DIAMETER_GAP;
-          safety += 1;
-        }
-        placedYs.push(y);
-        placed.push({ ...w, y, d: DIAMETER, outline: outlineFor(w.usd) });
-      }
+      arr.forEach((w, idx) => {
+        const y = -SPACER_PAD - DIAMETER / 2 - idx * SLOT_GAP;
+        placed.push({ ...w, y });
+      });
     }
     return placed;
   }, [trades, hip4Coin, tMin, tMax, viewSide, nowSafe]);
