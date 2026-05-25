@@ -2358,27 +2358,46 @@ function RiverChart({
       ranked.push(w);
     }
 
-    // Stack pixel layout (relative to chart-canvas top, overflow:visible
-    // so we can render in the 70px spacer above):
-    //   slot 0 centre = -SPACER_PAD - DIAMETER/2 (just above chart top)
-    //   slot 1 centre = slot 0 - SLOT_GAP
-    //   …
-    const SPACER_PAD = 8;
-    const SLOT_GAP = DIAMETER + 2;
-
-    const byBucket = new Map<number, (Whale & { d: number; outline: number })[]>();
+    // Position each whale AT the y-coordinate of the price it was
+    // traded at — so a fill at 27¢ sits on the chart at the 27¢ line,
+    // a 75¢ fill sits at 75¢. Previously every whale stacked above
+    // the chart in a fixed spacer regardless of price, which made it
+    // impossible to read 'this whale bought at the recent dip' vs
+    // 'this whale chased the spike'.
+    //
+    // Stack-collision: when two whales in the same bucket end up at
+    // a similar y (e.g. BUY + SELL within ~3% of each other), bump
+    // subsequent ones up by DIAMETER + 2px so they don't overlap.
+    const DIAMETER_GAP = DIAMETER + 2;
+    const placed: (Whale & { d: number; outline: number })[] = [];
+    // Group by bucketIdx so within-bucket whales can be ordered by px
+    // for collision detection.
+    const byBucket = new Map<number, Whale[]>();
     for (const w of ranked) {
       const arr = byBucket.get(w.bucketIdx) ?? [];
-      arr.push({ ...w, d: DIAMETER, outline: outlineFor(w.usd) });
+      arr.push(w);
       byBucket.set(w.bucketIdx, arr);
     }
-    const placed: (Whale & { d: number; outline: number })[] = [];
     for (const arr of byBucket.values()) {
+      // Sort by descending USD so the biggest trade in the bucket
+      // sits AT its price and smaller ones get bumped above if needed.
       arr.sort((a, b) => b.usd - a.usd);
-      arr.forEach((w, idx) => {
-        const y = -SPACER_PAD - DIAMETER / 2 - idx * SLOT_GAP;
-        placed.push({ ...w, y });
-      });
+      const placedYs: number[] = [];
+      for (const w of arr) {
+        // Map trade px (0..1, in this whale's contract space) to the
+        // chart's y. Since `ranked` is already filtered to the active
+        // viewSide, w.px IS the displayed line's price.
+        let y = H - w.px * H;
+        // Collision: if within DIAMETER of an already-placed whale in
+        // this bucket, bump up by DIAMETER + 2.
+        let safety = 0;
+        while (placedYs.some((py) => Math.abs(py - y) < DIAMETER) && safety < 10) {
+          y -= DIAMETER_GAP;
+          safety += 1;
+        }
+        placedYs.push(y);
+        placed.push({ ...w, y, d: DIAMETER, outline: outlineFor(w.usd) });
+      }
     }
     return placed;
   }, [trades, hip4Coin, tMin, tMax, viewSide, nowSafe]);
