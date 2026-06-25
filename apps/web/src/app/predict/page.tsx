@@ -788,11 +788,15 @@ export default function PredictPage() {
     // history for the current contract (not just the last ~30s).
     const fetchServerTrades = async () => {
       try {
-        // limit=2500 pulls deeper trade history on initial load so the
-        // chart's whale icons can spread across the visible window
-        // (was 500 — typically only covered the last ~30 min of an
-        // active market, clustering every whale at the right edge).
-        const res = await fetch(`/api/market/predict-trades?limit=2500`);
+        // Initial-fetch limit decoupled from the in-memory cap (2500
+        // in setHyperodd below). Pulling 2500 trades on every poll was
+        // ~460 KB per request and slowed initial chart load notably on
+        // mobile. 1000 trades (~180 KB) covers ~1h on an active market
+        // — enough for whales to spread across the 1H view immediately.
+        // The buffer fills up to 2500 over time as WS adds new trades
+        // and 10s polls top it up, so 6H + early 24H views still get
+        // their whale coverage within a minute or two of page load.
+        const res = await fetch(`/api/market/predict-trades?limit=1000`);
         if (!res.ok) return;
         const data = (await res.json()) as {
           coin: string | null;
